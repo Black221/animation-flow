@@ -8,6 +8,24 @@ import { buildServer } from './server';
 import { smtpMailer } from './mail';
 
 const config = loadConfig();
+
+// `--mail-test you@example.org`: send one message with the SMTP settings, say how it went, stop
+const mailTest = process.argv.indexOf('--mail-test');
+if (mailTest >= 0) {
+  const to = process.argv[mailTest + 1];
+  if (!config.mail) { console.error('SMTP_URL, MAIL_FROM and APP_URL are not set: e-mail is off'); process.exit(2); }
+  if (!to || !to.includes('@')) { console.error('usage: --mail-test you@example.org'); process.exit(2); }
+  try {
+    const { smtpMailer, testMail } = await import('./mail');
+    await (await smtpMailer(config.mail.smtpUrl, config.mail.from)).send(testMail(to, config.mail.appUrl));
+    console.log(`test message sent to ${to} (from ${config.mail.from}); check the inbox, and the spam folder`);
+    process.exit(0);
+  } catch (e) {
+    // the server's answer (e.g. 535 authentication failed), never the address with its password
+    console.error(`not sent: ${(e as Error).message}`);
+    process.exit(1);
+  }
+}
 if (config.role === 'worker' && !config.databaseUrl) throw new Error('ROLE=worker needs DATABASE_URL: the embedded database cannot be shared between processes');
 const db = await openDb({ url: config.databaseUrl, dataDir: config.dataDir });
 const applied = await migrate(db);

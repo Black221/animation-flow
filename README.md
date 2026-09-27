@@ -107,6 +107,13 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
   changer son mot de passe ainsi ferme toutes les sessions, connexions en direct comprises. Les liens sont construits
   à partir d'`APP_URL`, jamais de l'en-tête `Host` de la requête (qui pourrait être falsifié). Sans e-mail, on
   transmet le lien d'invitation soi-même, et le mot de passe se change depuis le profil.
+  Pour vérifier les réglages auprès de votre fournisseur (identifiants, port, chiffrement) avant d'inviter qui que
+  ce soit : `docker compose exec app node dist/main.js --mail-test vous@example.org` (ou, en développement,
+  `pnpm --filter @af/api exec tsx src/main.ts --mail-test vous@example.org`). La commande dit si le message est
+  parti ou donne la réponse du serveur (par exemple `535` : identifiants refusés), sans jamais afficher le mot de
+  passe. `smtps://` chiffre dès la connexion (port 465 par défaut) ; `smtp://` passe en chiffré (STARTTLS) quand le
+  serveur le propose (port 587 par défaut ; `?requireTLS=true` l'exige). Un certificat que Node ne peut pas vérifier
+  est refusé ; une autorité privée s'ajoute avec `NODE_EXTRA_CA_CERTS`.
 
 ## Configuration
 

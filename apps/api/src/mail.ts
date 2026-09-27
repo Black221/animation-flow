@@ -6,10 +6,31 @@ export interface Mail { to: string; subject: string; text: string; html: string 
 export interface Mailer { send(m: Mail): Promise<void> }
 export interface MailSetup { mailer: Mailer; appUrl: string }
 
-export async function smtpMailer(url: string, from: string): Promise<Mailer> {
+/** SMTP_URL as transport options: smtp:// (STARTTLS when the server offers it; port 587 by default) or smtps://
+ *  (TLS from the start; 465), user and password URL-encoded, and nodemailer options as query parameters
+ *  (?requireTLS=true, ?name=host.example.org…) */
+export function smtpOptions(url: string): Record<string, unknown> {
+  const u = new URL(url);
+  if (u.protocol !== 'smtp:' && u.protocol !== 'smtps:') throw new Error('SMTP_URL must start with smtp:// or smtps://');
+  const secure = u.protocol === 'smtps:';
+  const o: Record<string, unknown> = { host: u.hostname.replace(/^\[(.*)\]$/, '$1'), port: u.port ? Number(u.port) : secure ? 465 : 587, secure };
+  if (u.username) o.auth = { user: decodeURIComponent(u.username), pass: decodeURIComponent(u.password) };
+  for (const [k, v] of u.searchParams) o[k] = v === 'true' ? true : v === 'false' ? false : /^\d+$/.test(v) ? Number(v) : v;
+  return o;
+}
+
+/** `tls`: extra TLS options (the tests trust their own certificate this way; a private CA in production goes in
+ *  NODE_EXTRA_CA_CERTS) */
+export async function smtpMailer(url: string, from: string, tls?: import('node:tls').ConnectionOptions): Promise<Mailer> {
   const { createTransport } = await import('nodemailer');
-  const transport = createTransport(url);
+  const transport = createTransport({ ...smtpOptions(url), ...(tls ? { tls } : {}) });
   return { send: async (m) => { await transport.sendMail({ from, ...m }); } };
+}
+
+/** a test message, to check the SMTP settings (`node main.js --mail-test you@example.org`) */
+export function testMail(to: string, appUrl: string): Mail {
+  const lines = ['Bonjour,', `Ce message vérifie que animation-flow (${appUrl}) peut envoyer des e-mails : invitations et mots de passe oubliés partiront de la même façon.`];
+  return { to, subject: 'Test d\'envoi animation-flow', text: `${lines.join('\n\n')}\n`, html: page(lines, { url: appUrl, label: 'Ouvrir animation-flow' }, 'Rien à faire : vous pouvez supprimer ce message.') };
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);

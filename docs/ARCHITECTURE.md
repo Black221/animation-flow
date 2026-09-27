@@ -198,6 +198,10 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 
 ## E-mail (`apps/api/src/mail.ts`)
 
+- Transport : `SMTP_URL` est lu en options explicites (`smtpOptions` : hôte, port, `smtps` = TLS dès la connexion,
+  identifiants décodés, options nodemailer en paramètres). Vérifié contre un vrai serveur SMTP (`smtp-server`) :
+  STARTTLS et TLS implicite avec authentification, certificat non vérifiable refusé, mot de passe refusé signalé.
+  `node dist/main.js --mail-test <adresse>` envoie un message de test avec les réglages de l'environnement.
 - Facultatif : sans `SMTP_URL`, rien ne part (et `GET /api/auth/me` répond `mail: false`, l'interface cache ce qui
   en dépend). Avec, un transport nodemailer ; `MAIL_FROM` et `APP_URL` sont exigés au démarrage.
 - Messages : invitation (qui invite, l'espace, le rôle, le lien, sa durée) et mot de passe oublié ; texte et HTML.
