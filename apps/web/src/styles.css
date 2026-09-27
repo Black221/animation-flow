@@ -227,3 +227,10 @@ fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
 .comments .reply .body { margin-top: 2px; }
 button.link { background: none; border: none; padding: 0; color: var(--accent, inherit); text-decoration: underline; cursor: pointer; font: inherit; }
 .comment-count { font-size: 0.72rem; padding: 0 6px; border-radius: 99px; background: var(--warn); color: #fff; align-self: center; }
+
+/* storyboard: what will be drawn */
+.things { display: grid; gap: 6px; margin: 10px 0; }
+.things h3 { margin: 4px 0; font-size: 1rem; }
+.things textarea { font: inherit; resize: vertical; }
+.palette { gap: 4px; align-items: center; }
+.swatch { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line); display: inline-block; }

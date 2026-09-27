@@ -1,22 +1,25 @@
 // AI generation jobs. A job runs in the API process (the model calls are network-bound): storyboard first, then,
-// once the user has reviewed it (or at once with review: false), every scene, and a new project at the end.
+// once the user has reviewed it (or at once with review: false), a drawing of every character, prop and decor it
+// needs (each looked at by the model and corrected), then every scene, and a new project at the end.
 // Progress, token counts and every model call (with the problems found in its answer) are kept on the job.
-import { editScene, generateScenes, generateStoryboard, InvalidAnswer, ModelError, Storyboard, type Step } from '@af/ai';
+import { briefsOf, drawOne, editScene, generateDrawings, generateScenes, generateStoryboard, InvalidAnswer, ModelError, PREVIEW_TIME, Storyboard, type DrawOptions, type Drawings, type Step } from '@af/ai';
+import { renderStill } from '@af/render';
 import type { JsonPost } from '@af/providers';
-import { parseProject } from '@af/schema';
+import { Asset, parseProject, type ProjectInput } from '@af/schema';
 import { stylePacks } from '@af/styles';
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { modelFor, NotConfigured } from '../ai/models';
+import { drawingModel, modelFor, NotConfigured } from '../ai/models';
 import type { SecretBox } from '../crypto';
 import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
 
-type Status = 'storyboard' | 'review' | 'scenes' | 'done' | 'failed' | 'canceled';
+type Status = 'storyboard' | 'review' | 'assets' | 'scenes' | 'done' | 'failed' | 'canceled';
 interface Row {
   id: string; workspace_id: string; created_by: string | null; status: Status; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean };
   storyboard: unknown; project_id: string | null; scenes_done: number; scenes_total: number; steps: unknown[]; fallbacks: string[];
+  assets: Drawings | null; assets_done: number; assets_total: number;
   models: Record<string, string>; input_tokens: number; output_tokens: number; error: string | null; created_at: Date; updated_at: Date;
 }
 const Uuid = z.object({ id: z.string().uuid() });
@@ -29,10 +32,13 @@ const Input = z.object({
   review: z.boolean().default(true),
 });
 
-export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl?: JsonPost) {
+export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl?: JsonPost, fontsDir?: string) {
   const running = new Map<string, AbortController>();
+  // what a model is shown of its drawing: rendered here, on the server's canvas
+  const draw: DrawOptions = { preview: async (p: ProjectInput) => renderStill(p, { t: PREVIEW_TIME, width: 1024, ...(fontsDir ? { fontsDir } : {}) }).toString('base64') };
   const view = (r: Row) => ({
     id: r.id, status: r.status, input: r.input, storyboard: r.storyboard, projectId: r.project_id, scenesDone: r.scenes_done, scenesTotal: r.scenes_total,
+    assetsDone: r.assets_done, assetsTotal: r.assets_total, drawings: r.assets ? Object.keys(r.assets) : [],
     steps: r.steps, fallbacks: r.fallbacks, models: r.models, usage: { inputTokens: r.input_tokens, outputTokens: r.output_tokens }, error: r.error, createdAt: r.created_at, updatedAt: r.updated_at,
   });
   const load = async (id: string, ws?: string) => (await db.query<Row>(`SELECT * FROM generations WHERE id = $1${ws ? ' AND workspace_id = $2' : ''}`, ws ? [id, ws] : [id])).rows[0];
@@ -46,7 +52,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
   const failure = (e: unknown) => e instanceof InvalidAnswer ? `${e.message} : ${e.issues.slice(0, 3).map((i) => `${i.path} ${i.message}`).join(' ; ')}` : (e as Error).message;
 
   // a job cut off by a restart cannot resume: say so
-  void db.query(`UPDATE generations SET status = 'failed', error = 'interrompue par un redémarrage du serveur', updated_at = now() WHERE status IN ('storyboard', 'scenes')`).catch(() => undefined);
+  void db.query(`UPDATE generations SET status = 'failed', error = 'interrompue par un redémarrage du serveur', updated_at = now() WHERE status IN ('storyboard', 'assets', 'scenes')`).catch(() => undefined);
 
   const runStoryboard = (id: string, ws: string, input: Row['input']) => {
     const ctrl = new AbortController(); running.set(id, ctrl);
@@ -67,13 +73,31 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     const ctrl = new AbortController(); running.set(id, ctrl);
     void (async () => {
       try {
-        await set(id, { status: 'scenes', scenes_done: 0, scenes_total: sb.scenes.length, fallbacks: [] });
+        // 1. the drawings (kept on the job: a retry after a failure does not draw them again)
+        let assets = (await load(id))?.assets ?? null;
+        const briefs = briefsOf(sb), drawnFallbacks: string[] = [];
+        if (!assets || briefs.some((b) => !assets![b.id])) {
+          await set(id, { status: 'assets', assets_done: 0, assets_total: briefs.length, fallbacks: [] });
+          const painter = await drawingModel(db, box, ws, fetchImpl);
+          await set(id, { models: { ...((await load(id))?.models ?? {}), assets: painter.label } });
+          let drawnCount = 0, progress: Promise<unknown> = Promise.resolve();
+          const r = await generateDrawings(painter, sb, {
+            ...draw, concurrency: 2, signal: ctrl.signal, onStep: logStep(id),
+            onAsset: (a) => { drawnCount++; if (a.fallback) drawnFallbacks.push(`dessin ${a.id}`); const now = { assets_done: drawnCount, fallbacks: [...drawnFallbacks] }; progress = progress.then(() => set(id, now)).catch(() => undefined); },
+          });
+          await progress;
+          if (ctrl.signal.aborted) return;
+          assets = r.assets;
+          await set(id, { assets, assets_done: briefs.length });
+        }
+        // 2. the scenes, with them
+        await set(id, { status: 'scenes', scenes_done: 0, scenes_total: sb.scenes.length, fallbacks: drawnFallbacks });
         const model = await modelFor(db, box, ws, 'scenes', fetchImpl);
         const models = (await load(id))?.models ?? {};
         await set(id, { models: { ...models, scenes: model.label } });
         // progress writes go one after the other: on a pool, two in flight could land in the wrong order
-        let done = 0, progress: Promise<unknown> = Promise.resolve(); const fallbacks: string[] = [];
-        const { project } = await generateScenes(model, sb, {
+        let done = 0, progress: Promise<unknown> = Promise.resolve(); const fallbacks: string[] = [...drawnFallbacks];
+        const { project } = await generateScenes(model, sb, assets!, {
           concurrency: 2, signal: ctrl.signal, onStep: logStep(id),
           onScene: (_i, r) => {
             done++; if (r.fallback) fallbacks.push(r.scene.id);
@@ -120,7 +144,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (r.status !== 'review') return reply.code(409).send({ error: 'le storyboard ne se modifie qu\'en relecture' });
     const sb = Storyboard.safeParse((req.body as { storyboard?: unknown })?.storyboard);
     if (!sb.success) return reply.code(422).send({ error: 'storyboard invalide', issues: sb.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) });
-    await set(r.id, { storyboard: sb.data, scenes_total: sb.data.scenes.length });
+    await set(r.id, { storyboard: sb.data, scenes_total: sb.data.scenes.length, assets: null, assets_total: briefsOf(sb.data).length }); // changed: draw again
     return view((await load(r.id))!);
   });
 
@@ -140,8 +164,8 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (!r) return reply.code(404).send({ error: 'génération introuvable' });
     const sb = Storyboard.safeParse(r.storyboard);
     if (!['review', 'failed'].includes(r.status) || !sb.success || r.project_id) return reply.code(409).send({ error: 'relisez d\'abord le storyboard' });
+    await set(r.id, { status: 'assets', error: null });
     runScenes(r.id, r.workspace_id, sb.data);
-    await set(r.id, { status: 'scenes', error: null });
     return view((await load(r.id))!);
   });
 
@@ -149,7 +173,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     const p = Uuid.safeParse(req.params), r = p.success ? await load(p.data.id, wsOf(req).id) : undefined;
     if (!r) return reply.code(404).send({ error: 'génération introuvable' });
     running.get(r.id)?.abort(); running.delete(r.id);
-    if (r.status === 'storyboard' || r.status === 'scenes') await set(r.id, { status: 'canceled' });
+    if (r.status === 'storyboard' || r.status === 'assets' || r.status === 'scenes') await set(r.id, { status: 'canceled' });
     return view((await load(r.id))!);
   });
 
@@ -159,14 +183,41 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (!b.success) return reply.code(400).send({ error: 'requête invalide' });
     const parsed = parseProject(b.data.project);
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
-    let model;
-    try { model = await modelFor(db, box, wsOf(req).id, 'scenes', fetchImpl); } catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
-    const usage = { inputTokens: 0, outputTokens: 0 };
+    let model, painter;
+    try { model = await modelFor(db, box, wsOf(req).id, 'scenes', fetchImpl); painter = await drawingModel(db, box, wsOf(req).id, fetchImpl); }
+    catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
+    const usage = { inputTokens: 0, outputTokens: 0 }, onStep = (s: Step) => { usage.inputTokens += s.usage.inputTokens; usage.outputTokens += s.usage.outputTokens; };
     try {
-      const scene = await editScene(model, parsed.project, b.data.sceneIndex, b.data.instruction, (s) => { usage.inputTokens += s.usage.inputTokens; usage.outputTokens += s.usage.outputTokens; });
-      return { scene, usage, model: model.label };
+      // what the change needs and the film does not have is drawn first
+      const r = await editScene(model, parsed.project, b.data.sceneIndex, b.data.instruction, { onStep, drawModel: painter, draw });
+      return { scene: r.scene, assets: r.assets, cast: r.cast, drawn: r.drawn.map((d) => ({ id: d.id, fallback: d.fallback, rounds: d.rounds, review: d.review })), usage, model: model.label };
     } catch (e) {
       if (e instanceof InvalidAnswer) return reply.code(422).send({ error: e.message, issues: e.issues, usage });
+      if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage });
+      throw e;
+    }
+  });
+
+  // draw one thing for a project, or draw it again with a change (the editor's « Dessins » tab)
+  app.post('/api/ai/draw', { config: { role: 'editor' } }, async (req, reply) => {
+    const b = z.object({
+      project: z.unknown(), id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/), kind: z.enum(['character', 'prop', 'decor']),
+      name: z.string().trim().min(1).max(80), description: z.string().trim().min(3).max(800), instruction: z.string().trim().max(2000).optional(), current: z.unknown().optional(),
+    }).safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: b.error.issues[0]?.message ?? 'requête invalide' });
+    const parsed = parseProject(b.data.project);
+    if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
+    const current = b.data.current === undefined ? undefined : Asset.safeParse(b.data.current);
+    if (current && !current.success) return reply.code(422).send({ error: 'dessin actuel invalide' });
+    let painter;
+    try { painter = await drawingModel(db, box, wsOf(req).id, fetchImpl); } catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
+    const usage = { inputTokens: 0, outputTokens: 0 };
+    const p = parsed.project, others = Object.entries(p.assets).filter(([id]) => id !== b.data.id).map(([id, a]) => ({ id, kind: a.kind, name: a.name, description: a.description }));
+    try {
+      const r = await drawOne(painter, { id: b.data.id, kind: b.data.kind, name: b.data.name, description: b.data.description }, { title: p.title, style: p.style, others },
+        { ...draw, onStep: (s) => { usage.inputTokens += s.usage.inputTokens; usage.outputTokens += s.usage.outputTokens; } }, b.data.instruction, current?.success ? current.data : undefined);
+      return { asset: r.asset, fallback: r.fallback, rounds: r.rounds, review: r.review, issues: r.issues, usage, model: painter.label };
+    } catch (e) {
       if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage });
       throw e;
     }

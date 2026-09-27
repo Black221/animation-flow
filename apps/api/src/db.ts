@@ -245,6 +245,10 @@ const MIGRATIONS: string[] = [
      created_at timestamptz NOT NULL DEFAULT now(),
      PRIMARY KEY (project_id, seq)
    )`,
+  // generation draws everything the storyboard needs before writing the scenes: the drawings are kept on the job
+  `ALTER TABLE generations ADD COLUMN assets jsonb;
+   ALTER TABLE generations ADD COLUMN assets_done integer NOT NULL DEFAULT 0;
+   ALTER TABLE generations ADD COLUMN assets_total integer NOT NULL DEFAULT 0`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */

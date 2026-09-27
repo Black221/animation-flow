@@ -4,7 +4,8 @@
 // in local space → element transform → camera), cull what falls outside the frame (a style may be expensive per
 // shape: the watercolour one layers several washes), then sort back to front. The still part of the decor is passed
 // in world space with a cache key, so a style paints it once per scene (a "plate") and only moves it with the camera.
-import type { Element, Project, Scene } from '@af/schema';
+import { assetExpressions, assetPoses, type Element, type Project, type Scene } from '@af/schema';
+import { registryFor } from './assets';
 import { sampleCamera, sampleElement, type CameraSample } from './animate';
 import type { ComponentFn, DecorOut, Registry } from './components';
 import { apply, bounds, mul, rotationOf, scaleM, scaleOf, translate, trs, rotate, type Mat } from './geometry';
@@ -87,7 +88,8 @@ const placeholder: ComponentFn = ({ id, params }) => [
   { kind: 'text', id: id + ':q', x: 0, y: -70, text: `? ${String(params.__missing ?? '')}`, size: 26, color: '#C8553D', font: 'body', weight: 600, align: 'center', rotation: 0, opacity: 1 },
 ];
 
-export function componentFor(project: Project, reg: Registry, e: Element): { fn: ComponentFn; params: Record<string, unknown> } {
+export function componentFor(project: Project, base: Registry, e: Element): { fn: ComponentFn; params: Record<string, unknown> } {
+  const reg = registryFor(project, base);
   if (e.type === 'text') return { fn: reg.text, params: e.params };
   if (e.type === 'character') {
     const c = e.ref ? project.cast[e.ref] : undefined, fn = c ? reg.characters[c.kind] : undefined;
@@ -99,10 +101,14 @@ export function componentFor(project: Project, reg: Registry, e: Element): { fn:
 
 // decors are pure functions of their parameters: keep the last few so the still part is built once per scene
 const decorCache = new Map<string, DecorOut>();
-function decorOf(project: Project, reg: Registry, scene: Scene): { key: string; out: DecorOut } | null {
-  const fn = reg.decors[scene.decor.kind];
+/** a drawing's fingerprint: an edited decor must not come back from the cache */
+const drawnHash = new WeakMap<object, string>();
+const hashOf = (a: object) => { let h = drawnHash.get(a); if (!h) { h = hashString(JSON.stringify(a)).toString(36); drawnHash.set(a, h); } return h; };
+function decorOf(project: Project, base: Registry, scene: Scene): { key: string; out: DecorOut } | null {
+  const reg = registryFor(project, base), fn = reg.decors[scene.decor.kind];
   if (!fn) return null;
-  const key = `${scene.decor.kind}:${hashString(JSON.stringify(scene.decor.params)).toString(36)}:${project.width}x${project.height}`;
+  const drawn = project.assets?.[scene.decor.kind];
+  const key = `${scene.decor.kind}:${drawn ? hashOf(drawn) : ''}:${hashString(JSON.stringify(scene.decor.params)).toString(36)}:${project.width}x${project.height}`;
   let out = decorCache.get(key);
   if (!out) {
     out = fn({ params: scene.decor.params, width: project.width, height: project.height, id: 'decor' });
@@ -115,7 +121,8 @@ function decorOf(project: Project, reg: Registry, scene: Scene): { key: string; 
 export interface Evaluator { timeline: Timeline; frameAt: (t: number) => Frame }
 
 /** Resolve the timeline once, then evaluate frames cheaply. */
-export function createEvaluator(project: Project, reg: Registry): Evaluator {
+export function createEvaluator(project: Project, base: Registry): Evaluator {
+  const reg = registryFor(project, base);
   const timeline = timeProject(project);
   const zooms = project.scenes.map((s) => Math.max(1, ...s.camera.map((k) => k.zoom ?? 1)));
   const frameAt = (time: number): Frame => {
@@ -159,8 +166,16 @@ export function createEvaluator(project: Project, reg: Registry): Evaluator {
 
 export interface Warning { path: string; message: string }
 /** What the schema cannot know: kinds, decors, poses and expressions the library does not provide. */
-export function checkAgainstLibrary(project: Project, reg: Registry, catalog?: { characters: { kind: string; poses: string[]; expressions: string[] }[] }): Warning[] {
-  const out: Warning[] = [];
+export function checkAgainstLibrary(project: Project, base: Registry, libraryCatalog?: { characters: { kind: string; poses: string[]; expressions: string[] }[] }): Warning[] {
+  const out: Warning[] = [], reg = registryFor(project, base), assets = project.assets ?? {};
+  // the project's drawings: right kind of drawing for the use, and their own poses and expressions
+  const catalog = libraryCatalog && { characters: [...libraryCatalog.characters, ...Object.entries(assets).filter(([, a]) => a.kind === 'character').map(([kind, a]) => ({ kind, poses: assetPoses(a), expressions: assetExpressions(a) }))] };
+  const wrong = (id: string, want: string, path: string, what: string) => { const a = assets[id]; if (a && a.kind !== want) out.push({ path, message: `« ${id} » est un dessin de type ${a.kind}, pas ${what}` }); };
+  for (const [id, c] of Object.entries(project.cast)) wrong(c.kind, 'character', `cast.${id}.kind`, 'un personnage');
+  project.scenes.forEach((s, si) => {
+    wrong(s.decor.kind, 'decor', `scenes.${si}.decor.kind`, 'un décor');
+    s.elements.forEach((e, ei) => { if (e.type === 'prop' && e.ref) wrong(e.ref, 'prop', `scenes.${si}.elements.${ei}.ref`, 'un accessoire'); });
+  });
   for (const [id, c] of Object.entries(project.cast)) if (!reg.characters[c.kind]) out.push({ path: `cast.${id}.kind`, message: `type de personnage « ${c.kind} » inconnu de la bibliothèque` });
   project.scenes.forEach((s, si) => {
     if (!reg.decors[s.decor.kind]) out.push({ path: `scenes.${si}.decor.kind`, message: `décor « ${s.decor.kind} » inconnu de la bibliothèque` });

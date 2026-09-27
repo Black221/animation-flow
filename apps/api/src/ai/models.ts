@@ -6,10 +6,17 @@ import type { Db } from '../db';
 
 export class NotConfigured extends Error {}
 
-export async function modelFor(db: Db, box: SecretBox, ws: string, task: 'storyboard' | 'scenes', fetchImpl?: JsonPost): Promise<Model> {
+const LABEL = { storyboard: 'Texte → storyboard', scenes: 'Storyboard → scènes', assets: 'Dessins' } as const;
+
+/** the drawing model: the one chosen for « Dessins », else the scenes model */
+export async function drawingModel(db: Db, box: SecretBox, ws: string, fetchImpl?: JsonPost): Promise<Model> {
+  try { return await modelFor(db, box, ws, 'assets', fetchImpl); } catch (e) { if (e instanceof NotConfigured) return modelFor(db, box, ws, 'scenes', fetchImpl); throw e; }
+}
+
+export async function modelFor(db: Db, box: SecretBox, ws: string, task: 'storyboard' | 'scenes' | 'assets', fetchImpl?: JsonPost): Promise<Model> {
   const { rows } = await db.query<{ model: string; provider: string | null; secret: string | null; base_url: string | null }>(
     `SELECT a.model, c.provider, c.secret, c.base_url FROM model_assignments a LEFT JOIN credentials c ON c.id = a.credential_id WHERE a.task = $1 AND a.workspace_id = $2`, [task, ws]);
-  const a = rows[0], label = task === 'storyboard' ? 'Texte → storyboard' : 'Storyboard → scènes';
+  const a = rows[0], label = LABEL[task];
   if (!a?.provider) throw new NotConfigured(`aucun modèle pour « ${label} » : Réglages → Fournisseurs`);
   if (!a.model) throw new NotConfigured(`choisissez un modèle pour « ${label} » : Réglages → Fournisseurs`);
   let apiKey: string | undefined;

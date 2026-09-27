@@ -1,46 +1,18 @@
-// The generation pipeline. Every answer is validated: by the storyboard schema, then for scenes by the project
-// schema and the library check (unknown poses, props…). When it fails, the model gets the list of problems, with
-// their paths, and tries again (twice at most). A scene that still fails is replaced by a plain one built from the
-// storyboard (decor, characters standing, narration, title), so the project that comes out is always valid.
+// The generation pipeline: text → storyboard (reviewed by the user) → a drawing of everything the storyboard needs
+// (see drawing.ts) → each scene, written with those drawings. Every answer is validated (storyboard schema; project
+// schema, drawings' poses and expressions, nothing that is not one of the film's drawings) and repaired by the
+// model from the list of problems (twice at most). A scene that still fails is replaced by a plain one built from
+// the storyboard, so the project that comes out is always valid.
 import { checkAgainstLibrary } from '@af/engine';
 import { catalog, registry } from '@af/library';
-import type { ChatMessage, CompletionResult, Usage } from '@af/providers';
-import { parseProject, Scene as SceneSchema, type Issue, type Project, type ProjectInput } from '@af/schema';
+import { parseProject, Scene as SceneSchema, type Asset, type Issue, type Project, type ProjectInput } from '@af/schema';
 import { z } from 'zod';
-import { extractJson } from './json';
-import { editRequest, repairRequest, sceneRequest, scenePrompt, storyboardPrompt, type StoryboardOptions } from './prompts';
-import { Storyboard, storyboardJsonSchema, type StoryScene } from './storyboard';
+import { ask, InvalidAnswer, ModelError, zIssues, type Check, type Model, type OnStep } from './ask';
+import { drawAll, type AssetBrief, type AssetResult, type DrawOptions } from './drawing';
+import { drawingsBrief, editRequest, PLAN_PROMPT, planRequest, sceneRequest, scenePrompt, storyboardPrompt, type StoryboardOptions } from './prompts';
+import { briefsOf, Storyboard, storyboardJsonSchema, type StoryScene } from './storyboard';
 
-/** a text model bound to a provider, a key and a model id */
-export interface Model {
-  label: string;
-  call(req: { system: string; messages: ChatMessage[]; json?: { name: string; schema: Record<string, unknown> }; maxTokens?: number }): Promise<CompletionResult>;
-}
-
-export interface Step { stage: 'storyboard' | 'scene' | 'edit'; target: string; attempt: number; ok: boolean; issues: Issue[]; usage: Usage; ms: number }
-export type OnStep = (s: Step) => void;
-
-export class ModelError extends Error { constructor(message: string, public status?: number) { super(message); this.name = 'ModelError'; } }
-export class InvalidAnswer extends Error { constructor(message: string, public issues: Issue[]) { super(message); this.name = 'InvalidAnswer'; } }
-
-type Check<T> = (v: unknown) => { ok: true; value: T } | { ok: false; issues: Issue[] };
-const MAX_REPAIRS = 2;
-const zIssues = (e: z.ZodError): Issue[] => e.issues.map((i) => ({ path: i.path.map(String).join('.') || '(racine)', message: i.message }));
-
-async function ask<T>(model: Model, system: string, first: string, json: { name: string; schema: Record<string, unknown> }, check: Check<T>, stage: Step['stage'], target: string, onStep: OnStep, maxTokens = 8000): Promise<{ value: T | null; issues: Issue[] }> {
-  const messages: ChatMessage[] = [{ role: 'user', content: first }];
-  let issues: Issue[] = [];
-  for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
-    const t0 = Date.now(), r = await model.call({ system, messages, json, maxTokens });
-    if (!r.ok) throw new ModelError(r.error, r.status);
-    let parsed: unknown = null;
-    try { parsed = extractJson(r.text); } catch (e) { issues = [{ path: 'JSON', message: (e as Error).message }]; }
-    if (parsed !== null) { const c = check(parsed); if (c.ok) { onStep({ stage, target, attempt, ok: true, issues: [], usage: r.usage, ms: Date.now() - t0 }); return { value: c.value, issues: [] }; } issues = c.issues; }
-    onStep({ stage, target, attempt, ok: false, issues, usage: r.usage, ms: Date.now() - t0 });
-    messages.push({ role: 'assistant', content: r.text }, { role: 'user', content: repairRequest(issues) });
-  }
-  return { value: null, issues };
-}
+export { InvalidAnswer, ModelError, type Model, type OnStep, type Step } from './ask';
 
 // ---------- storyboard ----------
 export async function generateStoryboard(model: Model, text: string, o: StoryboardOptions, onStep: OnStep = () => undefined): Promise<Storyboard> {
@@ -50,42 +22,62 @@ export async function generateStoryboard(model: Model, text: string, o: Storyboa
   return { ...value, language: o.language, style: o.style };
 }
 
+// ---------- drawings ----------
+export type Drawings = Record<string, Asset>;
+/** draw everything the storyboard needs */
+export async function generateDrawings(model: Model, sb: Storyboard, o: DrawOptions & { concurrency?: number; signal?: AbortSignal; onAsset?: (r: AssetResult) => void } = {}): Promise<{ assets: Drawings; results: AssetResult[] }> {
+  const results = await drawAll(model, briefsOf(sb), { title: sb.title, style: sb.style, palette: sb.palette }, o);
+  return { assets: Object.fromEntries(results.map((r) => [r.id, r.asset])), results };
+}
+
 // ---------- scenes ----------
+/** each cast member is drawn by the drawing of the same id */
 export const castOf = (sb: Storyboard): ProjectInput['cast'] =>
-  Object.fromEntries(sb.cast.map((c) => [c.id, { kind: c.kind, name: c.name, params: c.params, ...(c.voice ? { voice: c.voice } : {}) }]));
+  Object.fromEntries(sb.cast.map((c) => [c.id, { kind: c.id, name: c.name, ...(c.voice ? { voice: c.voice } : {}) }]));
 
-const baseProject = (sb: Storyboard, scenes: unknown[]): ProjectInput => ({ schemaVersion: 1, title: sb.title, language: sb.language, style: sb.style, cast: castOf(sb), scenes: scenes as ProjectInput['scenes'] });
+const baseProject = (sb: Storyboard, scenes: unknown[], assets: Drawings): ProjectInput => ({ schemaVersion: 1, title: sb.title, language: sb.language, style: sb.style, cast: castOf(sb), assets, scenes: scenes as ProjectInput['scenes'] });
 
-/** a scene is valid when the project holding it is, and the library knows everything it uses */
-function checkScene(sb: Storyboard, story: StoryScene, cast: ProjectInput['cast']): Check<z.output<typeof SceneSchema>> {
+/** everything on screen must be one of the film's drawings (no stock library) */
+function onlyDrawings(p: Project, index: number): Issue[] {
+  const s = p.scenes[index]!, a = p.assets, names = (k: Asset['kind']) => Object.keys(a).filter((id) => a[id]!.kind === k).join(', ') || 'aucun';
+  const out: Issue[] = [];
+  if (!a[s.decor.kind]) out.push({ path: 'decor.kind', message: `« ${s.decor.kind} » n'est pas un décor du film (${names('decor')})` });
+  s.elements.forEach((e, i) => {
+    if (e.type === 'prop' && (!e.ref || a[e.ref]?.kind !== 'prop')) out.push({ path: `elements.${i}.ref`, message: `« ${e.ref ?? ''} » n'est pas un accessoire du film (${names('prop')})` });
+    if (e.type === 'character' && (!e.ref || !p.cast[e.ref])) out.push({ path: `elements.${i}.ref`, message: `« ${e.ref ?? ''} » n'est pas dans la distribution (${Object.keys(p.cast).join(', ')})` });
+  });
+  return out;
+}
+
+/** a scene is valid when the project holding it is, and it uses the film's drawings as they are */
+function checkScene(sb: Storyboard, story: StoryScene, assets: Drawings): Check<z.output<typeof SceneSchema>> {
   return (v) => {
     if (!v || typeof v !== 'object' || Array.isArray(v)) return { ok: false, issues: [{ path: '(racine)', message: 'un objet JSON (la scène) est attendu' }] };
-    // the storyboard is the script the user approved: its narration and ids win over the model's
+    // the storyboard is the script the user approved: its narration, ids and decor win over the model's
     const s = { ...(v as Record<string, unknown>), id: story.id, narration: story.narration };
-    if (!('decor' in s)) (s as Record<string, unknown>).decor = story.decor;
+    if (!('decor' in s)) (s as Record<string, unknown>).decor = { kind: story.decor };
     if (!('music' in s)) (s as Record<string, unknown>).music = story.music;
     if (!('title' in s)) (s as Record<string, unknown>).title = story.title;
-    const r = parseProject({ ...baseProject(sb, [s]), cast });
+    const r = parseProject(baseProject(sb, [s], assets));
     if (!r.ok) return { ok: false, issues: r.issues.map((i) => ({ path: i.path.replace(/^scenes\.0\.?/, '') || '(scène)', message: i.message })) };
-    const warnings = checkAgainstLibrary(r.project, registry, catalog);
-    if (warnings.length) return { ok: false, issues: warnings.map((w) => ({ path: w.path.replace(/^scenes\.0\.?/, ''), message: w.message })) };
+    const issues = [...onlyDrawings(r.project, 0), ...checkAgainstLibrary(r.project, registry, catalog).map((w) => ({ path: w.path.replace(/^scenes\.0\.?/, ''), message: w.message }))];
+    if (issues.length) return { ok: false, issues };
     return { ok: true, value: r.project.scenes[0]! };
   };
 }
 
-/** a plain, always-valid scene from its storyboard entry: decor, the speaking characters standing, a title */
+/** a plain, always-valid scene from its storyboard entry: the decor, the speaking characters standing, its props on
+ *  the ground, a title */
 export function fallbackScene(sb: Storyboard, story: StoryScene): z.input<typeof SceneSchema> {
   const speakers = [...new Set(story.narration.map((l) => l.speaker).filter((s) => s !== 'narrator'))];
   const mentioned = sb.cast.filter((c) => speakers.includes(c.id) || story.shots.some((sh) => sh.toLowerCase().includes(c.name.toLowerCase()))).slice(0, 4);
-  const people = mentioned.length ? mentioned : sb.cast.slice(0, 1);
+  const people = mentioned.length ? mentioned : sb.cast.slice(0, 1), props = story.props.slice(0, 3);
   const first = story.narration[0]?.id;
   return {
-    id: story.id, title: story.title, duration: story.duration, decor: story.decor, music: story.music, narration: story.narration, transition: 'fade',
+    id: story.id, title: story.title, duration: story.duration, decor: { kind: story.decor }, music: story.music, narration: story.narration, transition: 'fade',
     elements: [
-      ...people.map((c, i) => {
-        const x = Math.round(1920 * ((i + 1) / (people.length + 1))), drone = c.kind === 'drone';
-        return { id: c.id, type: 'character' as const, ref: c.id, layer: 5 + i, keys: [{ t: 0, x, y: drone ? 520 : 900, facing: (i % 2 ? -1 : 1) as 1 | -1, pose: 'idle', expression: 'neutral', opacity: 0 }, { t: 0.6, opacity: 1 }, ...(first ? [{ t: { line: first }, expression: drone ? 'happy' : 'happy' }] : [])] };
-      }),
+      ...people.map((c, i) => ({ id: c.id, type: 'character' as const, ref: c.id, layer: 5 + i, keys: [{ t: 0, x: Math.round(1920 * ((i + 1) / (people.length + 1))), y: 900, facing: (i % 2 ? -1 : 1) as 1 | -1, pose: 'idle', expression: 'neutral', opacity: 0 }, { t: 0.6, opacity: 1 }, ...(first ? [{ t: { line: first }, pose: 'talk', expression: 'happy' }] : [])] })),
+      ...props.map((p, i) => ({ id: `p-${p}`, type: 'prop' as const, ref: p, layer: 3, keys: [{ t: 0, x: Math.round(1920 * ((i + 1.5) / (props.length + 2))), y: 910, opacity: 0 }, { t: 1, opacity: 1 }] })),
       { id: 'title', type: 'text' as const, space: 'screen' as const, layer: 20, params: { text: story.title || sb.title, size: 64, color: '#1F3A5F' }, keys: [{ t: 0, x: 960, y: 160, opacity: 0 }, { t: 0.6, opacity: 1 }, { t: 2.6, opacity: 1 }, { t: 3.4, opacity: 0 }] },
     ],
   };
@@ -93,10 +85,11 @@ export function fallbackScene(sb: Storyboard, story: StoryScene): z.input<typeof
 
 export interface SceneResult { scene: z.output<typeof SceneSchema>; fallback: boolean; issues: Issue[] }
 
-export async function generateScene(model: Model, sb: Storyboard, story: StoryScene, onStep: OnStep = () => undefined): Promise<SceneResult> {
-  const cast = castOf(sb), check = checkScene(sb, story, cast);
+export async function generateScene(model: Model, sb: Storyboard, assets: Drawings, story: StoryScene, onStep: OnStep = () => undefined): Promise<SceneResult> {
+  const check = checkScene(sb, story, assets);
   const schema = z.toJSONSchema(SceneSchema, { io: 'input' }) as Record<string, unknown>;
-  const { value, issues } = await ask(model, scenePrompt(sb.language), sceneRequest(sb, story, JSON.stringify(cast)), { name: 'scene', schema }, check, 'scene', story.id, onStep);
+  const drawings = drawingsBrief({ cast: castOf(sb) as Project['cast'], assets });
+  const { value, issues } = await ask(model, scenePrompt(sb.language, drawings), sceneRequest(sb, story), { name: 'scene', schema }, check, 'scene', story.id, onStep);
   if (value) return { scene: value, fallback: false, issues: [] };
   const fb = check(fallbackScene(sb, story));
   if (!fb.ok) throw new InvalidAnswer(`scène ${story.id} : même la scène de secours est invalide`, fb.issues);
@@ -104,18 +97,18 @@ export async function generateScene(model: Model, sb: Storyboard, story: StorySc
 }
 
 /** all scenes (a few at a time), then the project; `onScene` reports each one as it lands */
-export async function generateScenes(model: Model, sb: Storyboard, o: { concurrency?: number; onStep?: OnStep; onScene?: (i: number, r: SceneResult) => void; signal?: AbortSignal } = {}): Promise<{ project: Project; results: SceneResult[] }> {
+export async function generateScenes(model: Model, sb: Storyboard, assets: Drawings, o: { concurrency?: number; onStep?: OnStep; onScene?: (i: number, r: SceneResult) => void; signal?: AbortSignal } = {}): Promise<{ project: Project; results: SceneResult[] }> {
   const results: SceneResult[] = new Array(sb.scenes.length);
   let next = 0;
   const worker = async () => {
     while (next < sb.scenes.length) {
       if (o.signal?.aborted) throw new ModelError('génération annulée');
-      const i = next++, r = await generateScene(model, sb, sb.scenes[i]!, o.onStep);
+      const i = next++, r = await generateScene(model, sb, assets, sb.scenes[i]!, o.onStep);
       results[i] = r; o.onScene?.(i, r);
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(o.concurrency ?? 2, sb.scenes.length)) }, worker));
-  const parsed = parseProject(baseProject(sb, results.map((r) => r.scene)));
+  const parsed = parseProject(baseProject(sb, results.map((r) => r.scene), assets));
   if (!parsed.ok) throw new InvalidAnswer('les scènes ne forment pas un projet valide', parsed.issues);
   return { project: parsed.project, results };
 }
@@ -133,20 +126,50 @@ function keepFromCurrent(v: Record<string, unknown>, current: Project['scenes'][
   return s;
 }
 
-export async function editScene(model: Model, project: Project, index: number, instruction: string, onStep: OnStep = () => undefined): Promise<z.output<typeof SceneSchema>> {
-  const current = project.scenes[index];
+const Plan = z.object({ new: z.array(z.object({ id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/), kind: z.enum(['character', 'prop', 'decor']), name: z.string().min(1).max(80), description: z.string().min(3).max(800) })).max(6).default([]) });
+
+export interface EditResult {
+  scene: z.output<typeof SceneSchema>;
+  /** drawings the change needed, made for it (new cast members for new characters) */
+  assets: Drawings;
+  cast: Project['cast'];
+  drawn: AssetResult[];
+}
+
+/** change one scene as asked; what it needs that the film does not have yet is drawn first (`drawModel`) */
+export async function editScene(model: Model, project: Project, index: number, instruction: string, o: { onStep?: OnStep; drawModel?: Model; draw?: DrawOptions } = {}): Promise<EditResult> {
+  const onStep = o.onStep ?? (() => undefined), current = project.scenes[index];
   if (!current) throw new InvalidAnswer('scène introuvable', []);
+  // 1. what new drawings does the change need?
+  const taken = new Set([...Object.keys(project.assets), ...Object.keys(project.cast)]);
+  const planCheck: Check<AssetBrief[]> = (v) => {
+    const r = Plan.safeParse(v);
+    if (!r.success) return { ok: false, issues: zIssues(r.error) };
+    const clash = r.data.new.filter((n) => taken.has(n.id));
+    return clash.length ? { ok: false, issues: clash.map((c) => ({ path: 'new', message: `« ${c.id} » existe déjà : choisissez un autre id, ou réutilisez-le` })) } : { ok: true, value: r.data.new };
+  };
+  const plan = await ask(model, PLAN_PROMPT, planRequest(drawingsBrief(project), JSON.stringify(current), instruction), { name: 'plan', schema: z.toJSONSchema(Plan, { io: 'input' }) as Record<string, unknown> }, planCheck, 'plan', current.id, onStep, 2000);
+  const briefs = plan.value ?? [];
+  // 2. draw them
+  const drawn = briefs.length ? await drawAll(o.drawModel ?? model, briefs, { title: project.title, style: project.style, others: Object.entries(project.assets).map(([id, a]) => ({ id, kind: a.kind, name: a.name, description: a.description })) }, { ...o.draw, onStep }) : [];
+  const assets: Drawings = Object.fromEntries(drawn.map((r) => [r.id, r.asset]));
+  const cast: Project['cast'] = Object.fromEntries(briefs.filter((b) => b.kind === 'character').map((b) => [b.id, { kind: b.id, name: b.name, params: {} }]));
+  const withNew: Project = { ...project, assets: { ...project.assets, ...assets }, cast: { ...project.cast, ...cast } };
+  // 3. the scene, with them
   const check: Check<z.output<typeof SceneSchema>> = (v) => {
     if (!v || typeof v !== 'object' || Array.isArray(v)) return { ok: false, issues: [{ path: '(racine)', message: 'un objet JSON (la scène) est attendu' }] };
     const s = keepFromCurrent(v as Record<string, unknown>, current);
-    const r = parseProject({ ...project, scenes: project.scenes.map((x, k) => (k === index ? s : x)) });
-    if (!r.ok) return { ok: false, issues: r.issues.filter((i) => i.path.startsWith(`scenes.${index}`)).map((i) => ({ path: i.path.replace(new RegExp(`^scenes\\.${index}\\.?`), '') || '(scène)', message: i.message })).concat(r.issues.some((i) => !i.path.startsWith(`scenes.${index}`)) ? [{ path: '(projet)', message: r.issues[0]!.message }] : []) };
-    const warnings = checkAgainstLibrary(r.project, registry, catalog).filter((w) => w.path.startsWith(`scenes.${index}`));
-    if (warnings.length) return { ok: false, issues: warnings.map((w) => ({ path: w.path.replace(new RegExp(`^scenes\\.${index}\\.?`), ''), message: w.message })) };
+    const r = parseProject({ ...withNew, scenes: withNew.scenes.map((x, k) => (k === index ? s : x)) });
+    const mine = (p: string) => p.startsWith(`scenes.${index}`), strip = (p: string) => p.replace(new RegExp(`^scenes\\.${index}\\.?`), '') || '(scène)';
+    if (!r.ok) return { ok: false, issues: r.issues.filter((i) => mine(i.path)).map((i) => ({ path: strip(i.path), message: i.message })).concat(r.issues.some((i) => !mine(i.path)) ? [{ path: '(projet)', message: r.issues.find((i) => !mine(i.path))!.message }] : []) };
+    // projects made before drawings were generated keep their library kinds; new elements must be drawings
+    const issues = Object.keys(project.assets).length || Object.keys(assets).length ? onlyDrawings(r.project, index).filter((i) => !current.elements.some((e, k) => i.path === `elements.${k}.ref` && e.ref === (r.project.scenes[index]!.elements[k]?.ref)) && !(i.path === 'decor.kind' && r.project.scenes[index]!.decor.kind === current.decor.kind)) : [];
+    const warnings = checkAgainstLibrary(r.project, registry, catalog).filter((w) => mine(w.path)).map((w) => ({ path: strip(w.path), message: w.message }));
+    if (issues.length || warnings.length) return { ok: false, issues: [...issues, ...warnings] };
     return { ok: true, value: r.project.scenes[index]! };
   };
   const schema = z.toJSONSchema(SceneSchema, { io: 'input' }) as Record<string, unknown>;
-  const { value, issues } = await ask(model, scenePrompt(project.language) + `\nCast: ${JSON.stringify(project.cast)}`, editRequest(JSON.stringify(current), instruction), { name: 'scene', schema }, check, 'edit', current.id, onStep);
+  const { value, issues } = await ask(model, scenePrompt(project.language, drawingsBrief(withNew)), editRequest(JSON.stringify(current), instruction), { name: 'scene', schema }, check, 'edit', current.id, onStep);
   if (!value) throw new InvalidAnswer("le modèle n'a pas produit de scène valide", issues);
-  return value;
+  return { scene: value, assets, cast, drawn };
 }

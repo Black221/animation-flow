@@ -40,6 +40,8 @@ export interface ServerDeps {
   liveSaveDelay?: number;
   /** e-mail (invitations, forgotten passwords); none by default */
   mail?: MailSetup | null;
+  /** fonts for images rendered on the server (drawings shown to models) */
+  fontsDir?: string | undefined;
   /** behind a reverse proxy: which X-Forwarded-* to believe (client address, protocol, host) */
   trustProxy?: boolean | number | string;
 }
@@ -76,7 +78,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const sign = deps.signer ?? signer(randomBytes(32));
   renderRoutes(app, deps.db, sign);
   voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch);
-  generationRoutes(app, deps.db, deps.box, deps.llmFetch);
+  generationRoutes(app, deps.db, deps.box, deps.llmFetch, deps.fontsDir);
 
   if (deps.webDist && existsSync(deps.webDist)) {
     const { default: fastifyStatic } = await import('@fastify/static');

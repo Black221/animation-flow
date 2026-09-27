@@ -2,7 +2,7 @@
 // which workspace it acts in, and writes carry the header the server requires against cross-site forgery.
 import type { Catalog } from '@af/engine';
 import type { ProviderInfo, TaskInfo, TestResult } from '@af/providers';
-import type { Issue, Project } from '@af/schema';
+import type { Asset, Issue, Project } from '@af/schema';
 
 const WS = 'af-workspace';
 export const getWorkspace = () => { try { return localStorage.getItem(WS) ?? ''; } catch { return ''; } };
@@ -52,16 +52,20 @@ export interface Me { user: { id: string; email: string; name: string } | null; 
 export interface Member { userId: string; name: string; email: string; role: Role; joinedAt: string }
 export interface PendingInvitation { id: string; role: Role; email: string | null; createdAt: string; expiresAt: string; by: string | null }
 export interface WorkspaceInfo { id: string; name: string; role: Role; members: Member[]; invitations: PendingInvitation[] }
-export type GenerationStatus = 'storyboard' | 'review' | 'scenes' | 'done' | 'failed' | 'canceled';
+export type GenerationStatus = 'storyboard' | 'review' | 'assets' | 'scenes' | 'done' | 'failed' | 'canceled';
 export interface StoryLine { id: string; speaker: string; text: string }
-export interface StorySceneT { id: string; title: string; duration: number; decor: { kind: string; params: Record<string, unknown> }; music: { mood: string; gain: number }; narration: StoryLine[]; shots: string[] }
-export interface StoryboardT { title: string; language: string; style: string; cast: { id: string; kind: string; name: string; description: string; params: Record<string, unknown>; voice?: string }[]; scenes: StorySceneT[] }
+export interface StorySceneT { id: string; title: string; duration: number; decor: string; props: string[]; music: { mood: string; gain: number }; narration: StoryLine[]; shots: string[] }
+/** something the film needs drawn, described in words */
+export interface StoryThing { id: string; name: string; description: string }
+export interface StoryboardT { title: string; language: string; style: string; palette: string[]; cast: (StoryThing & { voice?: string })[]; props: StoryThing[]; decors: StoryThing[]; scenes: StorySceneT[] }
 export interface GenStep { stage: string; target: string; attempt: number; ok: boolean; issues: Issue[]; usage: { inputTokens: number; outputTokens: number }; ms: number }
 export interface Generation {
   id: string; status: GenerationStatus; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean };
   storyboard: StoryboardT | null; projectId: string | null; scenesDone: number; scenesTotal: number; steps: GenStep[]; fallbacks: string[];
-  models: { storyboard?: string; scenes?: string }; usage: { inputTokens: number; outputTokens: number }; error: string | null; createdAt: string; updatedAt: string;
+  assetsDone: number; assetsTotal: number; drawings: string[];
+  models: { storyboard?: string; scenes?: string; assets?: string }; usage: { inputTokens: number; outputTokens: number }; error: string | null; createdAt: string; updatedAt: string;
 }
+export interface DrawnInfo { id: string; fallback: boolean; rounds: number; review: string[] }
 export interface GenerationRequest { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean }
 export interface Comment {
   id: string; projectId: string; parentId: string | null; sceneId: string; elementId: string | null; t: number | null; body: string;
@@ -115,7 +119,10 @@ export const Api = {
   retryStoryboard: (id: string, instructions?: string) => api<Generation>(`/api/generations/${id}/storyboard/retry`, { method: 'POST', body: instructions ? { instructions } : {} }),
   writeScenes: (id: string) => api<Generation>(`/api/generations/${id}/scenes`, { method: 'POST' }),
   cancelGeneration: (id: string) => api<Generation>(`/api/generations/${id}/cancel`, { method: 'POST' }),
-  editScene: (project: unknown, sceneIndex: number, instruction: string) => api<{ scene: unknown; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/edit-scene', { method: 'POST', body: { project, sceneIndex, instruction } }),
+  /** the scene changed as asked, and what it needed that the film did not have: new drawings (and cast members) */
+  editScene: (project: unknown, sceneIndex: number, instruction: string) => api<{ scene: unknown; assets: Record<string, Asset>; cast: Project['cast']; drawn: DrawnInfo[]; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/edit-scene', { method: 'POST', body: { project, sceneIndex, instruction } }),
+  /** draw one thing for the project, or draw it again with a change */
+  draw: (b: { project: unknown; id: string; kind: Asset['kind']; name: string; description: string; instruction?: string; current?: Asset }) => api<{ asset: Asset; fallback: boolean; rounds: number; review: string[]; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/draw', { method: 'POST', body: b }),
   record: (text: string, voice?: string, language?: string) => api<Recording>('/api/voices', { method: 'POST', body: { text, ...(voice ? { voice } : {}), ...(language ? { language } : {}) } }),
   comments: (projectId: string) => api<Comment[]>(`/api/projects/${projectId}/comments`),
   addComment: (projectId: string, c: NewComment) => api<Comment>(`/api/projects/${projectId}/comments`, { method: 'POST', body: c }),

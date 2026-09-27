@@ -43,6 +43,7 @@ export interface TaskInfo { id: string; kind: ProviderKind; label: string; descr
 export const TASKS: TaskInfo[] = [
   { id: 'storyboard', kind: 'llm', label: 'Texte → storyboard', description: 'Découpe un script ou une idée en scènes, répliques et intentions de plan.' },
   { id: 'scenes', kind: 'llm', label: 'Storyboard → scènes', description: "Écrit le format d'animation (JSON validé) de chaque scène." },
+  { id: 'assets', kind: 'llm', label: 'Dessins', description: "Dessine les personnages, accessoires et décors de l'histoire, puis relit chaque dessin en le regardant (un modèle qui voit les images : Claude, GPT, Gemini…). Sans choix, le modèle des scènes." },
   { id: 'narration', kind: 'tts', label: 'Narration (voix)', description: "Synthétise la voix off, une réplique à la fois. Chaque personnage peut avoir sa propre voix (champ « voice » de la distribution)." },
 ];
 export const taskById = (id: string) => TASKS.find((t) => t.id === id);
@@ -161,7 +162,9 @@ export async function synthesize(providerId: string, c: CredentialInput, req: Sp
 }
 
 // ---------- text models ----------
-export interface ChatMessage { role: 'user' | 'assistant'; content: string }
+/** `images`: pictures shown with a user message (PNG or JPEG, base64), for models that can see */
+export interface ChatImage { mediaType: 'image/png' | 'image/jpeg'; data: string }
+export interface ChatMessage { role: 'user' | 'assistant'; content: string; images?: ChatImage[] | undefined }
 export interface CompletionRequest {
   model: string;
   system: string;
@@ -187,9 +190,13 @@ export async function complete(providerId: string, c: CredentialInput, req: Comp
   const base = trimSlash(c.baseUrl || p.defaultBaseUrl || ''), max = req.maxTokens ?? 8000;
   let url: string, headers: Record<string, string>, body: unknown;
   let read: (b: any) => { text: string | null; usage: Usage };
+  // the chat-completions dialects put images next to the text; Mistral takes the data URL as a plain string
+  const chatContent = (m: ChatMessage) => (m.images?.length
+    ? [{ type: 'text', text: m.content }, ...m.images.map((im) => { const url = `data:${im.mediaType};base64,${im.data}`; return { type: 'image_url', image_url: p.id === 'mistral' ? url : { url } }; })]
+    : m.content);
   const chat = (format: unknown) => ({
     model: req.model,
-    messages: [{ role: 'system', content: req.system }, ...req.messages],
+    messages: [{ role: 'system', content: req.system }, ...req.messages.map((m) => ({ role: m.role, content: chatContent(m) }))],
     ...(format ? { response_format: format } : {}),
     [p.id === 'openai' ? 'max_completion_tokens' : 'max_tokens']: max,
   });
@@ -199,7 +206,8 @@ export async function complete(providerId: string, c: CredentialInput, req: Comp
       url = `${base}/v1/messages`;
       headers = { 'x-api-key': c.apiKey!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
       body = {
-        model: req.model, max_tokens: max, system: req.system, messages: req.messages,
+        model: req.model, max_tokens: max, system: req.system,
+        messages: req.messages.map((m) => ({ role: m.role, content: m.images?.length ? [...m.images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mediaType, data: im.data } })), { type: 'text', text: m.content }] : m.content })),
         ...(req.json ? { tools: [{ name: req.json.name, description: 'Return the result through this tool.', input_schema: req.json.schema }], tool_choice: { type: 'tool', name: req.json.name } } : {}),
       };
       read = (b) => {
@@ -212,7 +220,7 @@ export async function complete(providerId: string, c: CredentialInput, req: Comp
       headers = { 'x-goog-api-key': c.apiKey!, 'content-type': 'application/json' };
       body = {
         systemInstruction: { parts: [{ text: req.system }] },
-        contents: req.messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        contents: req.messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [...(m.images ?? []).map((im) => ({ inline_data: { mime_type: im.mediaType, data: im.data } })), { text: m.content }] })),
         generationConfig: { maxOutputTokens: max, ...(req.json ? { responseMimeType: 'application/json' } : {}) },
       };
       read = (b) => ({ text: (b?.candidates?.[0]?.content?.parts ?? []).map((x: any) => x?.text ?? '').join('') || null, usage: { inputTokens: b?.usageMetadata?.promptTokenCount ?? 0, outputTokens: b?.usageMetadata?.candidatesTokenCount ?? 0 } });

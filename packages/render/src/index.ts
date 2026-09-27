@@ -13,6 +13,7 @@ import { AbortError, FFMPEG, run } from './ffmpeg';
 
 export { probe, AbortError, decodeAudio } from './ffmpeg';
 export { registerFonts } from './fonts';
+export { renderStill } from './still';
 
 export interface Progress { done: number; total: number; elapsedMs: number; fps: number }
 export interface RenderVideoOptions {

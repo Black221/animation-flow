@@ -119,6 +119,88 @@ export const CastMember = z.object({
   voice: z.string().optional(),
 });
 
+// ---------- drawings made for the project (by a model or by hand) ----------
+// A drawing is a tree of parts. Each part holds shapes, in the drawing's own coordinates (characters and props:
+// origin at the feet / base centre, y up is negative, about 340 px for a standing adult; decors: a 1920×1080 frame,
+// drawn 300 px beyond it on every side). A part may hang from a parent and turn around its pivot: poses say how
+// much, with an optional swing (walk cycles, waving, breathing). Parts of a `group` are alternatives (mouths, eyes):
+// an expression picks one variant per group. It is data only: nothing in it runs.
+const N = z.number().finite();
+export const AssetPoint = z.tuple([N, N]);
+const Paint = { fill: Color.optional(), stroke: Color.optional(), strokeWidth: z.number().min(0).max(40).optional(), opacity: z.number().min(0).max(1).optional(), role: z.enum(['body', 'detail', 'shade']).optional() };
+export const AssetShape = z.discriminatedUnion('type', [
+  /** SVG path data (`d`: M L H V C S Q T A Z, absolute or relative) or a list of points */
+  z.object({ type: z.literal('path'), d: z.string().max(20_000).optional(), points: z.array(AssetPoint).max(600).optional(), closed: z.boolean().default(true), smooth: z.boolean().default(false),
+    /** open paths: body thickness (limbs, stalks), drawn with round ends */
+    width: z.number().min(0).max(300).optional(), ...Paint })
+    .refine((p) => !!p.d !== !!p.points, 'un tracé a soit `d`, soit `points`'),
+  z.object({ type: z.literal('ellipse'), cx: N, cy: N, rx: z.number().positive().max(5000), ry: z.number().positive().max(5000), ...Paint }),
+  z.object({ type: z.literal('rect'), x: N, y: N, w: z.number().positive().max(10_000), h: z.number().positive().max(10_000), r: z.number().min(0).max(2000).default(0), ...Paint }),
+  z.object({ type: z.literal('glow'), x: N, y: N, radius: z.number().positive().max(3000), color: Color, opacity: z.number().min(0).max(1).default(0.6) }),
+  /** vertical gradient over a rectangle (skies, water) */
+  z.object({ type: z.literal('gradient'), x: N, y: N, w: z.number().positive().max(10_000), h: z.number().positive().max(10_000), stops: z.array(z.tuple([z.number().min(0).max(1), Color])).min(2).max(8), opacity: z.number().min(0).max(1).optional() }),
+  z.object({ type: z.literal('text'), x: N, y: N, text: z.string().min(1).max(200), size: z.number().positive().max(400), color: Color, font: z.enum(['display', 'body', 'marker', 'hand']).default('display'), weight: z.number().int().min(100).max(900).default(600), align: z.enum(['left', 'center', 'right']).default('center') }),
+]);
+export const AssetPart = z.object({
+  id: Id,
+  /** hangs from this part: follows it when it turns */
+  parent: Id.optional(),
+  /** where the part turns, in the drawing's coordinates at rest */
+  pivot: AssetPoint.default([0, 0]),
+  /** alternatives: in a group, only the variant the expression picks is drawn (by default the first one) */
+  group: z.string().regex(/^[a-z0-9_-]{1,32}$/i).optional(),
+  variant: z.string().regex(/^[a-z0-9_-]{1,32}$/i).optional(),
+  shapes: z.array(AssetShape).max(80).default([]),
+});
+/** how a part is held in a pose: an angle (degrees, positive = clockwise on screen), an optional swing of `swing`
+ *  degrees around it at `speed` cycles per second, a continuous turn (`spin`, degrees per second: wheels, blades), a
+ *  shift (px) and a bounce (px, upwards, twice per cycle) */
+export const AssetMotion = z.object({
+  rot: N.min(-360).max(360).default(0),
+  swing: N.min(0).max(180).default(0),
+  speed: z.number().min(0).max(8).default(1),
+  phase: z.number().min(0).max(1).default(0),
+  dx: N.min(-2000).max(2000).default(0),
+  dy: N.min(-2000).max(2000).default(0),
+  bounce: N.min(0).max(200).default(0),
+  spin: N.min(-3600).max(3600).default(0),
+});
+const Name = z.string().regex(/^[a-z0-9_-]{1,32}$/i, 'nom : lettres, chiffres, _ - (32 max.)');
+export const Asset = z.object({
+  kind: z.enum(['character', 'prop', 'decor']),
+  name: z.string().min(1).max(80),
+  /** what it is and looks like: the brief it was drawn from, kept to draw it again */
+  description: z.string().max(2000).default(''),
+  /** decors: colour under everything (no gap shows when the camera moves) */
+  background: Color.optional(),
+  parts: z.array(AssetPart).min(1).max(120),
+  /** pose name → part id → motion; `idle` is used when a pose is not given */
+  poses: z.record(Name, z.record(Id, AssetMotion)).default({}),
+  /** expression name → group → variant; `neutral` is used when an expression is not given */
+  expressions: z.record(Name, z.record(Name, Name)).default({}),
+  /** how it was made (model, rounds of visual review) */
+  made: z.object({ by: z.string().max(200), rounds: z.number().int().min(0).max(20).default(0), at: z.string().max(40).optional() }).optional(),
+}).superRefine((a, ctx) => {
+  const ids = new Map(a.parts.map((p, i) => [p.id, i] as const));
+  if (ids.size !== a.parts.length) ctx.addIssue({ code: 'custom', path: ['parts'], message: 'identifiants de parties en double' });
+  a.parts.forEach((p, i) => {
+    if (p.parent && !ids.has(p.parent)) ctx.addIssue({ code: 'custom', path: ['parts', i, 'parent'], message: `partie parente « ${p.parent} » inconnue` });
+    if (!!p.group !== !!p.variant) ctx.addIssue({ code: 'custom', path: ['parts', i, 'group'], message: '`group` et `variant` vont ensemble' });
+    // a parent chain must end: no loops
+    const seen = new Set<string>(); let cur: string | undefined = p.id;
+    while (cur) { if (seen.has(cur)) { ctx.addIssue({ code: 'custom', path: ['parts', i, 'parent'], message: 'les parties forment une boucle' }); break; } seen.add(cur); cur = a.parts[ids.get(cur)!]?.parent; }
+  });
+  for (const [pose, m] of Object.entries(a.poses)) for (const part of Object.keys(m)) if (!ids.has(part)) ctx.addIssue({ code: 'custom', path: ['poses', pose, part], message: `pose « ${pose} » : partie « ${part} » inconnue` });
+  const variants = new Map<string, Set<string>>();
+  for (const p of a.parts) if (p.group && p.variant) { if (!variants.has(p.group)) variants.set(p.group, new Set()); variants.get(p.group)!.add(p.variant); }
+  for (const [ex, m] of Object.entries(a.expressions)) for (const [g, v] of Object.entries(m)) {
+    if (!variants.get(g)?.has(v)) ctx.addIssue({ code: 'custom', path: ['expressions', ex, g], message: `expression « ${ex} » : pas de variante « ${v} » dans le groupe « ${g} »` });
+  }
+});
+/** the poses and expressions a drawing offers (idle and neutral always exist) */
+export const assetPoses = (a: Pick<z.output<typeof Asset>, 'poses'>) => [...new Set(['idle', ...Object.keys(a.poses)])];
+export const assetExpressions = (a: Pick<z.output<typeof Asset>, 'expressions'>) => [...new Set(['neutral', ...Object.keys(a.expressions)])];
+
 export const ProjectBase = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
   title: z.string().min(1),
@@ -130,6 +212,8 @@ export const ProjectBase = z.object({
   style: z.string().default('flat'),
   cast: z.record(Id, CastMember).default({}),
   scenes: z.array(Scene).min(1),
+  /** drawings made for this project: a cast member's `kind`, a prop's `ref` or a decor's `kind` may name one */
+  assets: z.record(Id, Asset).default({}),
 });
 
 /** Cross-references a single object schema cannot express: unique ids, lines and cast members that exist. */
@@ -179,6 +263,10 @@ export type Sfx = z.output<typeof Sfx>;
 export type Scene = z.output<typeof Scene>;
 export type CastMember = z.output<typeof CastMember>;
 export type Project = z.output<typeof Project>;
+export type Asset = z.output<typeof Asset>;
+export type AssetPart = z.output<typeof AssetPart>;
+export type AssetShape = z.output<typeof AssetShape>;
+export type AssetMotion = z.output<typeof AssetMotion>;
 /** what a person or a model may write: defaults not filled in yet */
 export type ProjectInput = z.input<typeof Project>;
 

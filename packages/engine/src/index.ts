@@ -5,5 +5,6 @@ export * from './components';
 export * from './timing';
 export * from './animate';
 export * from './evaluate';
+export * from './assets';
 export * from './srt';
 export * from './color';

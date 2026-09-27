@@ -125,6 +125,25 @@ describe('complete', () => {
     }
   });
 
+  it('shows images to the model, in each provider\'s format', async () => {
+    const images = [{ mediaType: 'image/png' as const, data: 'iVBORw0K' }], messages = [{ role: 'user' as const, content: 'Regarde', images }];
+    const a = reply({ content: [{ type: 'text', text: 'ok' }] });
+    await complete('anthropic', { apiKey: 'k' }, { model: 'm', system: 'S', messages }, a as never);
+    expect(call(a).body.messages[0].content).toEqual([{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } }, { type: 'text', text: 'Regarde' }]);
+    const g = reply({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] });
+    await complete('google', { apiKey: 'k' }, { model: 'm', system: 'S', messages }, g as never);
+    expect(call(g).body.contents[0].parts).toEqual([{ inline_data: { mime_type: 'image/png', data: 'iVBORw0K' } }, { text: 'Regarde' }]);
+    for (const [id, url] of [['openai', { url: 'data:image/png;base64,iVBORw0K' }], ['openrouter', { url: 'data:image/png;base64,iVBORw0K' }], ['mistral', 'data:image/png;base64,iVBORw0K']] as const) {
+      const o = reply({ choices: [{ message: { content: 'ok' } }] });
+      await complete(id, { apiKey: 'k' }, { model: 'm', system: 'S', messages }, o as never);
+      expect(call(o).body.messages[1].content).toEqual([{ type: 'text', text: 'Regarde' }, { type: 'image_url', image_url: url }]);
+    }
+    // without images, messages stay plain text
+    const t = reply({ choices: [{ message: { content: 'ok' } }] });
+    await complete('openai', { apiKey: 'k' }, { model: 'm', system: 'S', messages: [{ role: 'user', content: 'U' }] }, t as never);
+    expect(call(t).body.messages[1]).toEqual({ role: 'user', content: 'U' });
+  });
+
   it('asks Gemini for JSON with its own message format', async () => {
     const f = reply({ candidates: [{ content: { parts: [{ text: '{"c":3}' }] } }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2 } });
     expect(await complete('google', { apiKey: 'k' }, { model: 'gemini-x', system: 'S', messages: [{ role: 'user', content: 'U' }, { role: 'assistant', content: 'A' }], json }, f as never)).toEqual({ ok: true, text: '{"c":3}', usage: { inputTokens: 1, outputTokens: 2 } });

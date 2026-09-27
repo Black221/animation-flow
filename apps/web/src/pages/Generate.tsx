@@ -1,22 +1,43 @@
-// An AI generation, step by step: storyboard → review (edit it here) → scenes → the new project.
-import { catalog } from '@af/library';
+// An AI generation, step by step: storyboard → review (edit it here, including what will be drawn) → drawings →
+// scenes → the new project.
 import { MOOD_NAMES } from '@af/audio';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { Api, type Generation, type StoryboardT, type StorySceneT } from '../api';
+import { Api, type Generation, type StoryboardT, type StorySceneT, type StoryThing } from '../api';
 import { useSession } from '../session';
 
 const STAGES: { id: Generation['status'][]; label: string }[] = [
   { id: ['storyboard'], label: 'Storyboard' },
   { id: ['review'], label: 'Relecture' },
+  { id: ['assets'], label: 'Dessins' },
   { id: ['scenes'], label: 'Scènes' },
   { id: ['done'], label: 'Projet' },
 ];
-const order = (g: Generation) => (g.status === 'storyboard' ? 0 : g.status === 'review' ? 1 : g.status === 'scenes' ? 2 : g.status === 'done' ? 3 : g.storyboard ? 1 : 0);
+const order = (g: Generation) => ({ storyboard: 0, review: 1, assets: 2, scenes: 3, done: 4 } as Record<string, number>)[g.status] ?? (g.storyboard ? 1 : 0);
 const MOODS: Record<string, string> = { none: 'aucune', calm: 'calme', curious: 'curieuse', playful: 'enjouée', epic: 'épique', night: 'nuit', tense: 'tendue' };
 const tokens = (u: { inputTokens: number; outputTokens: number }) => `${(u.inputTokens / 1000).toFixed(1)} k tokens envoyés · ${(u.outputTokens / 1000).toFixed(1)} k reçus`;
 
-function SceneCard({ s, speakers, onChange, onRemove }: { s: StorySceneT; speakers: { id: string; name: string }[]; onChange: (s: StorySceneT) => void; onRemove: () => void }) {
+/** the things to draw, editable: their description is what the drawing model gets */
+function Things({ label, what, items, onChange, idPrefix, withVoice = false }: { label: string; what: string; items: (StoryThing & { voice?: string })[]; onChange: (items: (StoryThing & { voice?: string })[]) => void; idPrefix: string; withVoice?: boolean }) {
+  const set = (i: number, patch: Partial<StoryThing & { voice?: string }>) => onChange(items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <section className="things" aria-label={label}>
+      <h3>{label} <span className="muted small">— dessinés pour le film d'après leur description</span></h3>
+      {items.map((c, i) => (
+        <div key={c.id + i} className="card row wrap" data-testid="thing">
+          <input value={c.name} onChange={(e) => set(i, { name: e.target.value })} aria-label={`nom de ${c.id}`} style={{ width: 160 }} />
+          <span className="sid">{c.id}</span>
+          <textarea className="grow" rows={2} value={c.description} onChange={(e) => set(i, { description: e.target.value })} aria-label={`description de ${c.name}`} placeholder={`à quoi ressemble ${what}`} />
+          {withVoice && <input value={c.voice ?? ''} placeholder="voix (facultatif)" onChange={(e) => set(i, { voice: e.target.value || undefined })} aria-label={`voix de ${c.name}`} />}
+          <button className="ghost" onClick={() => onChange(items.filter((_, j) => j !== i))} aria-label={`retirer ${c.name}`}>✕</button>
+        </div>
+      ))}
+      <button onClick={() => { let n = items.length + 1; while (items.some((x) => x.id === `${idPrefix}${n}`)) n++; onChange([...items, { id: `${idPrefix}${n}`, name: '', description: '' }]); }}>+ {what}</button>
+    </section>
+  );
+}
+
+function SceneCard({ s, speakers, decors, props, onChange, onRemove }: { s: StorySceneT; speakers: { id: string; name: string }[]; decors: StoryThing[]; props: StoryThing[]; onChange: (s: StorySceneT) => void; onRemove: () => void }) {
   const set = <K extends keyof StorySceneT>(k: K, v: StorySceneT[K]) => onChange({ ...s, [k]: v });
   return (
     <li className="card story-scene" data-testid="story-scene">
@@ -24,10 +45,15 @@ function SceneCard({ s, speakers, onChange, onRemove }: { s: StorySceneT; speake
         <span className="sid">{s.id}</span>
         <input className="grow" value={s.title} onChange={(e) => set('title', e.target.value)} aria-label={`titre ${s.id}`} />
         <label>Durée <input type="number" min={2} max={180} value={s.duration} onChange={(e) => set('duration', Math.max(2, +e.target.value || 2))} style={{ width: 70 }} /> s</label>
-        <label>Décor <select value={s.decor.kind} onChange={(e) => set('decor', { kind: e.target.value, params: {} })}>{catalog.decors.map((d) => <option key={d.kind} value={d.kind}>{d.label}</option>)}</select></label>
+        <label>Décor <select value={s.decor} onChange={(e) => set('decor', e.target.value)}>{decors.map((d) => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}</select></label>
         <label>Musique <select value={s.music.mood} onChange={(e) => set('music', { ...s.music, mood: e.target.value })}>{['none', ...MOOD_NAMES].map((m) => <option key={m} value={m}>{MOODS[m] ?? m}</option>)}</select></label>
         <button className="ghost" onClick={onRemove} aria-label={`supprimer ${s.id}`}>✕</button>
       </div>
+      {props.length > 0 && (
+        <div className="row wrap small" aria-label={`accessoires de ${s.id}`}>
+          Accessoires : {props.map((p) => <label key={p.id}><input type="checkbox" checked={s.props.includes(p.id)} onChange={(e) => set('props', e.target.checked ? [...s.props, p.id] : s.props.filter((x) => x !== p.id))} /> {p.name || p.id}</label>)}
+        </div>
+      )}
       <ol className="story-lines">
         {s.narration.map((l, i) => (
           <li key={i} className="row">
@@ -63,7 +89,7 @@ export function Generate() {
     try { const x = await Api.generation(id); setG(x); setSb((cur) => (dirty && cur ? cur : x.storyboard)); } catch (e) { setError((e as Error).message); }
   }, [id, dirty]);
   useEffect(() => { void refresh(); }, [refresh]);
-  const busy = g?.status === 'storyboard' || g?.status === 'scenes';
+  const busy = g?.status === 'storyboard' || g?.status === 'assets' || g?.status === 'scenes';
   useEffect(() => { if (!busy) return; const t = setInterval(() => void refresh(), 1000); return () => clearInterval(t); }, [busy, refresh]);
 
   if (!g) return <div className="page muted">{error || 'Chargement…'}</div>;
@@ -77,11 +103,12 @@ export function Generate() {
       <Link to="/" className="muted">← Projets</Link>
       <h2>Génération : {sb?.title ?? 'en cours'}</h2>
       <ol className="stages" aria-label="étapes">
-        {STAGES.map((s, i) => <li key={s.label} className={i < k || g.status === 'done' ? 'done' : i === k ? (g.status === 'failed' || g.status === 'canceled' ? 'failed' : 'current') : ''}>{s.label}{i === 2 && g.scenesTotal ? ` ${g.scenesDone}/${g.scenesTotal}` : ''}</li>)}
+        {STAGES.map((s, i) => <li key={s.label} className={i < k || g.status === 'done' ? 'done' : i === k ? (g.status === 'failed' || g.status === 'canceled' ? 'failed' : 'current') : ''}>{s.label}{i === 2 && g.assetsTotal ? ` ${g.assetsDone}/${g.assetsTotal}` : ''}{i === 3 && g.scenesTotal ? ` ${g.scenesDone}/${g.scenesTotal}` : ''}</li>)}
       </ol>
       <p className="muted small" data-testid="gen-status">
         {g.status === 'storyboard' && 'Le modèle écrit le storyboard…'}
         {g.status === 'review' && 'Relisez et corrigez le storyboard, puis faites écrire les scènes.'}
+        {g.status === 'assets' && `Le modèle dessine les personnages, accessoires et décors, et relit chaque dessin (${g.assetsDone}/${g.assetsTotal})…`}
         {g.status === 'scenes' && `Le modèle écrit les scènes (${g.scenesDone}/${g.scenesTotal})…`}
         {g.status === 'done' && 'Terminé.'}
         {g.status === 'canceled' && 'Annulée.'}
@@ -91,29 +118,24 @@ export function Generate() {
       {error && <p className="error" role="alert">{error}</p>}
       <div className="row wrap">
         {busy && editable && <button onClick={() => void act(() => Api.cancelGeneration(g.id))}>Annuler</button>}
-        {editable && g.status === 'review' && <button className="primary" onClick={() => void writeScenes()}>Écrire les scènes</button>}
-        {editable && g.status === 'failed' && g.storyboard && !g.projectId && <button className="primary" onClick={() => void writeScenes()}>Réessayer les scènes</button>}
+        {editable && g.status === 'review' && <button className="primary" onClick={() => void writeScenes()}>Dessiner et écrire les scènes</button>}
+        {editable && g.status === 'failed' && g.storyboard && !g.projectId && <button className="primary" onClick={() => void writeScenes()}>{g.drawings.length ? 'Réessayer les scènes' : 'Réessayer'}</button>}
         {g.status === 'done' && g.projectId && <button className="primary" onClick={() => nav(`/p/${g.projectId}`)}>Ouvrir le projet</button>}
       </div>
-      {g.status === 'done' && g.fallbacks.length > 0 && <p className="warn small">Scènes simplifiées (le modèle n'a pas produit de scène valide) : {g.fallbacks.join(', ')}. Retouchez-les dans l'éditeur.</p>}
+      {g.status === 'done' && g.fallbacks.length > 0 && <p className="warn small">Simplifiés (le modèle n'a pas produit de résultat valide) : {g.fallbacks.join(', ')}. Retouchez-les dans l'éditeur (onglet Dessins pour les dessins).</p>}
 
       {sb && editable && (g.status === 'review' || g.status === 'failed') && (
         <section className="storyboard" aria-label="storyboard">
           <div className="row wrap">
             <input className="grow title" value={sb.title} onChange={(e) => edit({ ...sb, title: e.target.value })} aria-label="titre du film" />
-            <span className="muted small">{sb.scenes.length} scène(s) · {Math.round(total)} s visés · {sb.cast.length} personnage(s)</span>
+            <span className="muted small">{sb.scenes.length} scène(s) · {Math.round(total)} s visés · {sb.cast.length + sb.props.length + sb.decors.length} dessin(s) à faire</span>
           </div>
-          <div className="cast-list">
-            {sb.cast.map((c, i) => (
-              <div key={c.id} className="card row wrap">
-                <strong>{c.name}</strong><span className="muted small">{c.id} · {catalog.characters.find((x) => x.kind === c.kind)?.label ?? c.kind}</span>
-                <input className="grow" value={c.description} placeholder="description" onChange={(e) => edit({ ...sb, cast: sb.cast.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)) })} aria-label={`description de ${c.name}`} />
-                <input value={c.voice ?? ''} placeholder="voix (facultatif)" onChange={(e) => edit({ ...sb, cast: sb.cast.map((x, j) => (j === i ? { ...x, voice: e.target.value || undefined } : x)) })} aria-label={`voix de ${c.name}`} />
-              </div>
-            ))}
-          </div>
+          {sb.palette.length > 0 && <div className="palette row" aria-label="palette du film">{sb.palette.map((c, i) => <span key={i} className="swatch" style={{ background: c }} title={c} />)}<span className="muted small">palette du film</span></div>}
+          <Things label="Personnages" what="un personnage" idPrefix="c" withVoice items={sb.cast} onChange={(cast) => edit({ ...sb, cast })} />
+          <Things label="Accessoires" what="un accessoire" idPrefix="p" items={sb.props} onChange={(props) => edit({ ...sb, props, scenes: sb.scenes.map((s) => ({ ...s, props: s.props.filter((x) => props.some((p) => p.id === x)) })) })} />
+          <Things label="Décors" what="un décor" idPrefix="d" items={sb.decors} onChange={(decors) => decors.length && edit({ ...sb, decors, scenes: sb.scenes.map((s) => (decors.some((d) => d.id === s.decor) ? s : { ...s, decor: decors[0]!.id })) })} />
           <ol className="story-scenes">
-            {sb.scenes.map((s, i) => <SceneCard key={s.id} s={s} speakers={sb.cast} onChange={(n) => edit({ ...sb, scenes: sb.scenes.map((x, j) => (j === i ? n : x)) })} onRemove={() => sb.scenes.length > 1 && edit({ ...sb, scenes: sb.scenes.filter((_, j) => j !== i) })} />)}
+            {sb.scenes.map((s, i) => <SceneCard key={s.id} s={s} speakers={sb.cast} decors={sb.decors} props={sb.props} onChange={(n) => edit({ ...sb, scenes: sb.scenes.map((x, j) => (j === i ? n : x)) })} onRemove={() => sb.scenes.length > 1 && edit({ ...sb, scenes: sb.scenes.filter((_, j) => j !== i) })} />)}
           </ol>
           <div className="card form">
             <label>Refaire le storyboard avec une consigne
