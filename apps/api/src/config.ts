@@ -13,6 +13,9 @@
 //   VOICES_DIR                 recorded lines, one WAV per text and voice (default DATA_DIR/voices)
 //   RENDER_THREADS             threads per render job (default: CPU count − 1)
 //   FONTS_DIR                  fonts for server rendering (default: the editor's fonts)
+//   TRUST_PROXY                behind a reverse proxy / load balancer: true (trust X-Forwarded-*), a number of hops,
+//                              or addresses (10.0.0.0/8,…). Off by default: a client could otherwise pick its own IP
+//                              (and escape the sign-in limits)
 //   SMTP_URL                   smtp(s)://user:password@host:port : enables e-mail (invitations, forgotten passwords)
 //   MAIL_FROM                  sender, e.g. "animation-flow <noreply@example.org>" (required with SMTP_URL)
 //   APP_URL                    public address of the app, e.g. https://anim.example.org (required with SMTP_URL:
@@ -37,12 +40,20 @@ export interface Config {
   renderThreads: number;
   fontsDir: string | null;
   mail: { smtpUrl: string; from: string; appUrl: string } | null;
+  trustProxy: boolean | number | string;
 }
 
 export function parseKey(raw: string): Buffer {
   const s = raw.trim(), buf = /^[0-9a-fA-F]{64}$/.test(s) ? Buffer.from(s, 'hex') : Buffer.from(s, 'base64');
   if (buf.length !== 32) throw new Error('APP_ENCRYPTION_KEY must be 32 bytes (base64 or hex); e.g. `openssl rand -base64 32`');
   return buf;
+}
+
+export function parseTrustProxy(v: string | undefined): boolean | number | string {
+  if (!v || v === 'false') return false;
+  if (v === 'true') return true;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v.split(',').map((s) => s.trim()).filter(Boolean).join(',');
 }
 
 function mailConfig(env: NodeJS.ProcessEnv): Config['mail'] {
@@ -85,5 +96,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     renderThreads: Math.max(1, Number(env.RENDER_THREADS ?? Math.max(1, availableParallelism() - 1))),
     fontsDir,
     mail: mailConfig(env),
+    trustProxy: parseTrustProxy(env.TRUST_PROXY),
   };
 }

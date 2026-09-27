@@ -174,6 +174,10 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
     `reset` : tout le monde, dans tous les processus, repart de lui.
 - **Migrations** : un verrou consultatif PostgreSQL les fait passer une à une quand plusieurs processus démarrent
   ensemble.
+- **Déploiement à plusieurs processus** : `docker-compose.cluster.yml` met nginx (`deploy/nginx.conf` : WebSocket,
+  `Host` transmis, connexions longues, répliques suivies par le DNS de Docker) devant `--scale app=N`, avec
+  `TRUST_PROXY=true` pour que l'API voie l'adresse du client. Vérifié dans Docker avec deux répliques, un worker et
+  quatre navigateurs.
 - **Client** (`LiveDoc`, partagé par l'éditeur et les tests) : il applique tout de suite ce que l'utilisateur tape,
   le garde « en attente » jusqu'à l'accusé, et rejoue les modifications en attente par-dessus celles des autres :
   tout le monde converge vers l'ordre du serveur (vérifié sur des entrelacements aléatoires). Après une

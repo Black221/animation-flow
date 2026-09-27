@@ -40,11 +40,15 @@ export interface ServerDeps {
   liveSaveDelay?: number;
   /** e-mail (invitations, forgotten passwords); none by default */
   mail?: MailSetup | null;
+  /** behind a reverse proxy: which X-Forwarded-* to believe (client address, protocol, host) */
+  trustProxy?: boolean | number | string;
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const app: FastifyInstance = Fastify({
     bodyLimit: 8 * 1024 * 1024,
+    // a hop count is supported at run time (proxy-addr), though the types only list true, addresses or a function
+    trustProxy: (deps.trustProxy ?? false) as boolean,
     logger: deps.logger ? { level: 'info', redact: { paths: ['req.headers.authorization', 'req.headers["x-api-key"]', 'req.headers.cookie'], censor: '[masqué]' } } : false,
   });
 

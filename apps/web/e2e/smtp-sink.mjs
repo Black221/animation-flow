@@ -24,10 +24,10 @@ createServer((c) => {
       else c.write('250 ok\r\n');
     }
   });
-}).listen(Number(process.env.SMTP_PORT ?? 2525), '127.0.0.1');
+}).listen(Number(process.env.SMTP_PORT ?? 2525), process.env.HOST ?? '127.0.0.1');
 
 createHttp((req, res) => {
   if (req.url === '/health') return res.end('ok');
   res.setHeader('content-type', 'application/json');
   res.end(JSON.stringify(messages));
-}).listen(Number(process.env.HTTP_PORT ?? 2526), '127.0.0.1');
+}).listen(Number(process.env.HTTP_PORT ?? 2526), process.env.HOST ?? '127.0.0.1');

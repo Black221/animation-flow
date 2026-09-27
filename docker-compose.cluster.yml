@@ -1,0 +1,20 @@
+# Several API processes behind a load balancer, on top of docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build --scale app=2
+#   → http://localhost:3000 (the balancer); people on different processes edit the same project live
+# Each process also renders (ROLE=all); add machines that only render with --profile workers --scale worker=N.
+services:
+  app:
+    ports: !reset []           # reached through the balancer only
+    environment:
+      TRUST_PROXY: "true"      # the client's address comes from the balancer (sign-in limits per person)
+
+  lb:
+    image: nginx:1.27-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:${PORT:-3000}:80"   # local only: put HTTPS in front before exposing it
+    restart: unless-stopped

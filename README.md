@@ -29,7 +29,14 @@ travail (et de tout ce qui existait avant les comptes), puis invite l'équipe de
 cp .env.example .env              # puis remplir APP_ENCRYPTION_KEY : openssl rand -base64 32
 docker compose up --build         # → http://localhost:3000
 docker compose --profile workers up --build --scale worker=2   # avec deux machines de rendu en plus
+# plusieurs processus d'API derrière un répartiteur de charge (nginx, deploy/nginx.conf), sans affinité :
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build --scale app=2
 ```
+
+Vérifié ainsi : deux répliques de l'API derrière nginx, un worker de rendu, PostgreSQL ; quatre personnes sur le
+même projet, dont les connexions en direct se répartissent sur les deux répliques, voient les modifications des
+autres ; les migrations passent une seule fois ; le rendu est pris par le worker ; l'e-mail de mot de passe oublié
+part avec un lien construit sur `APP_URL`.
 
 ## Ce que fait l'application
 
@@ -127,6 +134,7 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 | `DATA_DIR` | données locales (défaut `.data`) |
 | `WEB_DIST` | éditeur construit à servir (défaut `../web/dist`) |
 | `ROLE` | `all` (défaut : API + rendu dans le même processus), `api`, ou `worker` (rendu seul ; demande PostgreSQL et un `RENDERS_DIR` partagé) |
+| `TRUST_PROXY` | derrière un proxy inverse ou un répartiteur : `true`, un nombre de relais, ou leurs adresses (`10.0.0.0/8,…`). L'API voit alors la vraie adresse du client (limites de connexion par personne) et le protocole d'origine. À laisser vide si l'application est jointe directement : un client pourrait sinon choisir l'adresse sous laquelle il est vu |
 | `RENDERS_DIR` | dossier des vidéos (défaut `DATA_DIR/renders`) |
 | `VOICES_DIR` | répliques enregistrées, une par texte et par voix (défaut `DATA_DIR/voices`) |
 | `RENDER_THREADS` | threads par rendu (défaut : nombre de cœurs − 1) |

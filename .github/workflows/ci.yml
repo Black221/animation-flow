@@ -44,3 +44,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t animation-flow .
+      - name: Two API replicas behind the load balancer
+        run: |
+          export APP_ENCRYPTION_KEY=$(openssl rand -base64 32)
+          sed -i 's/^    build: \./    image: animation-flow/' docker-compose.yml
+          docker compose -f docker-compose.yml -f docker-compose.cluster.yml up -d --scale app=2
+          for i in $(seq 1 60); do curl -sf localhost:3000/api/health && break; sleep 2; done
+          test "$(docker compose ps app --format '{{.Health}}' | grep -c healthy)" = 2
+          docker compose -f docker-compose.yml -f docker-compose.cluster.yml down -v
