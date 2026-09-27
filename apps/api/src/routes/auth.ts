@@ -20,6 +20,8 @@ class Limiter {
   private hits = new Map<string, number[]>();
   constructor(private max: number, private windowMs: number) {}
   hit(key: string) { const now = Date.now(), h = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs); h.push(now); this.hits.set(key, h); if (this.hits.size > 10000) this.hits.clear(); return h.length <= this.max; }
+  /** at the limit already (without counting this one) */
+  blocked(key: string) { const now = Date.now(); return (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs).length >= this.max; }
   reset(key: string) { this.hits.delete(key); }
 }
 
@@ -41,7 +43,8 @@ export async function acceptInvitation(q: Queryable, inv: { id: string; workspac
 }
 
 export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode, mail: MailSetup | null = null, hub?: LiveHub) {
-  const logins = new Limiter(10, 15 * 60_000), signups = new Limiter(20, 60 * 60_000), resets = new Limiter(5, 60 * 60_000);
+  // failed sign-ins only: 10 per account and address, 50 per address (an office or a school shares one)
+  const logins = new Limiter(10, 15 * 60_000), failsByIp = new Limiter(50, 15 * 60_000), signups = new Limiter(20, 60 * 60_000), resets = new Limiter(5, 60 * 60_000);
   const ip = (req: FastifyRequest) => req.ip;
   const me = async (userId: string) => {
     const { rows } = await db.query<{ id: string; email: string; name: string; created_at: Date }>('SELECT id, email, name, created_at FROM users WHERE id = $1', [userId]);
@@ -88,10 +91,10 @@ export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode, mai
     const b = z.object({ email: Email, password: z.string().max(200) }).safeParse(req.body);
     if (!b.success) return reply.code(400).send({ error: 'e-mail et mot de passe attendus' });
     const key = `${b.data.email}|${ip(req)}`;
-    if (!logins.hit(key) || !logins.hit(`ip|${ip(req)}`)) return reply.code(429).send({ error: 'trop de tentatives : réessayez dans quelques minutes' });
+    if (logins.blocked(key) || failsByIp.blocked(ip(req))) return reply.code(429).send({ error: 'trop de tentatives : réessayez dans quelques minutes' });
     const { rows } = await db.query<{ id: string; password_hash: string }>('SELECT id, password_hash FROM users WHERE email = $1', [b.data.email]);
     const ok = await verifyPassword(b.data.password, rows[0]?.password_hash ?? (await dummyHash()));
-    if (!rows[0] || !ok) return reply.code(401).send({ error: 'e-mail ou mot de passe incorrect' });
+    if (!rows[0] || !ok) { logins.hit(key); failsByIp.hit(ip(req)); return reply.code(401).send({ error: 'e-mail ou mot de passe incorrect' }); }
     logins.reset(key);
     setSessionCookie(req, reply, await createSession(db, rows[0].id, String(req.headers['user-agent'] ?? '')));
     return { ...(await me(rows[0].id)), signup, setup: false, mail: !!mail };

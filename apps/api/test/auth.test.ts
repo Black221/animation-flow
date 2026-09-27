@@ -67,6 +67,10 @@ describe('signing in', () => {
     expect(last).toBe(429);
   });
 
+  it('does not count successful sign-ins against an address: a whole office may sign in', async () => {
+    for (let i = 0; i < 15; i++) expect((await app.inject({ method: 'POST', url: '/api/auth/login', headers: H, remoteAddress: '10.0.0.77', payload: { email: 'awa@example.org', password: PASSWORD } })).statusCode).toBe(200);
+  });
+
   it('signs out', async () => {
     const c = await signIn(app, 'awa@example.org');
     expect((await c.inject({ method: 'POST', url: '/api/auth/logout' })).statusCode).toBe(200);
