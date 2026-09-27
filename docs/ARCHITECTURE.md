@@ -129,11 +129,30 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
   (le catalogue sert à l'éditeur, à la validation et aux consignes données aux modèles).
 - **un fournisseur de modèles** : une entrée dans `PROVIDERS` (`packages/providers`) et, si son API diffère, sa façon de lister les modèles.
 
+## Comptes, espaces et rôles (`apps/api/src/auth`)
+
+- Tables : `users`, `sessions` (empreinte du jeton), `workspaces`, `memberships` (rôle), `invitations` (empreinte du
+  lien, rôle, expiration, adresse facultative). Projets, clés, choix des modèles et générations portent un
+  `workspace_id` ; les rendus suivent leur projet ; les voix sont rangées dans `VOICES_DIR/<espace>/`.
+- Chaque route déclare dans sa configuration ce qu'elle exige : `{ auth: 'public' }`, `{ auth: 'user' }` ou
+  `{ role: 'viewer' | 'editor' | 'admin' | 'owner' }` (défaut : `viewer`, donc jamais ouverte par oubli). Un seul
+  crochet (`installAuth`) lit la session, l'espace demandé (`x-workspace-id`, sinon le premier) et le rôle.
+- Toute requête d'un espace filtre sur cet espace : un objet d'un autre espace est « introuvable » (404), sans
+  révéler qu'il existe. Les liens signés (vidéos, voix) incluent l'identifiant de l'espace.
+- Migration : les données d'avant les comptes vont dans un espace par défaut ; le premier compte en devient
+  propriétaire ; les voix déjà enregistrées sont déplacées dans son dossier au démarrage.
+
 ## API (`apps/api`)
 
 | route | rôle |
 |---|---|
-| `GET /api/health` | état (sans jeton) |
+| `GET /api/health` | état (sans compte) |
+| `GET /api/auth/me`, `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, `PATCH /api/auth/me` | compte : état, inscription, connexion, déconnexion, nom et mot de passe |
+| `GET /api/invitations/:token`, `POST /api/invitations/:token/accept` | invitation : ce qu'elle donne ; l'accepter une fois connecté |
+| `GET /api/workspaces`, `POST /api/workspaces` | mes espaces ; en créer un |
+| `GET/PATCH/DELETE /api/workspace` | l'espace courant : membres et invitations, renommer, supprimer (propriétaire, nom à retaper) |
+| `POST /api/workspace/invitations`, `DELETE /api/workspace/invitations/:id` | créer un lien d'invitation (affiché une fois), le révoquer |
+| `PATCH/DELETE /api/workspace/members/:userId` | changer un rôle, transmettre la propriété ; retirer un membre, partir |
 | `GET /api/library`, `GET /api/schema` | bibliothèque, styles, modèles de projet ; schéma JSON du format |
 | `GET/POST /api/projects`, `GET/PUT/DELETE /api/projects/:id` | projets ; `PUT` exige `baseVersion` (sinon 409 avec la version actuelle) et valide (422 avec les erreurs) |
 | `GET /api/projects/:id/versions`, `GET /api/projects/:id/subtitles.srt` | historique ; sous-titres |

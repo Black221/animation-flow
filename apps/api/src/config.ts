@@ -4,7 +4,8 @@
 //   DATA_DIR                   local data (embedded database, development key), default ./.data
 //   APP_ENCRYPTION_KEY         32 bytes, base64 or hex: encrypts the API keys stored in the database. Required in
 //                              production; in development one is generated once into DATA_DIR (never committed)
-//   APP_ACCESS_TOKEN           optional shared token: when set, every /api call must send "Authorization: Bearer …"
+//   SIGNUP                     invite (default: only the first account and invited people) · open (anyone)
+//   COOKIE_SECURE              true / false: force the Secure flag on the session cookie (default: when HTTPS)
 //   WEB_DIST                   built web app to serve (default ../web/dist)
 //   ROLE                       all (default: API + render worker in one process) · api · worker (renders only; needs a
 //                              shared PostgreSQL and a shared RENDERS_DIR)
@@ -23,7 +24,7 @@ export interface Config {
   databaseUrl: string | null;
   dataDir: string;
   encryptionKey: Buffer;
-  accessToken: string | null;
+  signup: 'invite' | 'open';
   webDist: string | null;
   production: boolean;
   role: 'all' | 'api' | 'worker';
@@ -60,7 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl: env.DATABASE_URL || null,
     dataDir,
     encryptionKey,
-    accessToken: env.APP_ACCESS_TOKEN || null,
+    signup: env.SIGNUP === 'open' ? 'open' : 'invite',
     webDist: existsSync(join(webDist, 'index.html')) ? webDist : null,
     production,
     role,

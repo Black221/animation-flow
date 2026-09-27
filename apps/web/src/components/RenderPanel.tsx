@@ -10,8 +10,8 @@ const mb = (b: number | null) => (b == null ? '' : `${(b / 1e6).toFixed(1)} Mo`)
 // renders are H.264 MP4 (plays in Chrome, Edge, Firefox, Safari); open-source Chromium builds lack the codec
 const canPlayH264 = () => typeof document !== 'undefined' && document.createElement('video').canPlayType('video/mp4; codecs="avc1.42E01E"') !== '';
 
-export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst }: {
-  projectId: string; project: Project; sceneId: string; dirty: boolean;
+export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst, readOnly = false }: {
+  projectId: string; project: Project; sceneId: string; dirty: boolean; readOnly?: boolean;
   /** saves the draft; resolves false if it could not */
   saveFirst: () => Promise<boolean>;
 }) {
@@ -46,7 +46,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst }: {
   return (
     <section className="card render-panel" aria-label="rendu vidéo">
       <h3>Vidéo</h3>
-      <div className="row wrap">
+      {!readOnly && <div className="row wrap">
         <label>Style <select value={style} onChange={(e) => setStyle(e.target.value)}>{Object.values(stylePacks).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
         <label>Largeur <select value={width} onChange={(e) => setWidth(+e.target.value)} aria-label="largeur">{[640, 960, 1280, 1920].map((w) => <option key={w} value={w}>{w} px</option>)}</select></label>
         <label>Qualité <select value={quality} onChange={(e) => setQuality(e.target.value as RenderRequest['quality'])}>{Object.entries(QUALITY).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
@@ -54,7 +54,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst }: {
         <label className="check"><input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} /> sous-titres</label>
         <label className="check"><input type="checkbox" checked={audio} onChange={(e) => setAudio(e.target.checked)} aria-label="son du rendu" /> son</label>
         <button className="primary" onClick={() => void start()} disabled={busy}>{dirty ? 'Enregistrer et rendre' : 'Rendre la vidéo'}</button>
-      </div>
+      </div>}
       {error && <p className="error small" role="alert">{error}</p>}
       {shown?.videoUrl && (canPlayH264()
         ? <video key={shown.id} className="video" controls src={shown.videoUrl} data-testid="video" />
@@ -73,10 +73,10 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst }: {
                 {j.status === 'failed' && <span className="error small" title={j.error ?? ''}>{j.error}</span>}
                 {j.status === 'done' && j.warnings.length > 0 && <span className="warn small" title={j.warnings.join('\n')}>⚠ {j.warnings[0]}</span>}
                 <span className="spacer" />
-                {(j.status === 'queued' || j.status === 'running') && <button onClick={() => void act(() => Api.cancelRender(j.id))}>Annuler</button>}
+                {!readOnly && (j.status === 'queued' || j.status === 'running') && <button onClick={() => void act(() => Api.cancelRender(j.id))}>Annuler</button>}
                 {j.videoUrl && j.id !== shown?.id && <button onClick={() => setWatching(j.id)}>Voir</button>}
                 {j.videoUrl && <a className="button" href={`${j.videoUrl}&download=1`}>Télécharger</a>}
-                {j.status !== 'queued' && j.status !== 'running' && <button className="ghost" onClick={() => void act(() => Api.deleteRender(j.id))} aria-label="supprimer le rendu">✕</button>}
+                {!readOnly && j.status !== 'queued' && j.status !== 'running' && <button className="ghost" onClick={() => void act(() => Api.deleteRender(j.id))} aria-label="supprimer le rendu">✕</button>}
               </li>
             );
           })}

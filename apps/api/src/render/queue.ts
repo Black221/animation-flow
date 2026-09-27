@@ -16,10 +16,10 @@ export interface RenderRow {
 export const MAX_ATTEMPTS = 2;
 export const STALE_AFTER_S = 90;
 
-export async function enqueue(db: Db, projectId: string, version: number, options: RenderOptionsDb, framesTotal: number): Promise<RenderRow> {
+export async function enqueue(db: Db, projectId: string, version: number, by: string | null, options: RenderOptionsDb, framesTotal: number): Promise<RenderRow> {
   const { rows } = await db.query<RenderRow>(
-    'INSERT INTO renders (id, project_id, project_version, options, frames_total) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-    [randomUUID(), projectId, version, JSON.stringify(options), framesTotal]);
+    'INSERT INTO renders (id, project_id, project_version, options, frames_total, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+    [randomUUID(), projectId, version, JSON.stringify(options), framesTotal, by]);
   return rows[0]!;
 }
 

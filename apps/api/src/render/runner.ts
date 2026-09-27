@@ -31,7 +31,7 @@ export function startRunner(o: RunnerOptions): Runner {
   const idleWaiters: (() => void)[] = [];
 
   const runJob = async (job: RenderRow) => {
-    const { rows } = await o.db.query<{ data: unknown }>('SELECT data FROM project_versions WHERE project_id = $1 AND version = $2', [job.project_id, job.project_version]);
+    const { rows } = await o.db.query<{ data: unknown; workspace_id: string }>('SELECT v.data, p.workspace_id FROM project_versions v JOIN projects p ON p.id = v.project_id WHERE v.project_id = $1 AND v.version = $2', [job.project_id, job.project_version]);
     if (!rows[0]) return fail(o.db, job.id, 'version du projet introuvable');
     const ctrl = new AbortController(); current = ctrl;
     const out = join(o.rendersDir, `${job.id}.mp4`), opt = job.options, audioFile = `${out}.audio.wav`, warnings: string[] = [];
@@ -43,7 +43,7 @@ export function startRunner(o: RunnerOptions): Runner {
       const parsed = parseProject(rows[0].data);
       if (opt.audio !== false && parsed.ok) {
         const assets = parsed.project.scenes.flatMap((s) => s.narration.filter(voiceIsCurrent).map((l) => l.audio!.asset));
-        const voices = loadVoices(o.voicesDir, new Set(assets), (b) => decodeWav(b).channels[0]!);
+        const voices = loadVoices(o.voicesDir, rows[0].workspace_id, new Set(assets), (b) => decodeWav(b).channels[0]!);
         const mix = mixSoundtrack({ project: parsed.project, voices, ...(range ? { range } : {}) });
         if (mix.missing.length) warnings.push(`${mix.missing.length} réplique(s) sans voix enregistrée : ${mix.missing.slice(0, 6).join(', ')}${mix.missing.length > 6 ? '…' : ''}`);
         if (mix.unknownSounds.length) warnings.push(`bruitages inconnus : ${mix.unknownSounds.join(', ')}`);

@@ -29,8 +29,10 @@ services:
       DATABASE_URL: postgres://af:${POSTGRES_PASSWORD:-af}@db:5432/af
       # encrypts the API keys stored in the database: keep it safe, changing it makes stored keys unreadable
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?set APP_ENCRYPTION_KEY in .env (openssl rand -base64 32)}
-      # optional: a token shared by the team, asked once by the editor
-      APP_ACCESS_TOKEN: ${APP_ACCESS_TOKEN:-}
+      # who may create an account: invite (default: the first account, then invited people) or open
+      SIGNUP: ${SIGNUP:-invite}
+      # the session cookie gets the Secure flag behind HTTPS (detected from X-Forwarded-Proto); force it with true
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
       # threads per render job (default: CPU count − 1)
       RENDER_THREADS: ${RENDER_THREADS:-}
     volumes:

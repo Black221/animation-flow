@@ -3,7 +3,7 @@ import { catalog, registry } from '@af/library';
 import { parseProject, type Project, type Scene } from '@af/schema';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { Api, ApiError, getToken, type ProjectDoc } from '../api';
+import { Api, ApiError, getWorkspace, RANK, type ProjectDoc } from '../api';
 import { JsonEditor, type JsonIssue } from '../components/JsonEditor';
 import { Player } from '../components/Player';
 import { RenderPanel } from '../components/RenderPanel';
@@ -11,6 +11,7 @@ import { VoicesPanel } from '../components/VoicesPanel';
 import { useSoundtrack } from '../audio/useSoundtrack';
 import { Timeline } from '../components/Timeline';
 import { Playback } from '../playback';
+import { useSession } from '../session';
 
 type Tab = 'scene' | 'voices' | 'project' | 'cast';
 // until the project is loaded, the soundtrack hook gets this (it mixes nothing while disabled)
@@ -35,6 +36,7 @@ export function Editor() {
   const [aiNote, setAiNote] = useState('');
   const [undo, setUndo] = useState<{ index: number; scene: Scene } | null>(null);
   const pb = useMemo(() => new Playback(), []);
+  const editable = useSession().can('editor');
   const [sound, setSound] = useState(true);
 
   const load = useCallback(async () => {
@@ -96,7 +98,7 @@ export function Editor() {
   const removeScene = () => { if (draft.scenes.length < 2 || !confirm(`Supprimer la scène « ${scene.title || scene.id} » ?`)) return; update({ ...draft, scenes: draft.scenes.filter((_, k) => k !== i) }); setSel(Math.max(0, i - 1)); setResetN((x) => x + 1); };
   const moveScene = (d: -1 | 1) => { const j = i + d; if (j < 0 || j >= draft.scenes.length) return; const s = draft.scenes.slice(); [s[i], s[j]] = [s[j]!, s[i]!]; update({ ...draft, scenes: s }); setSel(j); setResetN((x) => x + 1); };
   const downloadSrt = async () => {
-    const r = await fetch(`/api/projects/${doc.id}/subtitles.srt`, { headers: getToken() ? { authorization: `Bearer ${getToken()}` } : {} });
+    const r = await fetch(`/api/projects/${doc.id}/subtitles.srt`, { headers: { 'x-workspace-id': getWorkspace() } });
     if (!r.ok) return setError('export des sous-titres impossible');
     const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `${draft.title}.srt`; a.click(); URL.revokeObjectURL(a.href);
   };
@@ -107,8 +109,10 @@ export function Editor() {
         <Link to="/" className="muted">← Projets</Link>
         <h1 title={draft.title}>{draft.title}</h1>
         <span className={`badge${dirty ? ' warn' : ''}`} data-testid="save-state">{dirty ? 'modifié' : `version ${doc.version}`}</span>
+        {!dirty && doc.updatedBy && <span className="muted small" data-testid="author">par {doc.updatedBy}</span>}
         <button onClick={downloadSrt}>Sous-titres .srt</button>
-        <button className="primary" onClick={() => void save()} disabled={!dirty || saving}>{saving ? 'Enregistrement…' : 'Enregistrer'}</button>
+        {editable ? <button className="primary" onClick={() => void save()} disabled={!dirty || saving}>{saving ? 'Enregistrement…' : 'Enregistrer'}</button>
+          : <span className="readonly-note" data-testid="read-only">Lecture seule (rôle lecteur)</span>}
       </div>
       {conflict && (
         <div className="banner warn" role="alert">
@@ -131,12 +135,12 @@ export function Editor() {
             </li>
           ))}
         </ol>
-        <div className="row">
+        {editable && <div className="row">
           <button onClick={addScene} title="ajouter une scène après celle-ci">+ scène</button>
           <button onClick={() => moveScene(-1)} disabled={i === 0} aria-label="monter la scène">↑</button>
           <button onClick={() => moveScene(1)} disabled={i === draft.scenes.length - 1} aria-label="descendre la scène">↓</button>
           <button onClick={removeScene} disabled={draft.scenes.length < 2} aria-label="supprimer la scène">✕</button>
-        </div>
+        </div>}
         {warnings.length > 0 && (
           <div className="warnings">
             <h4>À vérifier</h4>
@@ -150,7 +154,7 @@ export function Editor() {
           audio={soundtrack.buffer} sound={sound} onSound={setSound}
           soundInfo={!sound ? '' : soundtrack.error ? `son : ${soundtrack.error}` : soundtrack.mixing ? 'mixage du son…' : soundtrack.missing.length ? `${soundtrack.missing.length} réplique(s) sans voix` : soundtrack.buffer ? 'son prêt' : ''} />
         <Timeline project={draft} timeline={timeline} pb={pb} selected={i} onSelect={select} />
-        <RenderPanel projectId={doc.id} project={draft} sceneId={scene.id} dirty={dirty} saveFirst={() => save()} />
+        <RenderPanel projectId={doc.id} project={draft} sceneId={scene.id} dirty={dirty} saveFirst={() => save()} readOnly={!editable} />
       </section>
 
       <aside className="inspector">
@@ -161,7 +165,7 @@ export function Editor() {
             </button>
           ))}
         </div>
-        {tab === 'scene' && (
+        {tab === 'scene' && editable && (
           <form className="ai-edit" onSubmit={(e) => { e.preventDefault(); void (async () => {
             setAsking(true); setAiNote('');
             try {
@@ -180,9 +184,9 @@ export function Editor() {
           </form>
         )}
         {tab === 'scene' && (
-          <JsonEditor label="scène (JSON)" value={scene} resetKey={`scene:${i}:${resetN}`} validate={(v) => issuesOf(withScene(draft, i, v))} onApply={(v) => update(withScene(draft, i, v) as Project)} />
+          <JsonEditor label="scène (JSON)" readOnly={!editable} value={scene} resetKey={`scene:${i}:${resetN}`} validate={(v) => issuesOf(withScene(draft, i, v))} onApply={(v) => update(withScene(draft, i, v) as Project)} />
         )}
-        {tab === 'voices' && <VoicesPanel project={draft} onChange={update} />}
+        {tab === 'voices' && <VoicesPanel project={draft} onChange={update} readOnly={!editable} />}
         {tab === 'project' && (
           <div className="form">
             <label>Titre <input value={draft.title} onChange={(e) => e.target.value.trim() && update({ ...draft, title: e.target.value })} /></label>
@@ -195,7 +199,7 @@ export function Editor() {
           </div>
         )}
         {tab === 'cast' && (
-          <JsonEditor label="distribution (JSON)" value={draft.cast} resetKey={`cast:${resetN}`} validate={(v) => issuesOf({ ...draft, cast: v })} onApply={(v) => update({ ...draft, cast: v as Project['cast'] })} />
+          <JsonEditor label="distribution (JSON)" readOnly={!editable} value={draft.cast} resetKey={`cast:${resetN}`} validate={(v) => issuesOf({ ...draft, cast: v })} onApply={(v) => update({ ...draft, cast: v as Project['cast'] })} />
         )}
       </aside>
     </div>

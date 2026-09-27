@@ -1,0 +1,51 @@
+import { expect, test } from '@playwright/test';
+import { signedIn } from './auth';
+
+test('invite a teammate from the Team page; roles change what they can do', async ({ page, browser }) => {
+  await signedIn(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Créer' }).click();
+  await expect(page).toHaveURL(/\/p\//);
+  await expect(page.getByTestId('author')).toHaveText('par Olga');
+
+  // the owner makes an invitation link for an editor
+  await page.getByRole('link', { name: 'Équipe' }).click();
+  const invite = page.getByRole('region', { name: 'inviter' });
+  await invite.getByLabel('rôle invité').selectOption('editor');
+  await invite.getByRole('button', { name: 'Créer un lien' }).click();
+  const link = await invite.getByLabel("lien d'invitation").inputValue();
+  expect(link).toMatch(/\/invite\/[\w-]{20,}$/);
+
+  // the teammate opens it in another browser, signs up, lands in the owner's workspace
+  const other = await browser.newContext({ extraHTTPHeaders: { 'x-requested-with': 'animation-flow' } });
+  const mate = await other.newPage();
+  await mate.goto(link);
+  await expect(mate.getByRole('main').or(mate.locator('body'))).toContainText('comme éditeur');
+  const form = mate.getByRole('form', { name: 'inscription' });
+  await form.getByLabel('Nom').fill('Ed');
+  await form.getByLabel('E-mail').fill('ed@example.org');
+  await form.getByLabel(/Mot de passe/).fill('mot-de-passe-solide-2');
+  await form.getByRole('button', { name: 'Créer le compte' }).click();
+  await expect(mate.getByLabel('espace de travail')).toContainText('Mon espace · éditeur');
+  await expect(mate.locator('.project-list li')).toHaveCount(await page.request.get('/api/projects').then(async (r) => (await r.json()).length));
+
+  // the owner sees two members and makes the editor a viewer
+  await page.reload();
+  await expect(page.getByTestId('member')).toHaveCount(2);
+  await page.getByLabel('rôle de Ed').selectOption('viewer');
+
+  // now read-only for the teammate: no save, no creation, keys page locked
+  await mate.goto('/');
+  await expect(mate.locator('.readonly-note')).toContainText('Rôle lecteur');
+  await expect(mate.getByRole('button', { name: 'Créer' })).toHaveCount(0);
+  await mate.locator('.project-list .title').first().click();
+  await expect(mate.getByTestId('read-only')).toBeVisible();
+  await expect(mate.getByRole('button', { name: 'Enregistrer', exact: true })).toHaveCount(0);
+  await mate.goto('/settings');
+  await expect(mate.getByTestId('read-only')).toBeVisible();
+
+  // signing out closes the session
+  await mate.getByRole('button', { name: 'Se déconnecter' }).click();
+  await expect(mate.getByRole('form', { name: 'connexion' })).toBeVisible();
+  await other.close();
+});

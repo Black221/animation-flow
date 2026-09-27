@@ -16,6 +16,8 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     viewport: { width: 1440, height: 900 },
+    // the API refuses writes without it (CSRF); page.request calls in the tests send it too
+    extraHTTPHeaders: { 'x-requested-with': 'animation-flow' },
     ...(existsSync(chromium) ? { launchOptions: { executablePath: chromium } } : {}),
   },
   webServer: {

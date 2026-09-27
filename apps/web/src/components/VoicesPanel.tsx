@@ -9,7 +9,7 @@ type Status = 'current' | 'stale' | 'none';
 const statusOf = (l: Project['scenes'][number]['narration'][number]): Status => (voiceIsCurrent(l) ? 'current' : l.audio ? 'stale' : 'none');
 const LABEL: Record<Status, string> = { current: 'enregistrée', stale: 'texte modifié', none: 'pas de voix' };
 
-export function VoicesPanel({ project, onChange }: { project: Project; onChange: (p: Project) => void }) {
+export function VoicesPanel({ project, onChange, readOnly = false }: { project: Project; onChange: (p: Project) => void; readOnly?: boolean }) {
   const [busy, setBusy] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState('');
   const stop = useRef(false), latest = useRef(project);
@@ -44,12 +44,12 @@ export function VoicesPanel({ project, onChange }: { project: Project; onChange:
 
   return (
     <div className="voices" data-testid="voices">
-      <div className="row wrap">
+      {!readOnly && <div className="row wrap">
         <button className="primary" onClick={() => void recordAll()} disabled={!!busy || todo.length === 0}>
           {busy ? `Enregistrement ${busy.done}/${busy.total}…` : todo.length ? `Enregistrer les voix manquantes (${todo.length})` : 'Toutes les répliques ont leur voix'}
         </button>
         {busy && <button onClick={() => { stop.current = true; }}>Arrêter</button>}
-      </div>
+      </div>}
       <p className="muted small">Voix et modèle : <Link to="/settings">Réglages → Fournisseurs → Narration</Link>. Une voix par personnage : champ <code>voice</code> dans la distribution. Chaque réplique n'est payée qu'une fois.</p>
       {error && <p className="error small" role="alert">{error}</p>}
       <ol className="voice-list">

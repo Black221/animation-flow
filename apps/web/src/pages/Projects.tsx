@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { stylePacks } from '@af/styles';
 import { Api, type Generation, type ProjectSummary } from '../api';
+import { useSession } from '../session';
 
 const TEMPLATE_LABELS: Record<string, string> = { example: 'Exemple (Awa et Jumo)', blank: 'Projet vide' };
 
@@ -12,6 +13,7 @@ export function Projects() {
   const [title, setTitle] = useState('');
   const [error, setError] = useState('');
   const nav = useNavigate();
+  const editable = useSession().can('editor');
   const [text, setText] = useState('');
   const [language, setLanguage] = useState('fr');
   const [style, setStyle] = useState('watercolor');
@@ -41,7 +43,7 @@ export function Projects() {
 
   return (
     <div className="page">
-      <section className="card create">
+      {editable && <><section className="card create">
         <h2>Nouveau projet</h2>
         <div className="row wrap">
           <select value={template} onChange={(e) => setTemplate(e.target.value)} aria-label="modèle">{templates.map((t) => <option key={t} value={t}>{TEMPLATE_LABELS[t] ?? t}</option>)}</select>
@@ -67,7 +69,8 @@ export function Projects() {
             ))}
           </ul>
         )}
-      </section>
+      </section></>}
+      {!editable && <p className="readonly-note">Rôle lecteur : vous consultez les projets de l'équipe sans les modifier.</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <h2>Projets</h2>
       {list === null ? <p className="muted">Chargement…</p> : list.length === 0 ? <p className="muted">Aucun projet pour l'instant.</p> : (
@@ -75,8 +78,8 @@ export function Projects() {
           {list.map((p) => (
             <li key={p.id} className="card">
               <Link to={`/p/${p.id}`} className="title">{p.title}</Link>
-              <span className="muted small">version {p.version} · {new Date(p.updatedAt).toLocaleString('fr-FR')}</span>
-              <button className="ghost" onClick={() => void remove(p)} aria-label={`supprimer ${p.title}`}>Supprimer</button>
+              <span className="muted small">version {p.version}{p.updatedBy ? ` · ${p.updatedBy}` : ''} · {new Date(p.updatedAt).toLocaleString('fr-FR')}</span>
+              {editable && <button className="ghost" onClick={() => void remove(p)} aria-label={`supprimer ${p.title}`}>Supprimer</button>}
             </li>
           ))}
         </ul>

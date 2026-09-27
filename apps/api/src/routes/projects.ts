@@ -1,5 +1,6 @@
-// Projects: validated on every write (schema + library check), versioned (every save keeps the previous JSON), and
-// protected against lost updates: a save must name the version it started from, or it gets 409 and the current one.
+// Projects: validated on every write (schema + library check), versioned (every save keeps the previous JSON with
+// its author), and protected against lost updates: a save must name the version it started from, or it gets 409
+// and the current one. Everything is scoped to the current workspace: another workspace's project is "not found".
 import { checkAgainstLibrary, timeProject, toSrt } from '@af/engine';
 import { catalog, registry } from '@af/library';
 import { parseProject, projectJsonSchema } from '@af/schema';
@@ -7,82 +8,88 @@ import { stylePacks } from '@af/styles';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
 import { TEMPLATES } from '../templates';
 
-interface Row { id: string; title: string; data: unknown; version: number; created_at: Date; updated_at: Date }
-const summary = (r: Row) => ({ id: r.id, title: r.title, version: r.version, createdAt: r.created_at, updatedAt: r.updated_at });
+interface Row { id: string; title: string; data: unknown; version: number; created_at: Date; updated_at: Date; updated_by_name: string | null; created_by_name: string | null }
+const summary = (r: Row) => ({ id: r.id, title: r.title, version: r.version, createdAt: r.created_at, updatedAt: r.updated_at, updatedBy: r.updated_by_name, createdBy: r.created_by_name });
 const Uuid = z.object({ id: z.string().uuid() });
+const SELECT = `SELECT p.*, uu.name AS updated_by_name, cu.name AS created_by_name FROM projects p
+  LEFT JOIN users uu ON uu.id = p.updated_by LEFT JOIN users cu ON cu.id = p.created_by`;
 
 export function projectRoutes(app: FastifyInstance, db: Db) {
-  const load = async (id: string) => (await db.query<Row>('SELECT * FROM projects WHERE id = $1', [id])).rows[0];
+  const load = async (id: string, ws: string) => (await db.query<Row>(`${SELECT} WHERE p.id = $1 AND p.workspace_id = $2`, [id, ws])).rows[0];
 
-  app.get('/api/library', async () => ({
+  app.get('/api/library', { config: { auth: 'user' } }, async () => ({
     catalog,
     styles: Object.values(stylePacks).map((s) => ({ id: s.id, label: s.label, description: s.description })),
     templates: Object.keys(TEMPLATES),
   }));
-  app.get('/api/schema', async () => projectJsonSchema());
+  app.get('/api/schema', { config: { auth: 'user' } }, async () => projectJsonSchema());
 
-  app.get('/api/projects', async () => (await db.query<Row>('SELECT id, title, version, created_at, updated_at FROM projects ORDER BY updated_at DESC')).rows.map(summary));
+  app.get('/api/projects', { config: { role: 'viewer' } }, async (req) =>
+    (await db.query<Row>(`${SELECT} WHERE p.workspace_id = $1 ORDER BY p.updated_at DESC`, [wsOf(req).id])).rows.map(summary));
 
-  app.post('/api/projects', async (req, reply) => {
+  app.post('/api/projects', { config: { role: 'editor' } }, async (req, reply) => {
     const body = z.object({ template: z.string().optional(), title: z.string().max(200).optional(), project: z.unknown().optional() }).safeParse(req.body ?? {});
     if (!body.success) return reply.code(400).send({ error: 'requête invalide' });
     const { template = 'example', title, project } = body.data;
     if (!project && !TEMPLATES[template]) return reply.code(400).send({ error: `modèle inconnu : ${template}` });
     const parsed = parseProject(project ?? TEMPLATES[template]!(title));
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
-    const id = randomUUID(), data = JSON.stringify(parsed.project);
+    const id = randomUUID(), data = JSON.stringify(parsed.project), ws = wsOf(req).id, by = userOf(req).id;
     await db.tx(async (q) => {
-      await q.query('INSERT INTO projects (id, title, data) VALUES ($1, $2, $3)', [id, parsed.project.title, data]);
-      await q.query('INSERT INTO project_versions (project_id, version, data) VALUES ($1, 1, $2)', [id, data]);
+      await q.query('INSERT INTO projects (id, title, data, workspace_id, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $5)', [id, parsed.project.title, data, ws, by]);
+      await q.query('INSERT INTO project_versions (project_id, version, data, created_by) VALUES ($1, 1, $2, $3)', [id, data, by]);
     });
-    const row = (await load(id))!;
+    const row = (await load(id, ws))!;
     return reply.code(201).send({ ...summary(row), project: parsed.project, warnings: checkAgainstLibrary(parsed.project, registry, catalog) });
   });
 
-  app.get('/api/projects/:id', async (req, reply) => {
+  app.get('/api/projects/:id', { config: { role: 'viewer' } }, async (req, reply) => {
     const p = Uuid.safeParse(req.params);
-    const row = p.success ? await load(p.data.id) : undefined;
+    const row = p.success ? await load(p.data.id, wsOf(req).id) : undefined;
     if (!row) return reply.code(404).send({ error: 'projet introuvable' });
     const parsed = parseProject(row.data);
     return { ...summary(row), project: row.data, warnings: parsed.ok ? checkAgainstLibrary(parsed.project, registry, catalog) : [] };
   });
 
-  app.put('/api/projects/:id', async (req, reply) => {
+  app.put('/api/projects/:id', { config: { role: 'editor' } }, async (req, reply) => {
     const p = Uuid.safeParse(req.params), body = z.object({ project: z.unknown(), baseVersion: z.number().int() }).safeParse(req.body);
     if (!p.success || !body.success) return reply.code(400).send({ error: 'requête invalide : { project, baseVersion } attendus' });
-    const row = await load(p.data.id);
+    const ws = wsOf(req).id, by = userOf(req).id, row = await load(p.data.id, ws);
     if (!row) return reply.code(404).send({ error: 'projet introuvable' });
     if (row.version !== body.data.baseVersion) return reply.code(409).send({ error: 'le projet a été modifié entre-temps', current: { ...summary(row), project: row.data } });
     const parsed = parseProject(body.data.project);
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
     const data = JSON.stringify(parsed.project), version = row.version + 1;
     const saved = await db.tx(async (q) => {
-      const upd = await q.query<Row>('UPDATE projects SET data = $1, title = $2, version = $3, updated_at = now() WHERE id = $4 AND version = $5 RETURNING *', [data, parsed.project.title, version, row.id, row.version]);
-      if (upd.rows[0]) await q.query('INSERT INTO project_versions (project_id, version, data) VALUES ($1, $2, $3)', [row.id, version, data]);
+      const upd = await q.query<{ id: string }>('UPDATE projects SET data = $1, title = $2, version = $3, updated_at = now(), updated_by = $6 WHERE id = $4 AND version = $5 RETURNING id', [data, parsed.project.title, version, row.id, row.version, by]);
+      if (upd.rows[0]) await q.query('INSERT INTO project_versions (project_id, version, data, created_by) VALUES ($1, $2, $3, $4)', [row.id, version, data, by]);
       return upd.rows[0];
     });
     if (!saved) return reply.code(409).send({ error: 'le projet a été modifié entre-temps' });
-    return { ...summary(saved), project: parsed.project, warnings: checkAgainstLibrary(parsed.project, registry, catalog) };
+    return { ...summary((await load(row.id, ws))!), project: parsed.project, warnings: checkAgainstLibrary(parsed.project, registry, catalog) };
   });
 
-  app.delete('/api/projects/:id', async (req, reply) => {
+  app.delete('/api/projects/:id', { config: { role: 'editor' } }, async (req, reply) => {
     const p = Uuid.safeParse(req.params);
-    const r = p.success ? await db.query('DELETE FROM projects WHERE id = $1 RETURNING id', [p.data.id]) : { rows: [] };
+    const r = p.success ? await db.query('DELETE FROM projects WHERE id = $1 AND workspace_id = $2 RETURNING id', [p.data.id, wsOf(req).id]) : { rows: [] };
     return r.rows.length ? reply.code(204).send() : reply.code(404).send({ error: 'projet introuvable' });
   });
 
-  app.get('/api/projects/:id/versions', async (req, reply) => {
+  app.get('/api/projects/:id/versions', { config: { role: 'viewer' } }, async (req, reply) => {
     const p = Uuid.safeParse(req.params);
-    if (!p.success || !(await load(p.data.id))) return reply.code(404).send({ error: 'projet introuvable' });
-    return (await db.query<{ version: number; created_at: Date }>('SELECT version, created_at FROM project_versions WHERE project_id = $1 ORDER BY version DESC', [p.data.id])).rows.map((r) => ({ version: r.version, createdAt: r.created_at }));
+    if (!p.success || !(await load(p.data.id, wsOf(req).id))) return reply.code(404).send({ error: 'projet introuvable' });
+    return (await db.query<{ version: number; created_at: Date; name: string | null }>(
+      'SELECT v.version, v.created_at, u.name FROM project_versions v LEFT JOIN users u ON u.id = v.created_by WHERE v.project_id = $1 ORDER BY v.version DESC', [p.data.id])).rows
+      .map((r) => ({ version: r.version, createdAt: r.created_at, by: r.name }));
   });
 
-  app.get('/api/projects/:id/subtitles.srt', async (req, reply) => {
+  app.get('/api/projects/:id/subtitles.srt', { config: { role: 'viewer' } }, async (req, reply) => {
     const p = Uuid.safeParse(req.params);
-    const row = p.success ? await load(p.data.id) : undefined;
+    const row = p.success ? await load(p.data.id, wsOf(req).id) : undefined;
     const parsed = row ? parseProject(row.data) : null;
     if (!parsed?.ok) return reply.code(404).send({ error: 'projet introuvable' });
     return reply.type('application/x-subrip; charset=utf-8').header('content-disposition', 'attachment; filename="sous-titres.srt"').send(toSrt(parsed.project, timeProject(parsed.project)));

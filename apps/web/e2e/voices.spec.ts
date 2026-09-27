@@ -1,3 +1,4 @@
+import { signedIn } from './auth';
 import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -32,6 +33,7 @@ test.beforeAll(async () => {
 test.afterAll(() => { server.close(); });
 
 test('record the narration, hear it in the preview, render it into the video', async ({ page }) => {
+  await signedIn(page);
   // a voice key and the narration task, through the API (the settings page drives the same routes)
   const cred = await (await page.request.post('/api/credentials', { data: { provider: 'openai', label: 'voix locale', apiKey: 'sk-local-test-000000', baseUrl: base } })).json();
   expect((await page.request.put('/api/assignments/narration', { data: { credentialId: cred.id, model: 'tts-1', voice: 'nova' } })).ok()).toBe(true);

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 export interface JsonIssue { path: string; message: string }
 
-export function JsonEditor<T>({ value, resetKey, onApply, validate, label, rows = 24 }: {
+export function JsonEditor<T>({ value, resetKey, onApply, validate, label, rows = 24, readOnly = false }: {
   value: T;
   /** when it changes, the text is reset from `value` (another scene selected, project reloaded) */
   resetKey: string;
@@ -12,6 +12,7 @@ export function JsonEditor<T>({ value, resetKey, onApply, validate, label, rows 
   validate: (v: unknown) => JsonIssue[];
   label: string;
   rows?: number;
+  readOnly?: boolean;
 }) {
   const [text, setText] = useState(() => JSON.stringify(value, null, 2));
   const [issues, setIssues] = useState<JsonIssue[]>([]);
@@ -27,7 +28,7 @@ export function JsonEditor<T>({ value, resetKey, onApply, validate, label, rows 
   };
   return (
     <div className="json-editor">
-      <textarea aria-label={label} spellCheck={false} rows={rows} value={text} onChange={(e) => change(e.target.value)} className={issues.length ? 'invalid' : ''} />
+      <textarea aria-label={label} spellCheck={false} rows={rows} readOnly={readOnly} value={text} onChange={(e) => change(e.target.value)} className={issues.length ? 'invalid' : ''} />
       {issues.length > 0 && (
         <ul className="issues" role="alert" data-testid="issues">
           {issues.slice(0, 8).map((i, k) => <li key={k}><code>{i.path}</code> {i.message}</li>)}

@@ -5,7 +5,7 @@ validé) : ce qui se passe à l'écran, pas la façon de le dessiner. Le même p
 l'éditeur et se rend dans **plusieurs styles** (vectoriel plat, aquarelle…). Les modèles d'IA sont **au choix** :
 chaque équipe enregistre ses propres clés d'API et choisit un modèle par tâche.
 
-État : **étapes 1 à 4** (fondations, rendu vidéo, narration et son, génération par IA). Voir la
+État : **étapes 1 à 5** (fondations, rendu vidéo, narration et son, génération par IA, multi-utilisateur). Voir la
 [Feuille de route](#feuille-de-route) pour la suite.
 
 ## Démarrer
@@ -20,6 +20,9 @@ pnpm dev            # API sur :3000 (base PostgreSQL embarquée, PGlite) + édit
 Sans `DATABASE_URL`, l'API utilise une base PostgreSQL embarquée (PGlite) dans `.data/`, et génère une clé de
 chiffrement de développement dans `.data/` (jamais versionnée). Rien d'autre à installer.
 
+Au premier lancement, l'éditeur demande de créer le **premier compte** : il devient propriétaire de l'espace de
+travail (et de tout ce qui existait avant les comptes), puis invite l'équipe depuis la page **Équipe**.
+
 ### Avec Docker (application + PostgreSQL)
 
 ```bash
@@ -30,6 +33,12 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 
 ## Ce que fait l'application
 
+- **Équipes** : comptes (e-mail + mot de passe), espaces de travail, rôles *lecteur* (consulte, regarde),
+  *éditeur* (édite, voix, rendus, IA), *administrateur* (clés d'API, modèles, membres, invitations) et
+  *propriétaire* (transmet la propriété, supprime l'espace). On invite par un lien à usage unique (7 jours, rôle
+  choisi, éventuellement réservé à une adresse). Une personne peut appartenir à plusieurs espaces et passer de l'un
+  à l'autre ; chaque espace a ses projets, ses clés, ses voix, ses rendus et ses générations, et ne voit rien des
+  autres. Chaque version d'un projet garde son auteur.
 - **Création par IA** : coller un texte (script, résumé, idée) ; le modèle choisi écrit un **storyboard** (scènes,
   répliques, intentions de plan) que l'on relit et corrige, puis **chaque scène** au format d'animation. Chaque
   réponse est vérifiée (schéma + bibliothèque) ; en cas d'erreur, le modèle reçoit la liste des problèmes et corrige
@@ -64,8 +73,21 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 - Les clés sont **chiffrées** (AES-256-GCM) avant d'entrer en base, avec `APP_ENCRYPTION_KEY` (variable d'environnement).
 - Une clé enregistrée n'est **jamais renvoyée** au navigateur : l'interface n'affiche que `…a3F9`. On la remplace ou on la supprime.
 - Seul le serveur la déchiffre, au moment d'appeler le fournisseur. Les en-têtes d'authentification sont masqués dans les journaux.
-- Optionnel : `APP_ACCESS_TOKEN` protège toute l'API par un jeton partagé par l'équipe (demandé une fois par l'éditeur).
+- Les clés appartiennent à un espace : seuls ses administrateurs les ajoutent, les testent et les remplacent.
 - Par défaut le serveur n'écoute que sur la machine locale ; mettez un proxy HTTPS devant avant de l'exposer.
+
+## Comptes et sécurité
+
+- Mots de passe : 10 caractères au moins, hachés avec scrypt (sel aléatoire), comparés en temps constant ; une
+  connexion à une adresse inconnue prend le même temps qu'avec un mauvais mot de passe.
+- Session : un jeton aléatoire dans un cookie `HttpOnly`, `SameSite=Lax`, `Secure` derrière HTTPS ; la base ne garde
+  que son empreinte SHA-256. 30 jours, prolongés à l'usage ; changer son mot de passe ferme les autres sessions.
+- Toute écriture exige l'en-tête `x-requested-with: animation-flow` (protection CSRF : une page d'un autre site ne
+  peut pas l'envoyer, le serveur n'autorisant aucune origine étrangère).
+- Tentatives de connexion limitées (10 par adresse e-mail et par IP sur 15 minutes).
+- Chaque route déclare le rôle qu'elle exige ; une route qui oublie de le dire est réservée aux membres, jamais ouverte.
+- Inscription : `SIGNUP=invite` (défaut : le premier compte, puis sur invitation) ou `SIGNUP=open` (chacun crée
+  son compte et reçoit son propre espace).
 
 ## Configuration
 
@@ -73,7 +95,8 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 |---|---|
 | `DATABASE_URL` | `postgres://…` ; sans elle, base embarquée PGlite dans `DATA_DIR` |
 | `APP_ENCRYPTION_KEY` | 32 octets en base64 ou hexadécimal ; **obligatoire en production**. La changer rend les clés stockées illisibles |
-| `APP_ACCESS_TOKEN` | jeton d'accès partagé (facultatif) |
+| `SIGNUP` | `invite` (défaut) ou `open` : qui peut créer un compte |
+| `COOKIE_SECURE` | `true` / `false` : force l'attribut `Secure` du cookie de session (défaut : selon HTTPS) |
 | `PORT`, `HOST` | écoute (défaut `3000`, `127.0.0.1`) |
 | `DATA_DIR` | données locales (défaut `.data`) |
 | `WEB_DIST` | éditeur construit à servir (défaut `../web/dist`) |
@@ -160,7 +183,7 @@ pnpm --filter @af/styles still -- --style=watercolor --t=1,4,9   # images fixes 
 | `packages/ai` | génération : storyboard, scènes, correction guidée par les erreurs, scène de secours, retouche |
 | `packages/audio` | musique et bruitages synthétisés, placement des voix, mixage, sonie (navigateur et Node) |
 | `packages/render` | rendu vidéo : moteur + style dans Node, blocs parallèles, FFmpeg, MP4 avec son et sous-titres |
-| `apps/api` | Fastify : projets versionnés, clés chiffrées, fournisseurs, file et workers de rendu ; sert l'éditeur construit |
+| `apps/api` | Fastify : comptes et équipes, projets versionnés, clés chiffrées, fournisseurs, file et workers de rendu ; sert l'éditeur construit |
 | `apps/web` | l'éditeur (Vite + React) |
 
 Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -171,7 +194,8 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 2. **Rendu serveur** (fait) : file de tâches dans PostgreSQL, workers qui rendent par blocs en parallèle, MP4 (FFmpeg) avec sous-titres, progression en direct, liens signés.
 3. **Narration et son** (fait) : voix par réplique avec le fournisseur choisi (durées mesurées → l'horloge se recale seule), musique et bruitages synthétisés, mixage −16 LUFS, son dans l'aperçu et dans le MP4.
 4. **Génération par IA** (fait) : texte → storyboard relu → scènes validées (corrections guidées, scène de secours), retouche d'une scène dans l'éditeur, tokens affichés.
-5. **Ensuite** : comptes et invitations, collaboration, modèles de projets, packs de styles supplémentaires.
+5. **Multi-utilisateur** (fait) : comptes, espaces de travail, rôles, invitations, isolation des données, auteur de chaque version.
+6. **Ensuite** : édition à plusieurs en temps réel, commentaires, modèles de projets, packs de styles supplémentaires, envoi des invitations par e-mail.
 
 ## Crédits
 

@@ -1,12 +1,12 @@
-// A thin client for the API. The optional team access token is kept in this browser only (localStorage); API keys
-// for model providers are sent once to the server and never read back.
+// A thin client for the API. The session lives in an HttpOnly cookie (the page never sees it); every request says
+// which workspace it acts in, and writes carry the header the server requires against cross-site forgery.
 import type { Catalog } from '@af/engine';
 import type { ProviderInfo, TaskInfo, TestResult } from '@af/providers';
 import type { Issue, Project } from '@af/schema';
 
-const TOKEN = 'af-access-token';
-export const getToken = () => { try { return localStorage.getItem(TOKEN) ?? ''; } catch { return ''; } };
-export const setToken = (t: string) => { try { if (t) localStorage.setItem(TOKEN, t); else localStorage.removeItem(TOKEN); } catch { /* private mode */ } };
+const WS = 'af-workspace';
+export const getWorkspace = () => { try { return localStorage.getItem(WS) ?? ''; } catch { return ''; } };
+export const setWorkspace = (id: string) => { try { if (id) localStorage.setItem(WS, id); else localStorage.removeItem(WS); } catch { /* private mode */ } };
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public body: any) { super(message); }
@@ -17,9 +17,9 @@ const unauthorized = new Set<Listener>();
 export const onUnauthorized = (f: Listener) => { unauthorized.add(f); return () => { unauthorized.delete(f); }; };
 
 export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  const headers: Record<string, string> = {};
-  const token = getToken();
-  if (token) headers.authorization = `Bearer ${token}`;
+  const headers: Record<string, string> = { 'x-requested-with': 'animation-flow' };
+  const ws = getWorkspace();
+  if (ws) headers['x-workspace-id'] = ws;
   if (init.body !== undefined) headers['content-type'] = 'application/json';
   const r = await fetch(path, { method: init.method ?? 'GET', headers, body: init.body === undefined ? null : JSON.stringify(init.body) });
   if (r.status === 401) unauthorized.forEach((f) => f());
@@ -30,7 +30,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
 }
 
 export interface Warning { path: string; message: string }
-export interface ProjectSummary { id: string; title: string; version: number; createdAt: string; updatedAt: string }
+export interface ProjectSummary { id: string; title: string; version: number; createdAt: string; updatedAt: string; updatedBy: string | null; createdBy: string | null }
 export interface ProjectDoc extends ProjectSummary { project: Project; warnings: Warning[] }
 export interface StyleInfo { id: string; label: string; description: string }
 export interface Library { catalog: Catalog; styles: StyleInfo[]; templates: string[] }
@@ -45,6 +45,13 @@ export interface RenderJob {
   createdAt: string; startedAt: string | null; finishedAt: string | null; videoUrl: string | null;
 }
 export interface RenderRequest { style?: string; width: number; quality: 'draft' | 'standard' | 'high'; sceneId?: string; subtitles: boolean; audio: boolean }
+export type Role = 'owner' | 'admin' | 'editor' | 'viewer';
+export const RANK: Record<Role, number> = { viewer: 0, editor: 1, admin: 2, owner: 3 };
+export const ROLE_LABEL: Record<Role, string> = { owner: 'propriétaire', admin: 'administrateur', editor: 'éditeur', viewer: 'lecteur' };
+export interface Me { user: { id: string; email: string; name: string } | null; workspaces: { id: string; name: string; role: Role }[]; signup: 'invite' | 'open'; setup: boolean }
+export interface Member { userId: string; name: string; email: string; role: Role; joinedAt: string }
+export interface PendingInvitation { id: string; role: Role; email: string | null; createdAt: string; expiresAt: string; by: string | null }
+export interface WorkspaceInfo { id: string; name: string; role: Role; members: Member[]; invitations: PendingInvitation[] }
 export type GenerationStatus = 'storyboard' | 'review' | 'scenes' | 'done' | 'failed' | 'canceled';
 export interface StoryLine { id: string; speaker: string; text: string }
 export interface StorySceneT { id: string; title: string; duration: number; decor: { kind: string; params: Record<string, unknown> }; music: { mood: string; gain: number }; narration: StoryLine[]; shots: string[] }
@@ -59,6 +66,21 @@ export interface GenerationRequest { text: string; language: string; style: stri
 export type { Issue, ProviderInfo, TaskInfo, TestResult };
 
 export const Api = {
+  me: () => api<Me>('/api/auth/me'),
+  signup: (b: { email: string; name: string; password: string; invitation?: string }) => api<Me>('/api/auth/signup', { method: 'POST', body: b }),
+  login: (email: string, password: string) => api<Me>('/api/auth/login', { method: 'POST', body: { email, password } }),
+  logout: () => api<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  updateMe: (b: { name?: string; password?: { current: string; next: string } }) => api<Me>('/api/auth/me', { method: 'PATCH', body: b }),
+  invitation: (token: string) => api<{ workspace: string; role: Role; email: string | null; expiresAt: string }>(`/api/invitations/${token}`),
+  acceptInvitation: (token: string) => api<{ workspace: { id: string; name: string; role: Role }; workspaces: Me['workspaces'] }>(`/api/invitations/${token}/accept`, { method: 'POST' }),
+  workspace: () => api<WorkspaceInfo>('/api/workspace'),
+  renameWorkspace: (name: string) => api<{ ok: boolean }>('/api/workspace', { method: 'PATCH', body: { name } }),
+  createWorkspace: (name: string) => api<{ id: string; name: string; role: Role }>('/api/workspaces', { method: 'POST', body: { name } }),
+  deleteWorkspace: (confirm: string) => api<void>('/api/workspace', { method: 'DELETE', body: { confirm } }),
+  invite: (role: Role, email?: string, days?: number) => api<{ id: string; path: string; role: Role; email: string | null; days: number }>('/api/workspace/invitations', { method: 'POST', body: { role, ...(email ? { email } : {}), ...(days ? { days } : {}) } }),
+  revokeInvitation: (id: string) => api<void>(`/api/workspace/invitations/${id}`, { method: 'DELETE' }),
+  setRole: (userId: string, role: Role) => api<{ ok: boolean }>(`/api/workspace/members/${userId}`, { method: 'PATCH', body: { role } }),
+  removeMember: (userId: string) => api<void>(`/api/workspace/members/${userId}`, { method: 'DELETE' }),
   health: () => api<{ ok: boolean; auth: boolean }>('/api/health'),
   library: () => api<Library>('/api/library'),
   projects: () => api<ProjectSummary[]>('/api/projects'),

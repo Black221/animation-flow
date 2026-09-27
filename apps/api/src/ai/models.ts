@@ -1,4 +1,4 @@
-// The text model chosen for a task (Réglages → Fournisseurs), bound to its decrypted key for the duration of a job.
+// The text model a workspace chose for a task (Réglages → Fournisseurs), bound to its decrypted key for a job.
 import type { Model } from '@af/ai';
 import { complete, providerById, type JsonPost } from '@af/providers';
 import type { SecretBox } from '../crypto';
@@ -6,9 +6,9 @@ import type { Db } from '../db';
 
 export class NotConfigured extends Error {}
 
-export async function modelFor(db: Db, box: SecretBox, task: 'storyboard' | 'scenes', fetchImpl?: JsonPost): Promise<Model> {
+export async function modelFor(db: Db, box: SecretBox, ws: string, task: 'storyboard' | 'scenes', fetchImpl?: JsonPost): Promise<Model> {
   const { rows } = await db.query<{ model: string; provider: string | null; secret: string | null; base_url: string | null }>(
-    `SELECT a.model, c.provider, c.secret, c.base_url FROM model_assignments a LEFT JOIN credentials c ON c.id = a.credential_id WHERE a.task = $1`, [task]);
+    `SELECT a.model, c.provider, c.secret, c.base_url FROM model_assignments a LEFT JOIN credentials c ON c.id = a.credential_id WHERE a.task = $1 AND a.workspace_id = $2`, [task, ws]);
   const a = rows[0], label = task === 'storyboard' ? 'Texte → storyboard' : 'Storyboard → scènes';
   if (!a?.provider) throw new NotConfigured(`aucun modèle pour « ${label} » : Réglages → Fournisseurs`);
   if (!a.model) throw new NotConfigured(`choisissez un modèle pour « ${label} » : Réglages → Fournisseurs`);

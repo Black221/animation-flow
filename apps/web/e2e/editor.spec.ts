@@ -1,3 +1,4 @@
+import { signedIn } from './auth';
 import { expect, test, type Page } from '@playwright/test';
 
 /** how many distinct colours the preview shows (sampled): a blank or failed canvas has one or two */
@@ -9,6 +10,7 @@ const colours = (page: Page) => page.getByTestId('preview').evaluate((c: HTMLCan
 const snapshot = (page: Page) => page.getByTestId('preview').evaluate((c: HTMLCanvasElement) => c.toDataURL());
 
 test('create a project, preview it in both styles, edit a scene, save', async ({ page }) => {
+  await signedIn(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Créer' }).click();
   await expect(page).toHaveURL(/\/p\/[0-9a-f-]{36}$/);
@@ -44,6 +46,7 @@ test('create a project, preview it in both styles, edit a scene, save', async ({
 });
 
 test('add a model provider key: it is shown masked, never in full', async ({ page }) => {
+  await signedIn(page);
   await page.goto('/settings');
   const form = page.getByRole('form', { name: 'ajouter une clé' });
   await form.getByLabel('Fournisseur').selectOption('openai');

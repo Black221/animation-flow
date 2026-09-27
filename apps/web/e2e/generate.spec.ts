@@ -1,3 +1,4 @@
+import { signedIn } from './auth';
 import { expect, test } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -39,6 +40,7 @@ test.beforeAll(async () => {
 test.afterAll(() => { server.close(); });
 
 test('text → storyboard (reviewed and edited) → scenes → project, then an AI edit of a scene', async ({ page }) => {
+  await signedIn(page);
   const cred = await (await page.request.post('/api/credentials', { data: { provider: 'openai', label: 'modèle local', apiKey: 'sk-local-llm-000000', baseUrl: base } })).json();
   for (const [task, model] of [['storyboard', 'gpt-story'], ['scenes', 'gpt-scenes']]) expect((await page.request.put(`/api/assignments/${task}`, { data: { credentialId: cred.id, model } })).ok()).toBe(true);
 

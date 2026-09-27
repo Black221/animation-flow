@@ -4,6 +4,7 @@ import { MOOD_NAMES } from '@af/audio';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { Api, type Generation, type StoryboardT, type StorySceneT } from '../api';
+import { useSession } from '../session';
 
 const STAGES: { id: Generation['status'][]; label: string }[] = [
   { id: ['storyboard'], label: 'Storyboard' },
@@ -56,6 +57,7 @@ export function Generate() {
   const [error, setError] = useState('');
   const [showLog, setShowLog] = useState(false);
   const nav = useNavigate();
+  const editable = useSession().can('editor');
 
   const refresh = useCallback(async () => {
     try { const x = await Api.generation(id); setG(x); setSb((cur) => (dirty && cur ? cur : x.storyboard)); } catch (e) { setError((e as Error).message); }
@@ -88,14 +90,14 @@ export function Generate() {
       {g.status === 'failed' && <p className="error" role="alert">Échec : {g.error}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="row wrap">
-        {busy && <button onClick={() => void act(() => Api.cancelGeneration(g.id))}>Annuler</button>}
-        {g.status === 'review' && <button className="primary" onClick={() => void writeScenes()}>Écrire les scènes</button>}
-        {g.status === 'failed' && g.storyboard && !g.projectId && <button className="primary" onClick={() => void writeScenes()}>Réessayer les scènes</button>}
+        {busy && editable && <button onClick={() => void act(() => Api.cancelGeneration(g.id))}>Annuler</button>}
+        {editable && g.status === 'review' && <button className="primary" onClick={() => void writeScenes()}>Écrire les scènes</button>}
+        {editable && g.status === 'failed' && g.storyboard && !g.projectId && <button className="primary" onClick={() => void writeScenes()}>Réessayer les scènes</button>}
         {g.status === 'done' && g.projectId && <button className="primary" onClick={() => nav(`/p/${g.projectId}`)}>Ouvrir le projet</button>}
       </div>
       {g.status === 'done' && g.fallbacks.length > 0 && <p className="warn small">Scènes simplifiées (le modèle n'a pas produit de scène valide) : {g.fallbacks.join(', ')}. Retouchez-les dans l'éditeur.</p>}
 
-      {sb && (g.status === 'review' || g.status === 'failed') && (
+      {sb && editable && (g.status === 'review' || g.status === 'failed') && (
         <section className="storyboard" aria-label="storyboard">
           <div className="row wrap">
             <input className="grow title" value={sb.title} onChange={(e) => edit({ ...sb, title: e.target.value })} aria-label="titre du film" />

@@ -2,6 +2,7 @@
 // A key is typed once, sent to the server, sealed there, and never shown again: only its last characters.
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Api, type Assignment, type Credential, type ProviderInfo, type TaskInfo, type TestResult } from '../api';
+import { useSession } from '../session';
 
 function AddKey({ providers, onAdded }: { providers: ProviderInfo[]; onAdded: () => void }) {
   const [provider, setProvider] = useState(providers[0]?.id ?? '');
@@ -35,6 +36,7 @@ function AddKey({ providers, onAdded }: { providers: ProviderInfo[]; onAdded: ()
 }
 
 export function Settings() {
+  const admin = useSession().can('admin');
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [tasks, setTasks] = useState<TaskInfo[]>([]);
   const [creds, setCreds] = useState<Credential[]>([]);
@@ -67,7 +69,9 @@ export function Settings() {
     <div className="page settings">
       <h2>Fournisseurs de modèles</h2>
       <p className="muted">Utilisez vos propres clés : Anthropic, OpenAI, Google, Mistral, OpenRouter, un serveur local compatible OpenAI (Ollama, LM Studio), et pour la voix Fish Audio ou ElevenLabs. Vous choisissez ensuite un modèle par tâche.</p>
+      {!admin && <p className="readonly-note" data-testid="read-only">Seuls les administrateurs de l'espace ajoutent des clés et choisissent les modèles.</p>}
       {error && <p className="error" role="alert">{error}</p>}
+      <fieldset className="plain" disabled={!admin}>
       <div className="grid2">
         <section>
           <h3>Vos clés</h3>
@@ -93,7 +97,7 @@ export function Settings() {
               );
             })}
           </ul>
-          {providers.length > 0 && <AddKey providers={providers} onAdded={() => void refresh()} />}
+          {providers.length > 0 && admin && <AddKey providers={providers} onAdded={() => void refresh()} />}
         </section>
         <section>
           <h3>Un modèle par tâche</h3>
@@ -130,6 +134,7 @@ export function Settings() {
           })}
         </section>
       </div>
+      </fieldset>
     </div>
   );
 }

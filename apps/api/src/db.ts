@@ -117,14 +117,80 @@ const MIGRATIONS: string[] = [
      updated_at timestamptz NOT NULL DEFAULT now()
    );
    CREATE INDEX generations_recent ON generations (created_at)`,
+  // several users: accounts, sessions, workspaces with roles, invitations. Everything that existed so far moves
+  // into one default workspace, which the first account to sign up takes over.
+  `CREATE TABLE users (
+     id uuid PRIMARY KEY,
+     email text NOT NULL UNIQUE,
+     name text NOT NULL,
+     password_hash text NOT NULL,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     password_changed_at timestamptz NOT NULL DEFAULT now()
+   );
+   CREATE TABLE workspaces (
+     id uuid PRIMARY KEY,
+     name text NOT NULL,
+     created_at timestamptz NOT NULL DEFAULT now()
+   );
+   CREATE TABLE memberships (
+     workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     role text NOT NULL CHECK (role IN ('owner', 'admin', 'editor', 'viewer')),
+     created_at timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (workspace_id, user_id)
+   );
+   CREATE TABLE sessions (
+     id text PRIMARY KEY,
+     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     last_seen_at timestamptz NOT NULL DEFAULT now(),
+     expires_at timestamptz NOT NULL,
+     user_agent text NOT NULL DEFAULT ''
+   );
+   CREATE INDEX sessions_user ON sessions (user_id);
+   CREATE TABLE invitations (
+     id uuid PRIMARY KEY,
+     workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+     token_hash text NOT NULL UNIQUE,
+     role text NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
+     email text,
+     created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     expires_at timestamptz NOT NULL,
+     accepted_by uuid REFERENCES users(id) ON DELETE SET NULL,
+     accepted_at timestamptz,
+     revoked_at timestamptz
+   );
+   INSERT INTO workspaces (id, name) VALUES (gen_random_uuid(), 'Mon espace');
+   ALTER TABLE projects ADD COLUMN workspace_id uuid REFERENCES workspaces(id) ON DELETE CASCADE;
+   UPDATE projects SET workspace_id = (SELECT id FROM workspaces LIMIT 1);
+   ALTER TABLE projects ALTER COLUMN workspace_id SET NOT NULL;
+   ALTER TABLE projects ADD COLUMN created_by uuid REFERENCES users(id) ON DELETE SET NULL;
+   ALTER TABLE projects ADD COLUMN updated_by uuid REFERENCES users(id) ON DELETE SET NULL;
+   CREATE INDEX projects_workspace ON projects (workspace_id, updated_at);
+   ALTER TABLE project_versions ADD COLUMN created_by uuid REFERENCES users(id) ON DELETE SET NULL;
+   ALTER TABLE credentials ADD COLUMN workspace_id uuid REFERENCES workspaces(id) ON DELETE CASCADE;
+   UPDATE credentials SET workspace_id = (SELECT id FROM workspaces LIMIT 1);
+   ALTER TABLE credentials ALTER COLUMN workspace_id SET NOT NULL;
+   ALTER TABLE model_assignments ADD COLUMN workspace_id uuid REFERENCES workspaces(id) ON DELETE CASCADE;
+   UPDATE model_assignments SET workspace_id = (SELECT id FROM workspaces LIMIT 1);
+   ALTER TABLE model_assignments ALTER COLUMN workspace_id SET NOT NULL;
+   ALTER TABLE model_assignments DROP CONSTRAINT model_assignments_pkey;
+   ALTER TABLE model_assignments ADD PRIMARY KEY (workspace_id, task);
+   ALTER TABLE generations ADD COLUMN workspace_id uuid REFERENCES workspaces(id) ON DELETE CASCADE;
+   UPDATE generations SET workspace_id = (SELECT id FROM workspaces LIMIT 1);
+   ALTER TABLE generations ALTER COLUMN workspace_id SET NOT NULL;
+   ALTER TABLE generations ADD COLUMN created_by uuid REFERENCES users(id) ON DELETE SET NULL;
+   ALTER TABLE renders ADD COLUMN created_by uuid REFERENCES users(id) ON DELETE SET NULL`,
 ];
 
-export async function migrate(db: Db): Promise<number> {
+/** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */
+export async function migrate(db: Db, upTo = Infinity): Promise<number> {
   await db.query('CREATE TABLE IF NOT EXISTS _migrations (n integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())');
   const { rows } = await db.query<{ n: number }>('SELECT n FROM _migrations');
   const done = new Set(rows.map((r) => Number(r.n)));
   let applied = 0;
-  for (let i = 0; i < MIGRATIONS.length; i++) {
+  for (let i = 0; i < Math.min(MIGRATIONS.length, upTo); i++) {
     if (done.has(i + 1)) continue;
     await db.tx(async (q) => {
       for (const stmt of MIGRATIONS[i]!.split(/;\s*\n/).map((s) => s.trim()).filter(Boolean)) await q.query(stmt);

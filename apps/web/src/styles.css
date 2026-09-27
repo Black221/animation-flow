@@ -185,3 +185,23 @@ a.button:hover { border-color: var(--accent); text-decoration: none; }
 .ai-edit input { flex: 1; min-width: 200px; }
 button.small { font-size: 0.85rem; justify-self: start; }
 .story-scene > button, .storyboard .form > button { justify-self: start; }
+
+/* accounts and teams */
+.topbar .spacer { flex: 1; }
+.topbar .ws-switch { max-width: 280px; }
+.topbar .me { color: var(--text); font-weight: 600; }
+.auth { display: grid; place-items: center; min-height: 100%; padding: 32px 16px; }
+.auth .card { width: 100%; max-width: 420px; display: grid; gap: 12px; }
+.team { display: grid; gap: 16px; }
+.members { width: 100%; border-collapse: collapse; }
+.members td { padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: middle; }
+.members td.actions { text-align: right; white-space: nowrap; }
+.invite-link input { flex: 1; font-family: var(--mono); font-size: 0.85rem; }
+.pending { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.danger h3 { color: var(--error); }
+button.danger { background: var(--error); border-color: var(--error); color: #fff; }
+.readonly-note { padding: 6px 12px; background: var(--panel-2); border-radius: 8px; font-size: 0.88rem; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+.auth-brand { text-align: center; margin: 32px 0 0; font-weight: 600; color: var(--text); }
+.auth-brand .logo { color: var(--accent); }
+.auth { min-height: auto; }
