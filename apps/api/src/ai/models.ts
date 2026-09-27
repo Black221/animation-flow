@@ -1,6 +1,6 @@
 // The text model a workspace chose for a task (Réglages → Fournisseurs), bound to its decrypted key for a job.
 import type { Model } from '@af/ai';
-import { complete, providerById, type JsonPost } from '@af/providers';
+import { complete, generateImage, providerById, type JsonPost } from '@af/providers';
 import type { SecretBox } from '../crypto';
 import type { Db } from '../db';
 
@@ -30,4 +30,19 @@ export async function modelFor(db: Db, box: SecretBox, ws: string, task: keyof t
     label: `${providerById(provider)?.label ?? provider} · ${model}`,
     call: (req) => complete(provider, { apiKey, baseUrl }, { ...req, model }, fetchImpl),
   };
+}
+
+export interface ImageModel { label: string; paint(prompt: string): ReturnType<typeof generateImage> }
+/** the picture model chosen for « Décors en images », or null: that task is optional (decors then stay drawings) */
+export async function imageModel(db: Db, box: SecretBox, ws: string, fetchImpl?: JsonPost): Promise<ImageModel | null> {
+  const { rows } = await db.query<{ model: string; provider: string | null; secret: string | null; base_url: string | null }>(
+    `SELECT a.model, c.provider, c.secret, c.base_url FROM model_assignments a LEFT JOIN credentials c ON c.id = a.credential_id WHERE a.task = 'images' AND a.workspace_id = $1`, [ws]);
+  const a = rows[0];
+  if (!a?.provider) return null;
+  const p = providerById(a.provider);
+  if (!p?.image) return null;
+  let apiKey: string | undefined;
+  try { apiKey = a.secret ? box.open(a.secret) : undefined; } catch { throw new NotConfigured('la clé des images ne peut pas être déchiffrée : saisissez-la de nouveau'); }
+  const provider = a.provider, model = a.model || p.image.defaultModel, baseUrl = a.base_url ?? undefined;
+  return { label: `${p.label} · ${model}`, paint: (prompt) => generateImage(provider, { apiKey, baseUrl }, { prompt, model, landscape: true }, fetchImpl) };
 }

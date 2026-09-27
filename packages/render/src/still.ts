@@ -5,14 +5,16 @@ import { parseProject } from '@af/schema';
 import { getStyle, type CanvasLike } from '@af/styles';
 import { createCanvas } from '@napi-rs/canvas';
 import { registerFonts } from './fonts';
+import { loadPictures } from './pictures';
 
-export function renderStill(project: unknown, o: { t?: number; width?: number; style?: string; fontsDir?: string } = {}): Buffer {
+export async function renderStill(project: unknown, o: { t?: number; width?: number; style?: string; fontsDir?: string; images?: Record<string, string> } = {}): Promise<Buffer> {
   const parsed = parseProject(project);
   if (!parsed.ok) throw new Error(`projet invalide : ${parsed.issues.slice(0, 3).map((i) => `${i.path} ${i.message}`).join(' ; ')}`);
   const p = parsed.project, w = Math.round(o.width ?? 1200), h = Math.round((w * p.height) / p.width);
   if (o.fontsDir) registerFonts(o.fontsDir);
+  const images = await loadPictures(o.images);
   const canvas = createCanvas(w, h), make = (a: number, b: number) => createCanvas(a, b) as unknown as CanvasLike;
-  const renderer = getStyle(o.style ?? p.style).create(canvas as unknown as CanvasLike, { createCanvas: make });
+  const renderer = getStyle(o.style ?? p.style).create(canvas as unknown as CanvasLike, { createCanvas: make, images: images as never });
   renderer.render(createEvaluator(p, registry).frameAt(o.t ?? 0));
   renderer.dispose();
   return canvas.toBuffer('image/png');

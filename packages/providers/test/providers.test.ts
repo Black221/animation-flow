@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { complete, maskKey, PROVIDERS, synthesize, testCredential, type FetchLike } from '../src';
+import { complete, generateImage, maskKey, PROVIDERS, synthesize, testCredential, type FetchLike, type JsonPost } from '../src';
 
 const reply = (status: number, body: unknown = {}) => ({ ok: status < 400, status, json: async () => body });
 
@@ -165,5 +165,41 @@ describe('complete', () => {
     expect(await complete('openai', { apiKey: 'k' }, { model: 'm', system: '', messages: [] }, reply({ choices: [] }) as never)).toEqual({ ok: false, error: 'réponse vide du modèle' });
     expect(await complete('fish-audio', { apiKey: 'k' }, { model: 'm', system: '', messages: [] }, reply({}) as never)).toMatchObject({ ok: false });
     expect(await complete('openai', { apiKey: 'k' }, { model: '', system: '', messages: [] }, reply({}) as never)).toMatchObject({ ok: false, error: expect.stringContaining('modèle') });
+  });
+});
+
+describe('generateImage', () => {
+  const png = Buffer.alloc(300, 7).toString('base64');
+  const call = (f: ReturnType<typeof vi.fn<JsonPost>>) => ({ url: f.mock.calls[0]![0], body: JSON.parse(f.mock.calls[0]![1].body), headers: f.mock.calls[0]![1].headers });
+
+  it('asks OpenAI for a landscape picture, with the right size for each model', async () => {
+    const f = vi.fn<JsonPost>(async () => reply(200, { data: [{ b64_json: png }] }));
+    const r = await generateImage('openai', { apiKey: 'sk-secret-123456' }, { prompt: 'a park' }, f);
+    expect(r.ok && r.data.length).toBe(300);
+    expect(call(f)).toMatchObject({ url: 'https://api.openai.com/v1/images/generations', body: { model: 'gpt-image-1', prompt: 'a park', size: '1536x1024' }, headers: { Authorization: 'Bearer sk-secret-123456' } });
+    expect(call(f).body.response_format).toBeUndefined();
+    f.mockClear();
+    await generateImage('openai', { apiKey: 'k' }, { prompt: 'a park', model: 'dall-e-3' }, f);
+    expect(call(f).body).toMatchObject({ size: '1792x1024', response_format: 'b64_json' });
+  });
+
+  it('reads Gemini image parts and calls Imagen through predict', async () => {
+    const f = vi.fn<JsonPost>(async () => reply(200, { candidates: [{ content: { parts: [{ text: 'here' }, { inlineData: { mimeType: 'image/jpeg', data: png } }] } }] }));
+    const r = await generateImage('google', { apiKey: 'AIza-123456' }, { prompt: 'a beach' }, f);
+    expect(r.ok && r.mediaType).toBe('image/jpeg');
+    expect(call(f)).toMatchObject({ url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent', body: { generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '3:2' } } }, headers: { 'x-goog-api-key': 'AIza-123456' } });
+    const g = vi.fn<JsonPost>(async () => reply(200, { predictions: [{ bytesBase64Encoded: png, mimeType: 'image/png' }] }));
+    const s = await generateImage('google', { apiKey: 'AIza-123456' }, { prompt: 'a beach', model: 'imagen-4.0-generate-001' }, g);
+    expect(s.ok).toBe(true);
+    expect(call(g)).toMatchObject({ url: 'https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict', body: { instances: [{ prompt: 'a beach' }], parameters: { aspectRatio: '16:9' } } });
+  });
+
+  it('explains refusals, empty answers and providers that do not paint', async () => {
+    expect(await generateImage('anthropic', { apiKey: 'k' }, { prompt: 'x' })).toMatchObject({ ok: false, error: expect.stringContaining("ne peint pas") });
+    const refused = await generateImage('openai', { apiKey: 'sk-secret-123456' }, { prompt: 'x' }, vi.fn<JsonPost>(async () => reply(401)));
+    expect(refused).toEqual({ ok: false, status: 401, error: 'clé refusée par le fournisseur' });
+    expect(JSON.stringify(refused)).not.toContain('secret');
+    const empty = await generateImage('google', { apiKey: 'k' }, { prompt: 'x' }, vi.fn<JsonPost>(async () => reply(200, { candidates: [{ content: { parts: [{ text: 'no' }] } }] })));
+    expect(empty.ok).toBe(false);
   });
 });

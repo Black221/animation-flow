@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import { installAuth } from './auth/context';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { SecretBox } from './crypto';
 import type { Db } from './db';
 import { projectRoutes } from './routes/projects';
@@ -12,6 +13,7 @@ import { providerRoutes } from './routes/providers';
 import { renderRoutes } from './routes/renders';
 import { voiceRoutes } from './routes/voices';
 import { generationRoutes } from './routes/generations';
+import { imageRoutes } from './routes/images';
 import { authRoutes, type SignupMode } from './routes/auth';
 import { workspaceRoutes } from './routes/workspace';
 import { liveRoutes } from './routes/live';
@@ -32,6 +34,8 @@ export interface ServerDeps {
   signer?: Signer;
   /** where recorded lines are stored */
   voicesDir: string;
+  /** where decors painted by an image model are stored (default: a folder inside voicesDir) */
+  imagesDir?: string | undefined;
   /** for voice providers (tests) */
   postFetch?: PostFetch;
   /** for text models (tests) */
@@ -70,7 +74,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true }));
   authRoutes(app, deps.db, deps.signup ?? 'invite', deps.mail ?? null, hub);
-  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir }, hub, deps.mail ?? null);
+  const imagesDir = deps.imagesDir ?? join(deps.voicesDir, '_images');
+  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir }, hub, deps.mail ?? null);
   projectRoutes(app, deps.db, hub);
   liveRoutes(app, hub);
   commentRoutes(app, deps.db, hub);
@@ -78,7 +83,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const sign = deps.signer ?? signer(randomBytes(32));
   renderRoutes(app, deps.db, sign);
   voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch);
-  generationRoutes(app, deps.db, deps.box, deps.llmFetch, deps.fontsDir);
+  generationRoutes(app, deps.db, deps.box, deps.llmFetch, deps.fontsDir, imagesDir);
+  imageRoutes(app, deps.db, deps.box, sign, imagesDir, deps.llmFetch);
 
   if (deps.webDist && existsSync(deps.webDist)) {
     const { default: fastifyStatic } = await import('@fastify/static');

@@ -6,6 +6,7 @@ import { renderVideo, AbortError } from '@af/render';
 import { parseProject, voiceIsCurrent } from '@af/schema';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { loadVoices } from '../routes/voices';
+import { imagesOf } from '../routes/images';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -16,6 +17,8 @@ export interface RunnerOptions {
   db: Db;
   rendersDir: string;
   voicesDir: string;
+  /** decors painted as pictures (shared between replicas, like the voices) */
+  imagesDir?: string | undefined;
   fontsDir?: string | undefined;
   threads: number;
   pollMs?: number;
@@ -54,6 +57,7 @@ export function startRunner(o: RunnerOptions): Runner {
         project: rows[0].data, out, style: opt.style, width: opt.width, crf: opt.crf, subtitles: opt.subtitles, preset: 'medium', range,
         ...(withAudio ? { audioFile } : {}),
         threads: o.threads, fontsDir: o.fontsDir, signal: ctrl.signal,
+        ...(o.imagesDir && parsed.ok ? { images: imagesOf(o.imagesDir, rows[0].workspace_id, parsed.project) } : {}),
         onProgress: (p) => {
           const now = Date.now();
           if (now - lastBeat < 700 && p.done < p.total) return;

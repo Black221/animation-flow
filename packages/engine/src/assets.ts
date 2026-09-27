@@ -163,10 +163,12 @@ export const assetDecor = (a: Asset): DecorFn => ({ width: W, height: H, id }) =
   for (let changed = true; changed;) { changed = false; for (const p of a.parts) if (p.parent && moving.has(p.parent) && !moving.has(p.id)) { moving.add(p.id); changed = true; } }
   const bounds = { x: -M * sx, y: -M * sy, w: (DECOR_FRAME.w + 2 * M) * sx, h: (DECOR_FRAME.h + 2 * M) * sy };
   const ground: Prim[] = a.background ? [{ kind: 'path', id: `${id}:bg`, points: [[bounds.x, bounds.y], [bounds.x + bounds.w, bounds.y], [bounds.x + bounds.w, bounds.y + bounds.h], [bounds.x, bounds.y + bounds.h]], closed: true, fill: a.background, role: 'shade' }] : [];
+  // a decor painted by an image model: the picture over everything (the drawing stays under it, for when it is missing)
+  const picture: Prim[] = a.image ? [{ kind: 'image', id: `${id}:image`, src: a.image.asset, x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h }] : [];
   return {
     bounds,
-    still: [...ground, ...drawAsset(a, { t: 0, id, m, only: (p) => !moving.has(p.id) })],
-    ...(moving.size ? { live: (t: number) => drawAsset(a, { t, id, m, only: (p) => moving.has(p.id) }) } : {}),
+    still: [...ground, ...drawAsset(a, { t: 0, id, m, only: (p) => !moving.has(p.id) }), ...picture],
+    ...(moving.size && !a.image ? { live: (t: number) => drawAsset(a, { t, id, m, only: (p) => moving.has(p.id) }) } : {}),
   };
 };
 

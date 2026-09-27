@@ -107,7 +107,9 @@ export function Settings() {
             const cred = creds.find((c) => c.id === a.credentialId), prov = cred ? byId[cred.provider] : undefined;
             const t = a.credentialId ? tests[a.credentialId] : undefined, listed = t && t !== 'pending' && t.ok ? t.models : [];
             // voice providers: models are a known list; voices are built in (OpenAI) or listed by the key test (Fish Audio, ElevenLabs)
-            const models = task.kind === 'tts' ? (prov?.tts?.models ?? []).map((id) => ({ id, label: id })) : listed;
+            const models = task.kind === 'tts' ? (prov?.tts?.models ?? []).map((id) => ({ id, label: id }))
+              : task.kind === 'image' ? [...new Set([...(prov?.image?.models ?? []), ...listed.map((m) => m.id).filter((id) => /image|imagen|dall-e/i.test(id))])].map((id) => ({ id, label: id }))
+              : listed;
             const voices = prov?.tts?.voices ? prov.tts.voices.map((id) => ({ id, label: id })) : listed;
             return (
               <div key={task.id} className="card form task" data-testid={`task-${task.id}`}>
@@ -120,7 +122,7 @@ export function Settings() {
                   </select>
                 </label>
                 <label>Modèle
-                  <input list={`models-${task.id}`} defaultValue={a.model} key={`m${a.credentialId}${a.model}`} placeholder={task.kind === 'tts' ? prov?.tts?.defaultModel ?? '' : models.length ? 'choisir dans la liste' : 'testez la clé pour voir la liste'} onBlur={(e) => e.target.value.trim() !== a.model && void setTask(task.id, a.credentialId, e.target.value.trim(), a.voice)} />
+                  <input list={`models-${task.id}`} defaultValue={a.model} key={`m${a.credentialId}${a.model}`} placeholder={task.kind === 'tts' ? prov?.tts?.defaultModel ?? '' : task.kind === 'image' ? prov?.image?.defaultModel ?? '' : models.length ? 'choisir dans la liste' : 'testez la clé pour voir la liste'} onBlur={(e) => e.target.value.trim() !== a.model && void setTask(task.id, a.credentialId, e.target.value.trim(), a.voice)} />
                   <datalist id={`models-${task.id}`}>{models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</datalist>
                 </label>
                 {task.kind === 'tts' && (

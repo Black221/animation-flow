@@ -15,6 +15,7 @@ import { drawingModel, modelFor, musicModel, NotConfigured } from '../ai/models'
 import type { SecretBox } from '../crypto';
 import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
+import { painterOf } from './images';
 
 type Status = 'storyboard' | 'review' | 'assets' | 'music' | 'scenes' | 'done' | 'failed' | 'canceled';
 interface Row {
@@ -33,10 +34,10 @@ const Input = z.object({
   review: z.boolean().default(true),
 });
 
-export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl?: JsonPost, fontsDir?: string) {
+export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl: JsonPost | undefined, fontsDir: string | undefined, imagesDir: string) {
   const running = new Map<string, AbortController>();
   // what a model is shown of its drawing: rendered here, on the server's canvas
-  const draw: DrawOptions = { preview: async (p: ProjectInput) => renderStill(p, { t: PREVIEW_TIME, width: 1024, ...(fontsDir ? { fontsDir } : {}) }).toString('base64') };
+  const draw: DrawOptions = { preview: async (p: ProjectInput) => (await renderStill(p, { t: PREVIEW_TIME, width: 1024, ...(fontsDir ? { fontsDir } : {}) })).toString('base64') };
   const view = (r: Row) => ({
     id: r.id, status: r.status, input: r.input, storyboard: r.storyboard, projectId: r.project_id, scenesDone: r.scenes_done, scenesTotal: r.scenes_total,
     assetsDone: r.assets_done, assetsTotal: r.assets_total, drawings: r.assets ? Object.keys(r.assets) : [],
@@ -80,11 +81,11 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
         const briefs = briefsOf(sb), drawnFallbacks: string[] = [];
         if (!assets || briefs.some((b) => !assets![b.id])) {
           await set(id, { status: 'assets', assets_done: 0, assets_total: briefs.length, fallbacks: [] });
-          const painter = await drawingModel(db, box, ws, fetchImpl);
-          await set(id, { models: { ...((await load(id))?.models ?? {}), assets: painter.label } });
+          const painter = await drawingModel(db, box, ws, fetchImpl), pictures = await painterOf(db, box, ws, imagesDir, fetchImpl);
+          await set(id, { models: { ...((await load(id))?.models ?? {}), assets: painter.label, ...(pictures ? { images: pictures.label } : {}) } });
           let drawnCount = 0, progress: Promise<unknown> = Promise.resolve();
           const r = await generateDrawings(painter, sb, {
-            ...draw, concurrency: 2, signal: ctrl.signal, onStep: logStep(id),
+            ...draw, ...(pictures ? { paint: pictures.paint } : {}), concurrency: 2, signal: ctrl.signal, onStep: logStep(id),
             onAsset: (a) => { drawnCount++; if (a.fallback) drawnFallbacks.push(`dessin ${a.id}`); const now = { assets_done: drawnCount, fallbacks: [...drawnFallbacks] }; progress = progress.then(() => set(id, now)).catch(() => undefined); },
           });
           await progress;
@@ -196,13 +197,13 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (!b.success) return reply.code(400).send({ error: 'requête invalide' });
     const parsed = parseProject(b.data.project);
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
-    let model, painter;
-    try { model = await modelFor(db, box, wsOf(req).id, 'scenes', fetchImpl); painter = await drawingModel(db, box, wsOf(req).id, fetchImpl); }
+    let model, painter, pictures;
+    try { model = await modelFor(db, box, wsOf(req).id, 'scenes', fetchImpl); painter = await drawingModel(db, box, wsOf(req).id, fetchImpl); pictures = await painterOf(db, box, wsOf(req).id, imagesDir, fetchImpl); }
     catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
     const usage = { inputTokens: 0, outputTokens: 0 }, onStep = (s: Step) => { usage.inputTokens += s.usage.inputTokens; usage.outputTokens += s.usage.outputTokens; };
     try {
       // what the change needs and the film does not have is drawn first
-      const r = await editScene(model, parsed.project, b.data.sceneIndex, b.data.instruction, { onStep, drawModel: painter, draw });
+      const r = await editScene(model, parsed.project, b.data.sceneIndex, b.data.instruction, { onStep, drawModel: painter, draw: { ...draw, ...(pictures ? { paint: pictures.paint } : {}) } });
       return { scene: r.scene, assets: r.assets, cast: r.cast, sounds: r.sounds, drawn: r.drawn.map((d) => ({ id: d.id, fallback: d.fallback, rounds: d.rounds, review: d.review })), usage, model: model.label };
     } catch (e) {
       if (e instanceof InvalidAnswer) return reply.code(422).send({ error: e.message, issues: e.issues, usage });
@@ -216,19 +217,22 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     const b = z.object({
       project: z.unknown(), id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/), kind: z.enum(['character', 'prop', 'decor']),
       name: z.string().trim().min(1).max(80), description: z.string().trim().min(3).max(800), instruction: z.string().trim().max(2000).optional(), current: z.unknown().optional(),
+      /** a decor: also paint it as a picture when an image model is chosen (default) */
+      picture: z.boolean().default(true),
     }).safeParse(req.body);
     if (!b.success) return reply.code(400).send({ error: b.error.issues[0]?.message ?? 'requête invalide' });
     const parsed = parseProject(b.data.project);
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
     const current = b.data.current === undefined ? undefined : Asset.safeParse(b.data.current);
     if (current && !current.success) return reply.code(422).send({ error: 'dessin actuel invalide' });
-    let painter;
-    try { painter = await drawingModel(db, box, wsOf(req).id, fetchImpl); } catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
+    let painter, pictures;
+    try { painter = await drawingModel(db, box, wsOf(req).id, fetchImpl); pictures = b.data.picture ? await painterOf(db, box, wsOf(req).id, imagesDir, fetchImpl) : undefined; }
+    catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
     const usage = { inputTokens: 0, outputTokens: 0 };
     const p = parsed.project, others = Object.entries(p.assets).filter(([id]) => id !== b.data.id).map(([id, a]) => ({ id, kind: a.kind, name: a.name, description: a.description }));
     try {
       const r = await drawOne(painter, { id: b.data.id, kind: b.data.kind, name: b.data.name, description: b.data.description }, { title: p.title, style: p.style, others },
-        { ...draw, onStep: (s) => { usage.inputTokens += s.usage.inputTokens; usage.outputTokens += s.usage.outputTokens; } }, b.data.instruction, current?.success ? current.data : undefined);
+        { ...draw, ...(pictures ? { paint: pictures.paint } : {}), onStep: (s) => { usage.inputTokens += s.usage.inputTokens; usage.outputTokens += s.usage.outputTokens; } }, b.data.instruction, current?.success ? current.data : undefined);
       return { asset: r.asset, fallback: r.fallback, rounds: r.rounds, review: r.review, issues: r.issues, usage, model: painter.label };
     } catch (e) {
       if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage });

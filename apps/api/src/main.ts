@@ -36,14 +36,14 @@ if (first) { const moved = adoptLegacyVoices(config.voicesDir, first.id); if (mo
 let runner: Runner | null = null;
 const log = (msg: string, extra: Record<string, unknown> = {}) => console.log(JSON.stringify({ level: 30, time: Date.now(), msg, ...extra }));
 if (config.role !== 'api') {
-  runner = startRunner({ db, rendersDir: config.rendersDir, voicesDir: config.voicesDir, fontsDir: config.fontsDir ?? undefined, threads: config.renderThreads, log });
+  runner = startRunner({ db, rendersDir: config.rendersDir, voicesDir: config.voicesDir, imagesDir: config.imagesDir, fontsDir: config.fontsDir ?? undefined, threads: config.renderThreads, log });
   log(`render worker ${runner.id} · ${config.renderThreads} thread(s) · videos in ${config.rendersDir}${config.fontsDir ? '' : ' · no fonts found (FONTS_DIR)'}`);
 }
 
 let close = async () => { await runner?.stop(); await db.close(); };
 if (config.role !== 'worker') {
   const mail = config.mail ? { mailer: await smtpMailer(config.mail.smtpUrl, config.mail.from), appUrl: config.mail.appUrl } : null;
-  const app = await buildServer({ db, box: secretBox(config.encryptionKey), signer: signer(config.encryptionKey), signup: config.signup, webDist: config.webDist, voicesDir: config.voicesDir, logger: true, mail, trustProxy: config.trustProxy, fontsDir: config.fontsDir ?? undefined });
+  const app = await buildServer({ db, box: secretBox(config.encryptionKey), signer: signer(config.encryptionKey), signup: config.signup, webDist: config.webDist, voicesDir: config.voicesDir, imagesDir: config.imagesDir, logger: true, mail, trustProxy: config.trustProxy, fontsDir: config.fontsDir ?? undefined });
   await app.listen({ port: config.port, host: config.host });
   app.log.info(`animation-flow on http://${config.host}:${config.port} · database: ${config.databaseUrl ? 'postgres' : 'embedded (PGlite)'} · role: ${config.role}${applied ? ` · ${applied} migration(s) applied` : ''}${config.signup === 'open' ? ' · open sign-up' : ' · sign-up by invitation'}${config.webDist ? '' : ' · web app not built (pnpm build)'}${config.mail ? ` · e-mail via SMTP, links to ${config.mail.appUrl}` : ' · no e-mail (SMTP_URL)'}`);
   const base = close; close = async () => { await app.close(); await base(); };

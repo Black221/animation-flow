@@ -12,6 +12,8 @@ export interface RenderOptions {
   fonts?: Partial<Record<FontRole, string>>;
   /** draw the current narration line at the bottom (editor preview) */
   subtitles?: boolean;
+  /** pictures by name (decors made by an image model); an image not there yet is drawn once it is */
+  images?: (src: string) => CanvasImageSource | null | undefined;
 }
 
 export interface RenderStats { frames: number; platesPainted: number; lastMs: number }

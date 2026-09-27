@@ -66,7 +66,7 @@ export function transformPrim(p: Prim, m: Mat, opacity = 1): Prim {
     }
     case 'text': { const [x, y] = apply(m, [p.x, p.y]); return { ...p, x, y, size: p.size * s, rotation: p.rotation + textRotation(m), opacity: p.opacity * opacity }; }
     case 'glow': { const [x, y] = apply(m, [p.x, p.y]); return { ...p, x, y, radius: p.radius * s, opacity: p.opacity * opacity }; }
-    case 'gradient': {
+    case 'gradient': case 'image': {
       const c = [apply(m, [p.x, p.y]), apply(m, [p.x + p.w, p.y + p.h])], b = bounds(c);
       return { ...p, x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0, opacity: (p.opacity ?? 1) * opacity };
     }

@@ -126,11 +126,14 @@ export const Api = {
   /** design one sound effect */
   designSound: (project: unknown, id: string, name: string, description: string) => api<{ sound: Project['sounds'][string]; fallback: boolean; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/sound', { method: 'POST', body: { project, id, name, description } }),
   /** draw one thing for the project, or draw it again with a change */
-  draw: (b: { project: unknown; id: string; kind: Asset['kind']; name: string; description: string; instruction?: string; current?: Asset }) => api<{ asset: Asset; fallback: boolean; rounds: number; review: string[]; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/draw', { method: 'POST', body: b }),
+  draw: (b: { project: unknown; id: string; kind: Asset['kind']; name: string; description: string; instruction?: string; current?: Asset; picture?: boolean }) => api<{ asset: Asset; fallback: boolean; rounds: number; review: string[]; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/draw', { method: 'POST', body: b }),
   record: (text: string, voice?: string, language?: string) => api<Recording>('/api/voices', { method: 'POST', body: { text, ...(voice ? { voice } : {}), ...(language ? { language } : {}) } }),
   comments: (projectId: string) => api<Comment[]>(`/api/projects/${projectId}/comments`),
   addComment: (projectId: string, c: NewComment) => api<Comment>(`/api/projects/${projectId}/comments`, { method: 'POST', body: c }),
   updateComment: (id: string, c: { body?: string; resolved?: boolean }) => api<Comment>(`/api/comments/${id}`, { method: 'PATCH', body: c }),
   deleteComment: (id: string) => api<void>(`/api/comments/${id}`, { method: 'DELETE' }),
   voiceLinks: (assets: string[]) => api<Record<string, string>>('/api/voices/links', { method: 'POST', body: { assets } }),
+  imageLinks: (assets: string[]) => api<Record<string, string>>('/api/images/links', { method: 'POST', body: { assets } }),
+  /** paint a decor as a picture with the image model (Réglages → Fournisseurs → Décors en images) */
+  paintDecor: (b: { name: string; description: string; instruction?: string; style?: string; palette?: string[] }) => api<{ image: NonNullable<Asset['image']>; url: string; model: string }>('/api/ai/decor-image', { method: 'POST', body: b }),
 };

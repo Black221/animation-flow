@@ -1,5 +1,5 @@
 // Drawing shared by the style packs: text, glows, gradients, subtitles, fades, and the plate cache.
-import { rgba, type FontRole, type Frame, type FrameDecor, type GlowPrim, type GradientPrim, type Pt, type TextPrim } from '@af/engine';
+import { rgba, type FontRole, type Frame, type FrameDecor, type GlowPrim, type GradientPrim, type ImagePrim, type Pt, type TextPrim } from '@af/engine';
 import type { CanvasLike, Ctx2D, RenderOptions } from './types';
 
 export const DEFAULT_FONTS: Record<FontRole, string> = {
@@ -67,6 +67,18 @@ export function drawGradient(ctx: Ctx2D, p: GradientPrim) {
   ctx.save(); ctx.globalAlpha = p.opacity ?? 1; ctx.fillStyle = g; ctx.fillRect(p.x, p.y, p.w, p.h); ctx.restore();
 }
 
+export function drawImage(ctx: Ctx2D, p: ImagePrim, images?: RenderOptions['images']) {
+  const img = images?.(p.src);
+  if (!img || (p.opacity ?? 1) <= 0) return;
+  // cover: a picture of another shape is cropped, never stretched
+  const iw = Number((img as { width?: unknown }).width) || p.w, ih = Number((img as { height?: unknown }).height) || p.h;
+  const s = Math.max(p.w / iw, p.h / ih), sw = p.w / s, sh = p.h / s;
+  ctx.save(); ctx.globalAlpha = Math.min(1, p.opacity ?? 1); ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, p.x, p.y, p.w, p.h); ctx.restore();
+}
+/** which of a decor's pictures are there: part of the plate's key, so it is painted again when one arrives */
+export const picturesReady = (decor: FrameDecor, images?: RenderOptions['images']) => decor.still.filter((p) => p.kind === 'image').map((p) => (images?.((p as ImagePrim).src) ? '1' : '0')).join('');
+
 /** the narration line in the lower band (y > 89 % of the height), as in a subtitled film */
 export function drawSubtitle(ctx: Ctx2D, frame: Frame, fonts: Record<FontRole, string>) {
   if (!frame.subtitle) return;
@@ -93,8 +105,8 @@ export class PlateCache {
   private map = new Map<string, Plate>();
   painted = 0;
   constructor(private make: (w: number, h: number) => CanvasLike, private keep = 4) {}
-  get(decor: FrameDecor, scale: number, paint: (ctx: Ctx2D, decor: FrameDecor) => void): Plate {
-    const s = Math.round(scale * 100) / 100, key = `${decor.key}@${s}`;
+  get(decor: FrameDecor, scale: number, paint: (ctx: Ctx2D, decor: FrameDecor) => void, variant = ''): Plate {
+    const s = Math.round(scale * 100) / 100, key = `${decor.key}@${s}#${variant}`;
     let p = this.map.get(key);
     if (p) { this.map.delete(key); this.map.set(key, p); return p; }
     const w = Math.max(1, Math.ceil(decor.bounds.w * s)), h = Math.max(1, Math.ceil(decor.bounds.h * s));

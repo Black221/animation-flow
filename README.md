@@ -137,6 +137,7 @@ part avec un lien construit sur `APP_URL`.
 | `TRUST_PROXY` | derrière un proxy inverse ou un répartiteur : `true`, un nombre de relais, ou leurs adresses (`10.0.0.0/8,…`). L'API voit alors la vraie adresse du client (limites de connexion par personne) et le protocole d'origine. À laisser vide si l'application est jointe directement : un client pourrait sinon choisir l'adresse sous laquelle il est vu |
 | `RENDERS_DIR` | dossier des vidéos (défaut `DATA_DIR/renders`) |
 | `VOICES_DIR` | répliques enregistrées, une par texte et par voix (défaut `DATA_DIR/voices`) |
+| `IMAGES_DIR` | décors peints par un modèle d'images, un dossier par espace (défaut `DATA_DIR/images` ; partagé entre répliques) |
 | `RENDER_THREADS` | threads par rendu (défaut : nombre de cœurs − 1) |
 | `FONTS_DIR` | polices du rendu serveur (défaut : celles de l'éditeur) |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | binaires FFmpeg (défaut : ceux du `PATH`) |

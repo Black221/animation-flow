@@ -11,6 +11,7 @@
 //                              shared PostgreSQL and a shared RENDERS_DIR)
 //   RENDERS_DIR                where videos are written (default DATA_DIR/renders)
 //   VOICES_DIR                 recorded lines, one WAV per text and voice (default DATA_DIR/voices)
+//   IMAGES_DIR                 decors painted by an image model (default DATA_DIR/images; shared between replicas)
 //   RENDER_THREADS             threads per render job (default: CPU count − 1)
 //   FONTS_DIR                  fonts for server rendering (default: the editor's fonts)
 //   TRUST_PROXY                behind a reverse proxy / load balancer: true (trust X-Forwarded-*), a number of hops,
@@ -37,6 +38,7 @@ export interface Config {
   role: 'all' | 'api' | 'worker';
   rendersDir: string;
   voicesDir: string;
+  imagesDir: string;
   renderThreads: number;
   fontsDir: string | null;
   mail: { smtpUrl: string; from: string; appUrl: string } | null;
@@ -93,6 +95,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     role,
     rendersDir: resolve(env.RENDERS_DIR ?? join(dataDir, 'renders')),
     voicesDir: resolve(env.VOICES_DIR ?? join(dataDir, 'voices')),
+    imagesDir: resolve(env.IMAGES_DIR ?? join(dataDir, 'images')),
     renderThreads: Math.max(1, Number(env.RENDER_THREADS ?? Math.max(1, availableParallelism() - 1))),
     fontsDir,
     mail: mailConfig(env),

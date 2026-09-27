@@ -244,10 +244,14 @@ export const Asset = z.object({
   poses: z.record(Name, z.record(Id, AssetMotion)).default({}),
   /** expression name → group → variant; `neutral` is used when an expression is not given */
   expressions: z.record(Name, z.record(Name, Name)).default({}),
+  /** decors: a picture made by an image model, over the whole decor (the frame and 300 px around it, 3:2); the
+   *  parts stay underneath, drawn when the picture cannot be had */
+  image: z.object({ asset: z.string().regex(/^[0-9a-f]{32}$/, "identifiant d'image"), width: z.number().int().positive(), height: z.number().int().positive(), by: z.string().max(200).optional() }).optional(),
   /** how it was made (model, rounds of visual review) */
   made: z.object({ by: z.string().max(200), rounds: z.number().int().min(0).max(20).default(0), at: z.string().max(40).optional() }).optional(),
 }).superRefine((a, ctx) => {
   const ids = new Map(a.parts.map((p, i) => [p.id, i] as const));
+  if (a.image && a.kind !== 'decor') ctx.addIssue({ code: 'custom', path: ['image'], message: 'seul un décor a une image' });
   if (ids.size !== a.parts.length) ctx.addIssue({ code: 'custom', path: ['parts'], message: 'identifiants de parties en double' });
   a.parts.forEach((p, i) => {
     if (p.parent && !ids.has(p.parent)) ctx.addIssue({ code: 'custom', path: ['parts', i, 'parent'], message: `partie parente « ${p.parent} » inconnue` });

@@ -47,4 +47,8 @@ export interface GlowPrim { kind: 'glow'; id: string; x: number; y: number; radi
 /** A linear gradient over a rectangle (skies). Coordinates are in the space of the list holding it. */
 export interface GradientPrim { kind: 'gradient'; id: string; x: number; y: number; w: number; h: number; stops: [number, string][]; opacity?: number }
 
-export type Prim = PathPrim | TextPrim | GlowPrim | GradientPrim;
+/** A picture over a rectangle (a decor made by an image model). `src` names the image; the style gets it from the
+ *  renderer's image source, and draws nothing until it is there. */
+export interface ImagePrim { kind: 'image'; id: string; src: string; x: number; y: number; w: number; h: number; opacity?: number }
+
+export type Prim = PathPrim | TextPrim | GlowPrim | GradientPrim | ImagePrim;

@@ -8,6 +8,7 @@ import { getStyle, type CanvasLike } from '@af/styles';
 import { once } from 'node:events';
 import { rawEncoder, AbortError } from './ffmpeg';
 import { registerFonts } from './fonts';
+import { loadPictures } from './pictures';
 
 export interface ChunkJob {
   project: unknown;
@@ -20,6 +21,8 @@ export interface ChunkJob {
   preset: string;
   out: string;
   fontsDir?: string | undefined;
+  /** pictures of the project (asset id → file) */
+  images?: Record<string, string> | undefined;
 }
 
 export async function renderChunk(job: ChunkJob, onFrame: (done: number) => void, signal?: AbortSignal): Promise<void> {
@@ -27,10 +30,10 @@ export async function renderChunk(job: ChunkJob, onFrame: (done: number) => void
   if (!parsed.ok) throw new Error('invalid project: ' + parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; '));
   const project = parsed.project, fps = project.fps;
   registerFonts(job.fontsDir);
-  const ev = createEvaluator(project, registry);
+  const ev = createEvaluator(project, registry), images = await loadPictures(job.images);
   const canvas = createCanvas(job.width, job.height);
   const make = (w: number, h: number) => createCanvas(w, h) as unknown as CanvasLike;
-  const renderer = getStyle(job.style).create(canvas as unknown as CanvasLike, { createCanvas: make });
+  const renderer = getStyle(job.style).create(canvas as unknown as CanvasLike, { createCanvas: make, images: images as never });
   const enc = rawEncoder({ width: job.width, height: job.height, fps, crf: job.crf, preset: job.preset, out: job.out });
   let stderr = '';
   enc.stderr.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });

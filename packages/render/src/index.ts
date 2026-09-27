@@ -14,6 +14,7 @@ import { AbortError, FFMPEG, run } from './ffmpeg';
 export { probe, AbortError, decodeAudio } from './ffmpeg';
 export { registerFonts } from './fonts';
 export { renderStill } from './still';
+export { loadPictures, normalizePicture } from './pictures';
 
 export interface Progress { done: number; total: number; elapsedMs: number; fps: number }
 export interface RenderVideoOptions {
@@ -35,6 +36,8 @@ export interface RenderVideoOptions {
   /** worker threads; 0 renders inline on the calling thread (tests, tiny renders) */
   threads?: number | undefined;
   fontsDir?: string | undefined;
+  /** pictures of the project (asset id → file): decors painted by an image model */
+  images?: Record<string, string> | undefined;
   onProgress?: ((p: Progress) => void) | undefined;
   signal?: AbortSignal | undefined;
 }
@@ -93,7 +96,7 @@ export async function renderVideo(o: RenderVideoOptions): Promise<RenderResult> 
     const jobs: ChunkJob[] = Array.from({ length: chunks }, (_, k) => ({
       project: o.project, style: o.style ?? project.style, width, height,
       from: first + Math.floor((total * k) / chunks), to: first + Math.floor((total * (k + 1)) / chunks),
-      crf: o.crf ?? 20, preset: o.preset ?? 'medium', out: join(parts, `part${String(k).padStart(3, '0')}.mp4`), fontsDir: o.fontsDir,
+      crf: o.crf ?? 20, preset: o.preset ?? 'medium', out: join(parts, `part${String(k).padStart(3, '0')}.mp4`), fontsDir: o.fontsDir, images: o.images,
     }));
     const onFrame = (k: number) => (n: number) => { doneBy[k] = n; report(); };
     if (threads === 0) for (const [k, j] of jobs.entries()) await renderChunk(j, onFrame(k), o.signal);

@@ -2,7 +2,7 @@
 // a model per task. This module only knows how to talk to each provider (catalogue, key check, model list); keys are
 // stored encrypted by the API and handed in at call time. Nothing here logs or returns a key.
 
-export type ProviderKind = 'llm' | 'tts';
+export type ProviderKind = 'llm' | 'tts' | 'image';
 /** how a provider can return JSON that matches our schema */
 export type StructuredOutput = 'native' | 'json-mode' | 'unknown';
 
@@ -10,6 +10,8 @@ export interface ProviderInfo {
   id: string;
   /** for voice providers: default model, and built-in voices when the provider has a fixed set */
   tts?: { defaultModel: string; voices?: string[]; models?: string[] };
+  /** for picture providers: default model and the known ones */
+  image?: { defaultModel: string; models: string[] };
   label: string;
   kinds: ProviderKind[];
   /** where keys are made */
@@ -26,10 +28,11 @@ export interface ProviderInfo {
 export const PROVIDERS: ProviderInfo[] = [
   { id: 'anthropic', label: 'Anthropic (Claude)', kinds: ['llm'], keyUrl: 'https://console.anthropic.com/settings/keys', keyHint: 'sk-ant-…', defaultBaseUrl: 'https://api.anthropic.com', structuredOutput: 'native' },
   {
-    id: 'openai', label: 'OpenAI', kinds: ['llm', 'tts'], keyUrl: 'https://platform.openai.com/api-keys', keyHint: 'sk-…', defaultBaseUrl: 'https://api.openai.com/v1', structuredOutput: 'native',
+    id: 'openai', label: 'OpenAI', kinds: ['llm', 'tts', 'image'], keyUrl: 'https://platform.openai.com/api-keys', keyHint: 'sk-…', defaultBaseUrl: 'https://api.openai.com/v1', structuredOutput: 'native',
+    image: { defaultModel: 'gpt-image-1', models: ['gpt-image-1', 'gpt-image-1-mini', 'dall-e-3'] },
     tts: { defaultModel: 'gpt-4o-mini-tts', models: ['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd'], voices: ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse'] },
   },
-  { id: 'google', label: 'Google (Gemini)', kinds: ['llm'], keyUrl: 'https://aistudio.google.com/apikey', keyHint: 'AIza…', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta', structuredOutput: 'native' },
+  { id: 'google', label: 'Google (Gemini)', kinds: ['llm', 'image'], keyUrl: 'https://aistudio.google.com/apikey', keyHint: 'AIza…', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta', structuredOutput: 'native', image: { defaultModel: 'gemini-2.5-flash-image', models: ['gemini-2.5-flash-image', 'imagen-4.0-generate-001', 'imagen-4.0-fast-generate-001'] } },
   { id: 'mistral', label: 'Mistral AI', kinds: ['llm'], keyUrl: 'https://console.mistral.ai/api-keys', keyHint: 'clé Mistral', defaultBaseUrl: 'https://api.mistral.ai/v1', structuredOutput: 'json-mode' },
   { id: 'openrouter', label: 'OpenRouter (plusieurs fournisseurs)', kinds: ['llm'], keyUrl: 'https://openrouter.ai/keys', keyHint: 'sk-or-…', defaultBaseUrl: 'https://openrouter.ai/api/v1', structuredOutput: 'unknown' },
   { id: 'openai-compatible', label: 'Serveur compatible OpenAI (Ollama, LM Studio, vLLM…)', kinds: ['llm'], keyUrl: 'https://github.com/ollama/ollama/blob/main/docs/openai.md', keyHint: 'souvent inutile en local', keyOptional: true, needsBaseUrl: true, defaultBaseUrl: 'http://localhost:11434/v1', structuredOutput: 'unknown' },
@@ -45,6 +48,7 @@ export const TASKS: TaskInfo[] = [
   { id: 'scenes', kind: 'llm', label: 'Storyboard → scènes', description: "Écrit le format d'animation (JSON validé) de chaque scène." },
   { id: 'assets', kind: 'llm', label: 'Dessins', description: "Dessine les personnages, accessoires et décors de l'histoire, puis relit chaque dessin en le regardant (un modèle qui voit les images : Claude, GPT, Gemini…). Sans choix, le modèle des scènes." },
   { id: 'music', kind: 'llm', label: 'Musique et bruitages', description: "Compose la musique du film (une partition jouée par le synthétiseur) et conçoit chaque bruitage. Sans choix, le modèle des scènes." },
+  { id: 'images', kind: 'image', label: 'Décors en images (option)', description: "Peint chaque décor en image (OpenAI, Gemini, Imagen). Sans choix, les décors restent des dessins vectoriels animés, faits par le modèle des dessins." },
   { id: 'narration', kind: 'tts', label: 'Narration (voix)', description: "Synthétise la voix off, une réplique à la fois. Chaque personnage peut avoir sa propre voix (champ « voice » de la distribution)." },
 ];
 export const taskById = (id: string) => TASKS.find((t) => t.id === id);
@@ -250,6 +254,63 @@ export async function complete(providerId: string, c: CredentialInput, req: Comp
     const { text, usage } = read(await r.json());
     if (!text) return { ok: false, error: 'réponse vide du modèle' };
     return { ok: true, text, usage };
+  } catch (e) {
+    const name = (e as Error)?.name;
+    return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'pas de réponse du modèle (délai dépassé)' : 'fournisseur injoignable' };
+  }
+}
+
+// ---------- pictures ----------
+export interface ImageRequest {
+  prompt: string;
+  model?: string | undefined;
+  /** the picture is wide (landscape) — decors are 3:2 */
+  landscape?: boolean | undefined;
+}
+export type ImageResult = { ok: true; data: Uint8Array; mediaType: 'image/png' | 'image/jpeg' | 'image/webp' } | { ok: false; status?: number; error: string };
+
+const mediaOf = (m: unknown): 'image/png' | 'image/jpeg' | 'image/webp' => (m === 'image/jpeg' || m === 'image/webp' ? m : 'image/png');
+
+/** Paint one picture with an image model: OpenAI images API, Gemini image models (generateContent), or Imagen (predict). */
+export async function generateImage(providerId: string, c: CredentialInput, req: ImageRequest, fetchImpl: JsonPost = fetch as unknown as JsonPost, timeoutMs = 240000): Promise<ImageResult> {
+  const p = providerById(providerId);
+  if (!p || !p.kinds.includes('image') || !p.image) return { ok: false, error: `${p?.label ?? providerId} ne peint pas d'images` };
+  if (!c.apiKey) return { ok: false, error: 'clé manquante' };
+  const prompt = req.prompt.trim();
+  if (!prompt) return { ok: false, error: 'description vide' };
+  const base = trimSlash(c.baseUrl || p.defaultBaseUrl || ''), model = req.model || p.image.defaultModel, wide = req.landscape !== false;
+  let url: string, headers: Record<string, string>, body: unknown;
+  let read: (b: any) => { data: string | null; mediaType: unknown };
+  if (p.id === 'openai') {
+    url = `${base}/images/generations`;
+    headers = { ...bearer(c.apiKey), 'content-type': 'application/json' };
+    body = model.startsWith('dall-e')
+      ? { model, prompt, n: 1, size: wide ? '1792x1024' : '1024x1024', response_format: 'b64_json' }
+      : { model, prompt, n: 1, size: wide ? '1536x1024' : '1024x1024' };
+    read = (b) => ({ data: b?.data?.[0]?.b64_json ?? null, mediaType: b?.output_format ? `image/${b.output_format === 'jpg' ? 'jpeg' : b.output_format}` : 'image/png' });
+  } else if (model.startsWith('imagen')) {
+    url = `${base}/models/${encodeURIComponent(model)}:predict`;
+    headers = { 'x-goog-api-key': c.apiKey, 'content-type': 'application/json' };
+    body = { instances: [{ prompt }], parameters: { sampleCount: 1, aspectRatio: wide ? '16:9' : '1:1' } };
+    read = (b) => ({ data: b?.predictions?.[0]?.bytesBase64Encoded ?? null, mediaType: b?.predictions?.[0]?.mimeType });
+  } else {
+    url = `${base}/models/${encodeURIComponent(model)}:generateContent`;
+    headers = { 'x-goog-api-key': c.apiKey, 'content-type': 'application/json' };
+    body = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: wide ? '3:2' : '1:1' } } };
+    read = (b) => {
+      const part = (b?.candidates?.[0]?.content?.parts ?? []).find((x: any) => x?.inlineData?.data || x?.inline_data?.data);
+      const d = part?.inlineData ?? part?.inline_data;
+      return { data: d?.data ?? null, mediaType: d?.mimeType ?? d?.mime_type };
+    };
+  }
+  try {
+    const r = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
+    if (!r.ok) return { ok: false, status: r.status, error: describeStatus(r.status) };
+    const { data, mediaType } = read(await r.json());
+    if (!data) return { ok: false, error: "le modèle n'a pas renvoyé d'image (refus ou description écartée)" };
+    const bytes = Uint8Array.from(Buffer.from(data, 'base64'));
+    if (bytes.length < 100) return { ok: false, error: 'image vide' };
+    return { ok: true, data: bytes, mediaType: mediaOf(mediaType) };
   } catch (e) {
     const name = (e as Error)?.name;
     return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'pas de réponse du modèle (délai dépassé)' : 'fournisseur injoignable' };

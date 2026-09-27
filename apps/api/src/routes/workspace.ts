@@ -14,7 +14,7 @@ import { workspacesOf } from './auth';
 
 const Uuid = z.string().uuid();
 
-export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string }, hub?: LiveHub, mail: MailSetup | null = null) {
+export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string; imagesDir?: string | undefined }, hub?: LiveHub, mail: MailSetup | null = null) {
   app.get('/api/workspaces', { config: { auth: 'user' } }, async (req) => workspacesOf(db, userOf(req).id));
 
   app.post('/api/workspaces', { config: { auth: 'user' } }, async (req, reply) => {
@@ -124,6 +124,7 @@ export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     await hub?.kick(ws.id);
     for (const f of files) if (f.file) rmSync(f.file, { force: true });
     rmSync(join(dirs.voicesDir, ws.id), { recursive: true, force: true });
+    if (dirs.imagesDir) rmSync(join(dirs.imagesDir, ws.id), { recursive: true, force: true });
     return reply.code(204).send();
   });
 }

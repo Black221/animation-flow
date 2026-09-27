@@ -24,7 +24,7 @@ export const offset = (prims: Prim[], dx: number, dy: number): Prim[] =>
     switch (p.kind) {
       case 'path': return { ...p, points: p.points.map(([x, y]) => [x + dx, y + dy] as Pt) };
       case 'text': case 'glow': return { ...p, x: p.x + dx, y: p.y + dy };
-      case 'gradient': return { ...p, x: p.x + dx, y: p.y + dy };
+      case 'gradient': case 'image': return { ...p, x: p.x + dx, y: p.y + dy };
     }
   });
 /** rotate primitives about a pivot (a head tilt) */

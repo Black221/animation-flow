@@ -30,8 +30,25 @@ export interface DrawOptions {
   /** shared between drawings of a job: set when the model turns out not to read images */
   vision?: { unavailable?: string } | undefined;
   onStep?: OnStep | undefined;
+  /** paints a decor as a picture with an image model (the "images" task); without it, decors stay vector drawings */
+  paint?: ((b: AssetBrief, prompt: string) => Promise<Picture>) | undefined;
 }
+export type Picture = { ok: true; image: NonNullable<AssetT['image']> } | { ok: false; error: string };
 export interface AssetResult { id: string; asset: AssetT; fallback: boolean; rounds: number; issues: Issue[]; review: string[] }
+
+const PAINT_STYLE: Record<string, string> = {
+  watercolor: 'soft watercolour on textured paper, transparent washes, gentle ink outlines, calm light',
+  flat: 'flat vector illustration, clean solid shapes, crisp edges, simple shading, no texture',
+};
+/** what an image model is asked for a decor: a stage to act on, in the film's style and colours, empty of people */
+export function picturePrompt(b: Pick<AssetBrief, 'name' | 'description'>, c: Pick<DrawContext, 'style' | 'palette'>): string {
+  return [
+    `Background painting for a 2D animated explainer film: ${b.name}. ${b.description}`,
+    `Style: ${PAINT_STYLE[c.style] ?? c.style}.${c.palette?.length ? ` Colour palette: ${c.palette.join(', ')}.` : ''}`,
+    'Wide landscape picture, seen from the front at eye level, like a theatre stage. The ground where characters will stand is flat and level and fills the bottom third. Keep the centre uncluttered: characters and objects are added over it later.',
+    'No people, no animals, no characters, no text, no letters, no logo, no signature, no frame or border.',
+  ].join('\n');
+}
 
 export const REQUIRED = {
   poses: ['idle', 'walk', 'talk', 'point', 'wave'],
@@ -157,6 +174,14 @@ export function fallbackAsset(b: AssetBrief, palette?: string[]): AssetT {
 
 // ---------- drawing, then looking at it ----------
 export async function drawOne(model: Model, b: AssetBrief, c: DrawContext, o: DrawOptions = {}, instruction?: string, current?: AssetT): Promise<AssetResult> {
+  // a decor painted as a picture: its vector drawing is only what shows until the picture loads (no visual review)
+  if (b.kind === 'decor' && o.paint) {
+    const t0 = Date.now(), pic = await o.paint(b, picturePrompt({ name: b.name, description: instruction ? `${b.description} ${instruction}` : b.description }, c));
+    (o.onStep ?? (() => undefined))({ stage: 'picture', target: b.id, attempt: 0, ok: pic.ok, issues: pic.ok ? [] : [{ path: 'image', message: pic.error }], usage: { inputTokens: 0, outputTokens: 0 }, ms: Date.now() - t0 });
+    const r = await drawOne(model, b, c, { ...o, paint: undefined, ...(pic.ok ? { reviewRounds: 0 } : {}) }, instruction, current);
+    if (!pic.ok) return { ...r, review: [...r.review, `pas d'image : ${pic.error}`] };
+    return { ...r, asset: { ...r.asset, image: pic.image }, review: [...r.review, 'peint en image'] };
+  }
   const onStep = o.onStep ?? (() => undefined), check = checkAsset(b);
   const first = current ? `${drawRequest(b, c, instruction)}\n\nThe current drawing, to change:\n${compact(current)}` : drawRequest(b, c, instruction);
   const { value, issues } = await ask(model, drawPrompt(b.kind), first, { name: 'drawing', schema: assetSchema() }, check, 'asset', b.id, onStep, 16_000);

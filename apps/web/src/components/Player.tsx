@@ -5,6 +5,7 @@ import { registry } from '@af/library';
 import type { Project } from '@af/schema';
 import { getStyle, stylePacks, type Renderer } from '@af/styles';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Api } from '../api';
 import { fmtTime, usePlayback, type Playback } from '../playback';
 
 const QUALITIES = [640, 960, 1280, 1920];
@@ -35,6 +36,28 @@ function useAudioSync(pb: Playback, buffer: AudioBuffer | null, on: boolean) {
   }, [pb, buffer, on]);
 }
 
+/** the project's pictures (decors painted by an image model), loaded through signed links; `onReady` asks for a repaint */
+function usePictures(project: Project, onReady: () => void) {
+  const pics = useRef(new Map<string, HTMLImageElement>());
+  const wanted = useMemo(() => [...new Set(Object.values(project.assets ?? {}).flatMap((a) => (a.image ? [a.image.asset] : [])))].sort().join(','), [project.assets]);
+  useEffect(() => {
+    const need = wanted ? wanted.split(',').filter((a) => !pics.current.has(a)) : [];
+    if (!need.length) return;
+    let alive = true;
+    Api.imageLinks(need).then((links) => {
+      for (const [asset, url] of Object.entries(links)) {
+        if (!alive || pics.current.has(asset)) continue;
+        const img = new Image();
+        img.onload = () => onReady();
+        img.src = url;
+        pics.current.set(asset, img);
+      }
+    }).catch(() => undefined); // without them, the decors' drawings show
+    return () => { alive = false; };
+  }, [wanted, onReady]);
+  return useMemo(() => (src: string) => { const img = pics.current.get(src); return img?.complete && img.naturalWidth ? img : null; }, []);
+}
+
 export function Player({ project, pb, style, onStyle, audio, sound, onSound, soundInfo }: {
   project: Project; pb: Playback; style: string; onStyle: (s: string) => void;
   audio?: AudioBuffer | null; sound?: boolean; onSound?: (on: boolean) => void; soundInfo?: string;
@@ -47,6 +70,7 @@ export function Player({ project, pb, style, onStyle, audio, sound, onSound, sou
   const snap = usePlayback(pb);
   const renderer = useRef<Renderer | null>(null);
   const dirty = useRef(true);
+  const images = usePictures(project, useMemo(() => () => { dirty.current = true; }, []));
   useAudioSync(pb, audio ?? null, !!sound);
 
   useEffect(() => { pb.setDuration(ev.timeline.duration); dirty.current = true; }, [ev, pb]);
@@ -56,10 +80,10 @@ export function Player({ project, pb, style, onStyle, audio, sound, onSound, sou
     const c = canvas.current!;
     c.width = quality; c.height = Math.round((quality * project.height) / project.width);
     renderer.current?.dispose();
-    renderer.current = getStyle(style).create(c, { subtitles });
+    renderer.current = getStyle(style).create(c, { subtitles, images });
     dirty.current = true;
     return () => { renderer.current?.dispose(); renderer.current = null; };
-  }, [style, quality, subtitles, project.width, project.height]);
+  }, [style, quality, subtitles, project.width, project.height, images]);
 
   // fonts arrive after the first frame: repaint once they are ready
   useEffect(() => { document.fonts?.ready.then(() => { dirty.current = true; }); }, []);

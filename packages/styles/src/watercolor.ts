@@ -7,7 +7,7 @@
 // Decors are painted once per scene at higher quality (more washes, blooms in the sky) and reused as a plate.
 // Paper grain and a soft vignette go over the whole frame last.
 import { darken, lighten, mix, rgba, rng, type Frame, type PathPrim, type Prim, type Pt } from '@af/engine';
-import { ctxOf, defaultCreateCanvas, drawFade, drawGlow, drawGradient, drawPlate, drawSubtitle, drawText, PlateCache, resolveFonts, tracePath } from './common';
+import { ctxOf, defaultCreateCanvas, drawFade, drawGlow, drawGradient, drawImage, drawPlate, drawSubtitle, drawText, picturesReady, PlateCache, resolveFonts, tracePath } from './common';
 import type { CanvasLike, Ctx2D, RenderOptions, Renderer, StylePack } from './types';
 
 const PAPER = '#FBF3E6';
@@ -136,10 +136,11 @@ function makePaper(make: (w: number, h: number) => CanvasLike, size = 512): Canv
   return c;
 }
 
-function drawPrim(ctx: Ctx2D, p: Prim, seed: string, q: Quality, fonts: ReturnType<typeof resolveFonts>) {
+function drawPrim(ctx: Ctx2D, p: Prim, seed: string, q: Quality, fonts: ReturnType<typeof resolveFonts>, images?: RenderOptions['images']) {
   if (p.kind === 'path') paintPath(ctx, p, seed, q);
   else if (p.kind === 'text') drawText(ctx, p, fonts, true);
   else if (p.kind === 'glow') drawGlow(ctx, p);
+  else if (p.kind === 'image') drawImage(ctx, p, images);
   else paintSky(ctx, p);
 }
 
@@ -158,11 +159,11 @@ export const watercolor: StylePack = {
         ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
         ctx.fillStyle = PAPER; ctx.fillRect(0, 0, canvas.width, canvas.height);
         if (frame.decor) {
-          const plate = plates.get(frame.decor, frame.decor.maxZoom * k, (c, d) => d.still.forEach((p) => drawPrim(c, p, p.id, PLATE, fonts)));
+          const plate = plates.get(frame.decor, frame.decor.maxZoom * k, (c, d) => d.still.forEach((p) => drawPrim(c, p, p.id, PLATE, fonts, options?.images)), picturesReady(frame.decor, options?.images));
           drawPlate(ctx, plate, frame.decor, frame, k);
         }
         ctx.setTransform(k, 0, 0, k, 0, 0);
-        for (const p of frame.items) drawPrim(ctx, p, `${p.id}:${frame.boil}`, LIVE, fonts);
+        for (const p of frame.items) drawPrim(ctx, p, `${p.id}:${frame.boil}`, LIVE, fonts, options?.images);
         // paper grain over everything, then the vignette
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         paper ??= makePaper(make);

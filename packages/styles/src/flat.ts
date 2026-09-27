@@ -1,6 +1,6 @@
 // `flat`: clean vector look (solid fills, crisp outlines). Fast: also the default for scrubbing in the editor.
 import type { Frame, PathPrim, Prim } from '@af/engine';
-import { ctxOf, defaultCreateCanvas, drawFade, drawGlow, drawGradient, drawPlate, drawSubtitle, drawText, PlateCache, resolveFonts, tracePath } from './common';
+import { ctxOf, defaultCreateCanvas, drawFade, drawGlow, drawGradient, drawImage, drawPlate, drawSubtitle, drawText, picturesReady, PlateCache, resolveFonts, tracePath } from './common';
 import type { CanvasLike, Ctx2D, RenderOptions, Renderer, StylePack } from './types';
 
 const BACKGROUND = '#F4EFE6';
@@ -21,10 +21,11 @@ export function drawFlatPath(ctx: Ctx2D, p: PathPrim) {
   ctx.restore();
 }
 
-function drawPrim(ctx: Ctx2D, p: Prim, fonts: ReturnType<typeof resolveFonts>) {
+function drawPrim(ctx: Ctx2D, p: Prim, fonts: ReturnType<typeof resolveFonts>, images?: RenderOptions['images']) {
   if (p.kind === 'path') drawFlatPath(ctx, p);
   else if (p.kind === 'text') drawText(ctx, p, fonts);
   else if (p.kind === 'glow') drawGlow(ctx, p);
+  else if (p.kind === 'image') drawImage(ctx, p, images);
   else drawGradient(ctx, p);
 }
 
@@ -42,11 +43,11 @@ export const flat: StylePack = {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.fillStyle = BACKGROUND; ctx.fillRect(0, 0, canvas.width, canvas.height);
         if (frame.decor) {
-          const plate = plates.get(frame.decor, frame.decor.maxZoom * k, (c, d) => d.still.forEach((p) => drawPrim(c, p, fonts)));
+          const plate = plates.get(frame.decor, frame.decor.maxZoom * k, (c, d) => d.still.forEach((p) => drawPrim(c, p, fonts, options?.images)), picturesReady(frame.decor, options?.images));
           drawPlate(ctx, plate, frame.decor, frame, k);
         }
         ctx.setTransform(k, 0, 0, k, 0, 0);
-        for (const p of frame.items) drawPrim(ctx, p, fonts);
+        for (const p of frame.items) drawPrim(ctx, p, fonts, options?.images);
         drawFade(ctx, frame);
         if (options?.subtitles) drawSubtitle(ctx, frame, fonts);
         stats.frames++; stats.platesPainted = plates.painted; stats.lastMs = performance.now() - t0;
