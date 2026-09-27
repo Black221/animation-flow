@@ -27,7 +27,7 @@ test('invite a teammate from the Team page; roles change what they can do', asyn
   await form.getByLabel(/Mot de passe/).fill('mot-de-passe-solide-2');
   await form.getByRole('button', { name: 'Créer le compte' }).click();
   await expect(mate.getByLabel('espace de travail')).toContainText('Mon espace · éditeur');
-  await expect(mate.locator('.project-list li').first()).toBeVisible(); // the workspace's projects (other tests add some meanwhile)
+  await expect(mate.locator('.project-grid li').first()).toBeVisible(); // the workspace's projects (other tests add some meanwhile)
 
   // the owner sees Ed among the members and makes Ed a viewer
   await page.reload();
@@ -38,14 +38,15 @@ test('invite a teammate from the Team page; roles change what they can do', asyn
   await mate.goto('/');
   await expect(mate.locator('.readonly-note')).toContainText('Rôle lecteur');
   await expect(mate.getByRole('button', { name: 'Créer' })).toHaveCount(0);
-  await mate.locator('.project-list .title').first().click();
+  await mate.locator('.project-grid .title').first().click();
   await expect(mate.getByTestId('read-only')).toBeVisible();
   await expect(mate.getByRole('button', { name: 'Enregistrer', exact: true })).toHaveCount(0);
   await mate.goto('/settings');
   await expect(mate.getByTestId('read-only')).toBeVisible();
 
   // signing out closes the session
-  await mate.getByRole('button', { name: 'Se déconnecter' }).click();
+  await mate.getByRole('button', { name: /^compte de/ }).click();
+  await mate.getByRole('menuitem', { name: 'Se déconnecter' }).click();
   await expect(mate.getByRole('form', { name: 'connexion' })).toBeVisible();
   await other.close();
 });

@@ -67,8 +67,8 @@ export function Settings() {
 
   return (
     <div className="page settings">
-      <h2>Fournisseurs de modèles</h2>
-      <p className="muted">Utilisez vos propres clés : Anthropic, OpenAI, Google, Mistral, OpenRouter, un serveur local compatible OpenAI (Ollama, LM Studio), et pour la voix Fish Audio ou ElevenLabs. Vous choisissez ensuite un modèle par tâche.</p>
+      <div className="page-head"><div><h2>Fournisseurs de modèles</h2>
+      <p className="muted">Utilisez vos propres clés : Anthropic, OpenAI, Google, Mistral, OpenRouter, un serveur local compatible OpenAI (Ollama, LM Studio), et pour la voix Fish Audio ou ElevenLabs. Vous choisissez ensuite un modèle par tâche.</p></div></div>
       {!admin && <p className="readonly-note" data-testid="read-only">Seuls les administrateurs de l'espace ajoutent des clés et choisissent les modèles.</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <fieldset className="plain" disabled={!admin}>
@@ -101,6 +101,7 @@ export function Settings() {
         </section>
         <section>
           <h3>Un modèle par tâche</h3>
+          <div className="tasks">
           {tasks.map((task) => {
             const a = assign.find((x) => x.task === task.id) ?? { task: task.id, credentialId: null, model: '', voice: '' };
             const usable = creds.filter((c) => byId[c.provider]?.kinds.includes(task.kind));
@@ -134,6 +135,7 @@ export function Settings() {
               </div>
             );
           })}
+          </div>
         </section>
       </div>
       </fieldset>

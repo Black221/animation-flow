@@ -27,6 +27,8 @@ test('two people edit the same project at once: changes, presence and autosave',
 
   // Léa edits scene s1 in its JSON while Olga looks at it: Olga's text follows, and her own title edit stays
   await page.getByRole('tab', { name: /Scène/ }).click();
+  await page.getByText('Code de la scène (JSON)').click();
+  await mate.getByText('Code de la scène (JSON)').click();
   const hers = mate.getByLabel('scène (JSON)');
   await hers.fill((await hers.inputValue()).replace('"title": "La carte avant le voyage"', '"title": "Carte de Léa"'));
   await expect(page.getByLabel('scène (JSON)')).toHaveValue(/"title": "Carte de Léa"/);

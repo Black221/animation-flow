@@ -1,4 +1,5 @@
 // Video renders of the project: choose the options, start a render of the saved version, follow it live, watch it.
+import { Icon } from './Icon';
 import type { Project } from '@af/schema';
 import { stylePacks } from '@af/styles';
 import { useCallback, useEffect, useState } from 'react';
@@ -45,7 +46,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst, rea
 
   return (
     <section className="card render-panel" aria-label="rendu vidéo">
-      <h3>Vidéo</h3>
+      <h3><Icon name="film" size={18} /> Vidéo</h3>
       {!readOnly && <div className="row wrap">
         <label>Style <select value={style} onChange={(e) => setStyle(e.target.value)}>{Object.values(stylePacks).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
         <label>Largeur <select value={width} onChange={(e) => setWidth(+e.target.value)} aria-label="largeur">{[640, 960, 1280, 1920].map((w) => <option key={w} value={w}>{w} px</option>)}</select></label>
@@ -53,7 +54,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst, rea
         <label>Portée <select value={scope} onChange={(e) => setScope(e.target.value as 'film' | 'scene')} aria-label="portée"><option value="film">film entier</option><option value="scene">scène {sceneId}</option></select></label>
         <label className="check"><input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} /> sous-titres</label>
         <label className="check"><input type="checkbox" checked={audio} onChange={(e) => setAudio(e.target.checked)} aria-label="son du rendu" /> son</label>
-        <button className="primary" onClick={() => void start()} disabled={busy}>{dirty ? 'Enregistrer et rendre' : 'Rendre la vidéo'}</button>
+        <button className="primary" onClick={() => void start()} disabled={busy}><Icon name="film" size={16} />{dirty ? 'Enregistrer et rendre' : 'Rendre la vidéo'}</button>
       </div>}
       {error && <p className="error small" role="alert">{error}</p>}
       {shown?.videoUrl && (canPlayH264()
@@ -75,7 +76,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst, rea
                 <span className="spacer" />
                 {!readOnly && (j.status === 'queued' || j.status === 'running') && <button onClick={() => void act(() => Api.cancelRender(j.id))}>Annuler</button>}
                 {j.videoUrl && j.id !== shown?.id && <button onClick={() => setWatching(j.id)}>Voir</button>}
-                {j.videoUrl && <a className="button" href={`${j.videoUrl}&download=1`}>Télécharger</a>}
+                {j.videoUrl && <a className="button" href={`${j.videoUrl}&download=1`}><Icon name="download" size={16} /> Télécharger</a>}
                 {!readOnly && j.status !== 'queued' && j.status !== 'running' && <button className="ghost" onClick={() => void act(() => Api.deleteRender(j.id))} aria-label="supprimer le rendu">✕</button>}
               </li>
             );

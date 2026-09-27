@@ -55,6 +55,23 @@ describe('projects', () => {
     expect(p.scenes.map((s: { id: string }) => s.id)).toEqual(['s1', 's2', 's3', 's4', 's5', 's6']);
   });
 
+  it('shows a frame of each project and template, for this workspace only', async () => {
+    const created = (await c.inject({ method: 'POST', url: '/api/projects', payload: { template: 'pizza' } })).json();
+    const r = await c.inject({ url: `/api/projects/${created.id}/thumbnail.png?v=1` });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['content-type']).toBe('image/png');
+    expect(r.headers['cache-control']).toContain('immutable');
+    expect(r.rawPayload.subarray(1, 4).toString()).toBe('PNG');
+    const again = await c.inject({ url: `/api/projects/${created.id}/thumbnail.png?v=1` });
+    expect(again.rawPayload.equals(r.rawPayload)).toBe(true);
+    const t = await c.inject({ url: '/api/templates/example/thumbnail.png' });
+    expect(t.statusCode).toBe(200);
+    expect((await c.inject({ url: '/api/templates/nope/thumbnail.png' })).statusCode).toBe(404);
+    // from another workspace, the project does not exist
+    const other = (await c.inject({ method: 'POST', url: '/api/workspaces', payload: { name: 'Ailleurs' } })).json();
+    expect((await c.inject({ url: `/api/projects/${created.id}/thumbnail.png?ws=${other.id}` })).statusCode).toBe(404);
+  });
+
   it('creates a project from a template', async () => {
     const r = await c.inject({ method: 'POST', url: '/api/projects', payload: { template: 'example' } });
     expect(r.statusCode).toBe(201);

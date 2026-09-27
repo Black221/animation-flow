@@ -1,4 +1,4 @@
-import { checkAgainstLibrary, timeProject } from '@af/engine';
+import { checkAgainstLibrary, createEvaluator, timeProject } from '@af/engine';
 import { catalog, registry } from '@af/library';
 import { parseProject, type Project, type Scene } from '@af/schema';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -10,6 +10,9 @@ import { RenderPanel } from '../components/RenderPanel';
 import { VoicesPanel } from '../components/VoicesPanel';
 import { DrawingsPanel } from '../components/DrawingsPanel';
 import { MusicPanel } from '../components/MusicPanel';
+import { Icon, type IconName } from '../components/Icon';
+import { SceneForm } from '../components/SceneForm';
+import { SceneThumb } from '../components/SceneThumb';
 import { useSoundtrack } from '../audio/useSoundtrack';
 import { Timeline } from '../components/Timeline';
 import { Playback } from '../playback';
@@ -17,12 +20,17 @@ import { useSession } from '../session';
 import { useLive } from '../live';
 import { CommentsPanel, openThreads, useComments, type CommentEvent } from '../components/Comments';
 
-type Tab = 'scene' | 'voices' | 'drawings' | 'music' | 'project' | 'cast' | 'comments';
+type Tab = 'scene' | 'voices' | 'drawings' | 'music' | 'project' | 'comments';
+const TABS: [Tab, IconName, string][] = [['scene', 'scene', 'Scène'], ['voices', 'mic', 'Voix'], ['drawings', 'brush', 'Dessins'], ['music', 'music', 'Musique'], ['project', 'sliders', 'Projet'], ['comments', 'message', 'Commentaires']];
+/** the scene's code stays open once opened (this browser) */
+const ADV = 'af-scene-code';
+const advOpen = () => { try { return localStorage.getItem(ADV) === '1'; } catch { return false; } };
+const setAdv = (v: boolean) => { try { localStorage.setItem(ADV, v ? '1' : '0'); } catch { /* private mode */ } };
 // until the project is loaded, the soundtrack hook gets this (it mixes nothing while disabled)
 const EMPTY = { schemaVersion: 1, title: '-', language: 'fr', fps: 24, width: 16, height: 16, style: 'flat', cast: {}, scenes: [] } as unknown as Project;
 
 const withScene = (p: Project, i: number, s: unknown) => ({ ...p, scenes: p.scenes.map((x, k) => (k === i ? s : x)) });
-const TAB_LABEL: Record<string, string> = { scene: 'scène', voices: 'voix', drawings: 'dessins', music: 'musique', project: 'projet', cast: 'distribution', comments: 'commentaires' };
+const TAB_LABEL: Record<string, string> = { scene: 'scène', voices: 'voix', drawings: 'dessins', music: 'musique', project: 'projet', comments: 'commentaires' };
 const issuesOf = (candidate: unknown): JsonIssue[] => { const r = parseProject(candidate); return r.ok ? [] : r.issues; };
 
 export function Editor() {
@@ -114,6 +122,7 @@ export function Editor() {
   }, [dirty, liveOn, live.unconfirmed]);
 
   const timeline = useMemo(() => (project ? timeProject(project) : null), [project]);
+  const thumbs = useMemo(() => (project ? createEvaluator(project, registry) : null), [project]);
   const soundtrack = useSoundtrack(project ?? EMPTY, sound && !!project);
   const warnings = useMemo(() => (project ? checkAgainstLibrary(project, registry, catalog) : []), [project]);
   const found = project ? project.scenes.findIndex((s) => s.id === selId) : -1;
@@ -123,7 +132,7 @@ export function Editor() {
   useEffect(() => { if (liveOn) live.presence(sceneId, tab); }, [liveOn, sceneId, tab, live.presence]);
 
   if (error && !project) return <div className="page"><p className="error">{error}</p><Link to="/">← Projets</Link></div>;
-  if (!project || !doc || !timeline) return <div className="page muted">Chargement…</div>;
+  if (!project || !doc || !timeline || !thumbs) return <div className="page muted">Chargement…</div>;
   const draft = project; // what the editor shows and edits, live or not
   const scene = draft.scenes[i]!;
   const open = openThreads(comments.list);
@@ -149,7 +158,7 @@ export function Editor() {
   return (
     <div className="editor">
       <div className="editor-bar">
-        <Link to="/" className="muted">← Projets</Link>
+        <Link to="/" className="back" title="Projets"><Icon name="back" size={16} /> Projets</Link>
         <h1 title={draft.title}>{draft.title}</h1>
         <span className={`badge${unsaved ? ' warn' : ''}`} data-testid="save-state" title={liveOn ? 'enregistrement automatique' : undefined}>{unsaved ? 'modifié' : `version ${version}`}</span>
         {!unsaved && (liveOn ? live.savedBy ?? doc.updatedBy : doc.updatedBy) && <span className="muted small" data-testid="author">par {liveOn ? live.savedBy ?? doc.updatedBy : doc.updatedBy}</span>}
@@ -160,10 +169,10 @@ export function Editor() {
             {others.map((p) => <li key={p.userId} style={{ background: p.color }} title={`${p.name}${where(p) ? ` · ${where(p)}` : ''}`}>{p.name.slice(0, 1).toUpperCase()}<span className="sr-only"> {p.name}</span></li>)}
           </ul>
         )}
-        <button onClick={downloadSrt}>Sous-titres .srt</button>
+        <button onClick={downloadSrt} title="télécharger les sous-titres"><Icon name="subtitles" size={16} /> Sous-titres .srt</button>
         {editable ? (liveOn
-          ? <button className="primary" onClick={() => void save()} disabled={liveSaving} title="enregistré automatiquement ; ceci clôt la version en cours (Ctrl+S)">{liveSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
-          : <button className="primary" onClick={() => void save()} disabled={!dirty || saving}>{saving ? 'Enregistrement…' : 'Enregistrer'}</button>)
+          ? <button className="primary" onClick={() => void save()} disabled={liveSaving} title="enregistré automatiquement ; ceci clôt la version en cours (Ctrl+S)"><Icon name="save" size={16} />{liveSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
+          : <button className="primary" onClick={() => void save()} disabled={!dirty || saving}><Icon name="save" size={16} />{saving ? 'Enregistrement…' : 'Enregistrer'}</button>)
           : <span className="readonly-note" data-testid="read-only">Lecture seule (rôle lecteur)</span>}
       </div>
       {live.note && (
@@ -181,24 +190,27 @@ export function Editor() {
       {error && <div className="banner error" role="alert">{error}</div>}
 
       <aside className="scenes">
-        <h3>Scènes</h3>
+        <h3>Scènes · {timeline.duration.toFixed(0)} s</h3>
         <ol>
           {draft.scenes.map((s, k) => (
             <li key={s.id + k}>
               <button className={k === i ? 'active' : ''} onClick={() => select(k)}>
-                <span className="sid">{s.id}</span> {s.title || 'sans titre'}
-                {open[s.id] ? <span className="comment-count" title={`${open[s.id]} commentaire(s) ouvert(s)`} aria-label={`${open[s.id]} commentaire(s) ouvert(s)`}>{open[s.id]}</span> : null}
-                {others.filter((p) => p.sceneId === s.id).map((p) => <span key={p.userId} className="peer-dot" style={{ background: p.color }} title={`${p.name} est ici`} aria-label={`${p.name} est ici`} />)}
-                <span className="muted small">{timeline.scenes[k]!.duration.toFixed(1)} s</span>
+                <SceneThumb ev={thumbs} t={timeline.scenes[k]!.start + Math.min(timeline.scenes[k]!.duration * 0.6, 2.5)} />
+                <span className="scene-name">{s.title || 'sans titre'}</span>
+                <span className="scene-meta">
+                  <span className="sid">{s.id}</span> {timeline.scenes[k]!.duration.toFixed(1)} s
+                  {open[s.id] ? <span className="comment-count" title={`${open[s.id]} commentaire(s) ouvert(s)`} aria-label={`${open[s.id]} commentaire(s) ouvert(s)`}>{open[s.id]}</span> : null}
+                  {others.filter((p) => p.sceneId === s.id).map((p) => <span key={p.userId} className="peer-dot" style={{ background: p.color }} title={`${p.name} est ici`} aria-label={`${p.name} est ici`} />)}
+                </span>
               </button>
             </li>
           ))}
         </ol>
         {editable && <div className="row">
-          <button onClick={addScene} title="ajouter une scène après celle-ci">+ scène</button>
-          <button onClick={() => moveScene(-1)} disabled={i === 0} aria-label="monter la scène">↑</button>
-          <button onClick={() => moveScene(1)} disabled={i === draft.scenes.length - 1} aria-label="descendre la scène">↓</button>
-          <button onClick={removeScene} disabled={draft.scenes.length < 2} aria-label="supprimer la scène">✕</button>
+          <button onClick={addScene} title="ajouter une scène après celle-ci" className="grow"><Icon name="plus" size={16} /> scène</button>
+          <button className="icon" onClick={() => moveScene(-1)} disabled={i === 0} aria-label="monter la scène" title="monter"><Icon name="up" size={16} /></button>
+          <button className="icon" onClick={() => moveScene(1)} disabled={i === draft.scenes.length - 1} aria-label="descendre la scène" title="descendre"><Icon name="down" size={16} /></button>
+          <button className="icon danger-ghost" onClick={removeScene} disabled={draft.scenes.length < 2} aria-label="supprimer la scène" title="supprimer"><Icon name="trash" size={16} /></button>
         </div>}
         {warnings.length > 0 && (
           <div className="warnings">
@@ -218,14 +230,18 @@ export function Editor() {
 
       <aside className="inspector">
         <div className="tabs" role="tablist">
-          {(['scene', 'voices', 'drawings', 'music', 'project', 'cast', 'comments'] as Tab[]).map((t) => (
-            <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-              {t === 'scene' ? `Scène ${scene.id}` : t === 'voices' ? 'Voix' : t === 'drawings' ? 'Dessins' : t === 'music' ? 'Musique' : t === 'project' ? 'Projet' : t === 'cast' ? 'Distribution' : `Commentaires${Object.values(open).reduce((a, b) => a + b, 0) ? ` (${Object.values(open).reduce((a, b) => a + b, 0)})` : ''}`}
-            </button>
-          ))}
+          {TABS.map(([t, icon, label]) => {
+            const n = t === 'comments' ? Object.values(open).reduce((a, b) => a + b, 0) : 0;
+            return (
+              <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)} title={t === 'scene' ? `Scène ${scene.id}` : label}>
+                <Icon name={icon} size={17} /> {label}{t === 'scene' && <span className="sr-only"> {scene.id}</span>}
+                {n > 0 && <><span className="count" aria-hidden>{n}</span><span className="sr-only">{` (${n})`}</span></>}
+              </button>
+            );
+          })}
         </div>
         {tab === 'scene' && editable && (
-          <form className="ai-edit" onSubmit={(e) => { e.preventDefault(); void (async () => {
+          <form className="ai-edit" aria-label="modifier avec l'IA" onSubmit={(e) => { e.preventDefault(); void (async () => {
             setAsking(true); setAiNote('');
             try {
               const r = await Api.editScene(draft, i, ask.trim());
@@ -238,14 +254,21 @@ export function Editor() {
               setAiNote(`${(err as Error).message}${b?.issues?.length ? ` : ${b.issues.slice(0, 2).map((x) => `${x.path} ${x.message}`).join(' ; ')}` : ''}`);
             } finally { setAsking(false); }
           })(); }}>
-            <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="Demander une modification à l'IA : « Jumo arrive par la gauche », « plus de mouvements de caméra »…" aria-label="modification demandée à l'IA" />
-            <button type="submit" disabled={asking || ask.trim().length < 3}>{asking ? 'L\'IA travaille…' : 'Modifier'}</button>
+            <span className="head"><Icon name="wand" size={17} /> Modifier la scène {scene.id} avec l'IA</span>
+            <div className="row">
+              <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="« Jumo arrive par la gauche », « plus de mouvements de caméra »…" aria-label="modification demandée à l'IA" />
+              <button type="submit" className="primary" disabled={asking || ask.trim().length < 3}>{asking ? 'L\'IA travaille…' : 'Modifier'}</button>
+            </div>
             {undo && undo.id === scene.id && <button type="button" onClick={() => { update(withScene(draft, i, undo.scene) as Project); setUndo(null); setResetN((x) => x + 1); setAiNote('modification annulée'); }}>Annuler la modification</button>}
             {aiNote && <span className="muted small" data-testid="ai-note">{aiNote}</span>}
           </form>
         )}
+        {tab === 'scene' && <SceneForm project={draft} scene={scene} readOnly={!editable} duration={timeline.scenes[i]!.duration} onChange={(s) => update(withScene(draft, i, s) as Project)} />}
         {tab === 'scene' && (
-          <JsonEditor label="scène (JSON)" readOnly={!editable} value={scene} resetKey={`scene:${scene.id}:${resetN}`} remoteKey={live.remoteN} validate={(v) => issuesOf(withScene(draft, i, v))} onApply={(v) => update(withScene(draft, i, v) as Project)} />
+          <details className="advanced" open={advOpen()} onToggle={(e) => setAdv((e.target as HTMLDetailsElement).open)}>
+            <summary><Icon name="code" size={15} /> Code de la scène (JSON)</summary>
+            <JsonEditor label="scène (JSON)" readOnly={!editable} value={scene} resetKey={`scene:${scene.id}:${resetN}`} remoteKey={live.remoteN} validate={(v) => issuesOf(withScene(draft, i, v))} onApply={(v) => update(withScene(draft, i, v) as Project)} />
+          </details>
         )}
         {tab === 'voices' && <VoicesPanel project={draft} onChange={update} readOnly={!editable} />}
         {tab === 'drawings' && <DrawingsPanel project={draft} onChange={update} readOnly={!editable} resetKey={String(resetN)} remoteKey={live.remoteN} />}
@@ -266,8 +289,11 @@ export function Editor() {
             me={session.me?.user?.id ?? null} canResolve={session.can('editor')} canModerate={session.can('admin')}
             onSeek={(sid, t) => { const k = draft.scenes.findIndex((s) => s.id === sid); if (k < 0) return; setSelId(sid); pb.pause(); pb.seek(timeline.scenes[k]!.start + t); }} />
         )}
-        {tab === 'cast' && (
-          <JsonEditor label="distribution (JSON)" readOnly={!editable} value={draft.cast} resetKey={`cast:${resetN}`} remoteKey={live.remoteN} validate={(v) => issuesOf({ ...draft, cast: v })} onApply={(v) => update({ ...draft, cast: v as Project['cast'] })} />
+        {tab === 'project' && (
+          <details className="advanced">
+            <summary><Icon name="cast" size={15} /> Distribution (JSON) : {Object.values(draft.cast).map((c) => c.name).join(', ') || 'personne'}</summary>
+            <JsonEditor label="distribution (JSON)" readOnly={!editable} value={draft.cast} resetKey={`cast:${resetN}`} remoteKey={live.remoteN} validate={(v) => issuesOf({ ...draft, cast: v })} onApply={(v) => update({ ...draft, cast: v as Project['cast'] })} />
+          </details>
         )}
       </aside>
     </div>

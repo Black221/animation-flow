@@ -81,6 +81,9 @@ part avec un lien construit sur `APP_URL`.
 - **Dessins** (onglet « Dessins ») : tout ce que le film montre a été dessiné pour lui (personnages, accessoires,
   décors). Chaque dessin s'anime dans l'onglet ; on peut le renommer, le faire redessiner par l'IA avec un changement
   (« une écharpe rouge »), en demander un nouveau, le modifier en JSON, ou, avec un modèle d'images, peindre un décor.
+- **Interface** : thème clair, sombre ou automatique (menu du compte, en haut à droite ; le choix est gardé dans le
+  navigateur), miniature de chaque projet et de chaque scène, scène modifiable sans JSON (titre, durée, décor,
+  transition, répliques ; le code reste accessible en mode avancé).
 - **Musique** (onglet « Musique ») : la partition composée pour le film et ses bruitages, à écouter, à recomposer
   avec une direction (« plus joyeux ») ou à reconcevoir un par un.
 - **Son dans l'aperçu** : voix, musique et bruitages mixés dans le navigateur avec le même code que le rendu.
@@ -249,5 +252,6 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Crédits
 
-Polices : Fredoka et Patrick Hand (SIL Open Font License), Permanent Marker (Apache 2.0), dans `apps/web/public/fonts`
+Polices : Fredoka et Patrick Hand (SIL Open Font License), Permanent Marker (Apache 2.0), dans `apps/web/public/fonts` ;
+Inter (SIL Open Font License, paquet `@fontsource-variable/inter`) pour l'interface
 avec leurs licences. Le projet d'exemple reprend l'ouverture du court métrage « Awa et Jumo : la quête du jumeau stratégique ».

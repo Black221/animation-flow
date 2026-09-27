@@ -31,6 +31,7 @@ test('create a project, preview it in both styles, edit a scene, save', async ({
   await expect(page.getByTestId('save-state')).toHaveText('modifié');
 
   // an invalid scene edit is refused with a readable reason, a valid one applies
+  await page.getByText('Code de la scène (JSON)').click(); // the scene's code is behind « advanced »
   const editor = page.getByLabel('scène (JSON)');
   const original = await editor.inputValue();
   await editor.fill(original.replace('"decor": {', '"decor": { "kind": 12, "x": {'));

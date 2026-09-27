@@ -14,6 +14,7 @@ import { renderRoutes } from './routes/renders';
 import { voiceRoutes } from './routes/voices';
 import { generationRoutes } from './routes/generations';
 import { imageRoutes } from './routes/images';
+import { thumbnailRoutes } from './routes/thumbnails';
 import { authRoutes, type SignupMode } from './routes/auth';
 import { workspaceRoutes } from './routes/workspace';
 import { liveRoutes } from './routes/live';
@@ -85,6 +86,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch);
   generationRoutes(app, deps.db, deps.box, deps.llmFetch, deps.fontsDir, imagesDir);
   imageRoutes(app, deps.db, deps.box, sign, imagesDir, deps.llmFetch);
+  thumbnailRoutes(app, deps.db, imagesDir, deps.fontsDir);
 
   if (deps.webDist && existsSync(deps.webDist)) {
     const { default: fastifyStatic } = await import('@fastify/static');

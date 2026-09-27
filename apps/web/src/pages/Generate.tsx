@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { Api, type Generation, type StoryboardT, type StorySceneT, type StoryThing } from '../api';
 import { useSession } from '../session';
+import { Icon } from '../components/Icon';
 
 const STAGES: { id: Generation['status'][]; label: string }[] = [
   { id: ['storyboard'], label: 'Storyboard' },
@@ -99,8 +100,8 @@ export function Generate() {
 
   return (
     <div className="page generate">
-      <Link to="/" className="muted">← Projets</Link>
-      <h2>Génération : {sb?.title ?? 'en cours'}</h2>
+      <Link to="/" className="muted row" style={{ gap: 6 }}><Icon name="back" size={16} /> Projets</Link>
+      <div className="page-head"><h2><Icon name="sparkles" size={22} className="inline-icon" /> {sb?.title ?? 'Génération en cours'}</h2></div>
       <ol className="stages" aria-label="étapes">
         {STAGES.map((s, i) => <li key={s.label} className={i < k || g.status === 'done' ? 'done' : i === k ? (g.status === 'failed' || g.status === 'canceled' ? 'failed' : 'current') : ''}>{s.label}{i === 2 && g.assetsTotal ? ` ${g.assetsDone}/${g.assetsTotal}` : ''}{i === 4 && g.scenesTotal ? ` ${g.scenesDone}/${g.scenesTotal}` : ''}</li>)}
       </ol>
@@ -118,9 +119,9 @@ export function Generate() {
       {error && <p className="error" role="alert">{error}</p>}
       <div className="row wrap">
         {busy && editable && <button onClick={() => void act(() => Api.cancelGeneration(g.id))}>Annuler</button>}
-        {editable && g.status === 'review' && <button className="primary" onClick={() => void writeScenes()}>Dessiner, composer et écrire les scènes</button>}
+        {editable && g.status === 'review' && <button className="cta" onClick={() => void writeScenes()}><Icon name="sparkles" /> Dessiner, composer et écrire les scènes</button>}
         {editable && g.status === 'failed' && g.storyboard && !g.projectId && <button className="primary" onClick={() => void writeScenes()}>{g.drawings.length ? 'Réessayer les scènes' : 'Réessayer'}</button>}
-        {g.status === 'done' && g.projectId && <button className="primary" onClick={() => nav(`/p/${g.projectId}`)}>Ouvrir le projet</button>}
+        {g.status === 'done' && g.projectId && <button className="cta" onClick={() => nav(`/p/${g.projectId}`)}><Icon name="play" /> Ouvrir le projet</button>}
       </div>
       {g.status === 'done' && g.fallbacks.length > 0 && <p className="warn small">Simplifiés (le modèle n'a pas produit de résultat valide) : {g.fallbacks.join(', ')}. Retouchez-les dans l'éditeur (onglet Dessins pour les dessins).</p>}
 

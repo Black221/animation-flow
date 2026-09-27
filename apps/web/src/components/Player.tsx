@@ -6,6 +6,7 @@ import type { Project } from '@af/schema';
 import { getStyle, stylePacks, type Renderer } from '@af/styles';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePictures } from '../pictures';
+import { Icon } from './Icon';
 import { fmtTime, usePlayback, type Playback } from '../playback';
 
 const QUALITIES = [640, 960, 1280, 1920];
@@ -89,7 +90,7 @@ export function Player({ project, pb, style, onStyle, audio, sound, onSound, sou
         <canvas ref={canvas} data-testid="preview" onClick={() => pb.toggle()} />
       </div>
       <div className="controls">
-        <button className="icon" onClick={() => pb.toggle()} aria-label={snap.playing ? 'pause' : 'lecture'} title="lecture / pause (espace)">{snap.playing ? '❚❚' : '▶'}</button>
+        <button className="play" onClick={() => pb.toggle()} aria-label={snap.playing ? 'pause' : 'lecture'} title="lecture / pause (espace)"><Icon name={snap.playing ? 'pause' : 'play'} size={18} /></button>
         <input className="scrub" type="range" min={0} max={snap.duration} step={1 / project.fps} value={snap.time} onChange={(e) => { pb.pause(); pb.seek(+e.target.value); }} aria-label="position" />
         <span className="time" data-testid="time">{fmtTime(snap.time)} / {fmtTime(snap.duration)}</span>
       </div>

@@ -38,7 +38,8 @@ test('invite by e-mail, then reset a forgotten password from the e-mailed link',
   await expect(mate.getByLabel('espace de travail')).toContainText('éditeur');
 
   // Mia signs out, forgets her password, resets it from the e-mail
-  await mate.getByRole('button', { name: 'Se déconnecter' }).click();
+  await mate.getByRole('button', { name: /^compte de/ }).click();
+  await mate.getByRole('menuitem', { name: 'Se déconnecter' }).click();
   await mate.getByRole('link', { name: 'Mot de passe oublié ?' }).click();
   // scoped to the form: the login page stays mounted for a moment while the router switches pages
   const forgot = mate.getByRole('form', { name: 'mot de passe oublié' });

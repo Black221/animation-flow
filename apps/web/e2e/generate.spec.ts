@@ -97,6 +97,7 @@ test('text → storyboard (reviewed and edited) → scenes → project, then an 
   await page.getByLabel("modification demandée à l'IA").fill('rends cette scène plus épique');
   await page.getByRole('button', { name: 'Modifier' }).click();
   await expect(page.getByTestId('ai-note')).toContainText('OpenAI · gpt-scenes', { timeout: 20_000 });
+  await page.getByText('Code de la scène (JSON)').click();
   await expect(page.getByLabel('scène (JSON)')).toHaveValue(/"mood": "epic"/);
   await expect(page.getByTestId('save-state')).toHaveText('modifié');
   await page.getByRole('button', { name: 'Annuler la modification' }).click();
