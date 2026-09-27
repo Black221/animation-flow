@@ -150,7 +150,7 @@ projet (espace A) ──publier──► publication : copie figée du projet en
   un tiroir sur téléphone), le plein écran (éditeur, génération : leur propre barre, pas de navigation globale),
   la connexion.
 - `components/ui.tsx` : dialogues (`<dialog>` modaux), confirmations et questions attendues (`useUI().confirm`,
-  `prompt`, `info`), notifications (`toast`), menus. Sur téléphone, les dialogues montent du bas.
+  `prompt`, `info`), notifications (`toast`), menus. Sur téléphone, les dialogues montent du bas ; sur tablette en paysage, l'éditeur passe en deux colonnes (scènes en bandeau, aperçu, inspecteur).
 - `components/Motion.tsx` : un film des modèles joué en direct par le moteur (accueil, connexion), les cartes qui
   jouent leur film au survol, les squelettes de chargement ; tout s'arrête avec `prefers-reduced-motion`.
 

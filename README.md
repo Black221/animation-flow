@@ -89,7 +89,7 @@ part avec un lien construit sur `APP_URL`.
 - **Interface** : une barre latérale (recherche, communauté, créer, mon espace, compte) ; l'éditeur et les
   générations en plein écran ; création par l'IA sur sa propre page avec toutes ses options (ton, public, voix,
   musique, rythme, consignes) ; dialogues pour créer, confirmer et voir le détail, notifications ; miniatures qui
-  s'animent au survol et film joué en direct sur l'accueil ; adapté du téléphone au grand écran.
+  s'animent au survol et film joué en direct sur l'accueil ; adapté du téléphone au grand écran, tablette comprise (en paysage, l'éditeur montre l'aperçu et l'inspecteur côte à côte).
 - **Thème** : thème clair, sombre ou automatique (menu du compte, en haut à droite ; le choix est gardé dans le
   navigateur), miniature de chaque projet et de chaque scène, scène modifiable sans JSON (titre, durée, décor,
   transition, répliques ; le code reste accessible en mode avancé).

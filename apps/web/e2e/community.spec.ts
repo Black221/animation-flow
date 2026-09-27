@@ -63,3 +63,25 @@ test('on a phone, the navigation is a drawer and dialogs rise from the bottom', 
   expect(await page.evaluate(() => Math.max(document.documentElement.scrollWidth, ...[...document.querySelectorAll('.focus-layout, .editor')].map((e) => e.scrollWidth))), 'editor').toBeLessThanOrEqual(390);
   await ctx.close();
 });
+
+for (const [w, h] of [[820, 1180], [1024, 768], [1180, 820]] as const) {
+  test(`on a ${w}×${h} tablet, nothing is wider than the screen and the editor shows preview and inspector together`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, extraHTTPHeaders: { 'x-requested-with': 'animation-flow' } });
+    const page = await ctx.newPage();
+    await signedIn(page);
+    for (const path of ['/', '/create', '/projects', '/c', '/settings', '/team', '/profile']) {
+      await page.goto(path);
+      await page.waitForLoadState('networkidle');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), path).toBeLessThanOrEqual(w);
+    }
+    await newProject(page, 'Pizza');
+    await expect(page.getByTestId('preview')).toBeVisible();
+    expect(await page.evaluate(() => Math.max(document.documentElement.scrollWidth, ...[...document.querySelectorAll('.focus-layout, .editor')].map((e) => e.scrollWidth))), 'editor').toBeLessThanOrEqual(w);
+    // in landscape, the preview and the inspector's tabs are both on screen at once
+    if (w > h) {
+      await expect(page.getByTestId('preview')).toBeInViewport();
+      await expect(page.getByRole('tab', { name: /Commentaires/ })).toBeInViewport({ ratio: 1 });
+    }
+    await ctx.close();
+  });
+}
