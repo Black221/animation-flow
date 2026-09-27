@@ -13,10 +13,11 @@ import type { Db } from '../db';
 import { logReset, saveLog, type LiveHub } from '../live/hub';
 import { TEMPLATES } from '../templates';
 
-interface Row { id: string; title: string; data: unknown; version: number; created_at: Date; updated_at: Date; updated_by_name: string | null; created_by_name: string | null }
-const summary = (r: Row) => ({ id: r.id, title: r.title, version: r.version, createdAt: r.created_at, updatedAt: r.updated_at, updatedBy: r.updated_by_name, createdBy: r.created_by_name });
+interface Row { id: string; title: string; data: unknown; version: number; remix_of: string | null; publication_id: string | null; remix_title: string | null; created_at: Date; updated_at: Date; updated_by_name: string | null; created_by_name: string | null }
+const summary = (r: Row) => ({ id: r.id, title: r.title, version: r.version, remixOf: r.remix_of ? { id: r.remix_of, title: r.remix_title ?? '' } : null, publicationId: r.publication_id, createdAt: r.created_at, updatedAt: r.updated_at, updatedBy: r.updated_by_name, createdBy: r.created_by_name });
 const Uuid = z.object({ id: z.string().uuid() });
-const SELECT = `SELECT p.*, uu.name AS updated_by_name, cu.name AS created_by_name FROM projects p
+const SELECT = `SELECT p.*, uu.name AS updated_by_name, cu.name AS created_by_name,
+  (SELECT id FROM publications pub WHERE pub.project_id = p.id) AS publication_id, (SELECT title FROM publications o WHERE o.id = p.remix_of) AS remix_title FROM projects p
   LEFT JOIN users uu ON uu.id = p.updated_by LEFT JOIN users cu ON cu.id = p.created_by`;
 
 export function projectRoutes(app: FastifyInstance, db: Db, hub?: LiveHub) {
@@ -28,6 +29,13 @@ export function projectRoutes(app: FastifyInstance, db: Db, hub?: LiveHub) {
     templates: Object.keys(TEMPLATES),
   }));
   app.get('/api/schema', { config: { auth: 'user' } }, async () => projectJsonSchema());
+  // a template as a project (the home page plays one as a showcase; nothing in them is private)
+  app.get('/api/templates/:name', { config: { auth: 'public' } }, async (req, reply) => {
+    const make = TEMPLATES[(req.params as { name: string }).name];
+    if (!make) return reply.code(404).send({ error: 'modèle inconnu' });
+    reply.header('cache-control', 'public, max-age=3600');
+    return make();
+  });
 
   app.get('/api/projects', { config: { role: 'viewer' } }, async (req) =>
     (await db.query<Row>(`${SELECT} WHERE p.workspace_id = $1 ORDER BY p.updated_at DESC`, [wsOf(req).id])).rows.map(summary));

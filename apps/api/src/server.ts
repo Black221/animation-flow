@@ -15,6 +15,7 @@ import { voiceRoutes } from './routes/voices';
 import { generationRoutes } from './routes/generations';
 import { imageRoutes } from './routes/images';
 import { thumbnailRoutes } from './routes/thumbnails';
+import { communityRoutes } from './routes/community';
 import { authRoutes, type SignupMode } from './routes/auth';
 import { workspaceRoutes } from './routes/workspace';
 import { liveRoutes } from './routes/live';
@@ -37,6 +38,8 @@ export interface ServerDeps {
   voicesDir: string;
   /** where decors painted by an image model are stored (default: a folder inside voicesDir) */
   imagesDir?: string | undefined;
+  /** where published projects keep their media (default: a folder inside voicesDir) */
+  communityDir?: string | undefined;
   /** for voice providers (tests) */
   postFetch?: PostFetch;
   /** for text models (tests) */
@@ -75,8 +78,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true }));
   authRoutes(app, deps.db, deps.signup ?? 'invite', deps.mail ?? null, hub);
-  const imagesDir = deps.imagesDir ?? join(deps.voicesDir, '_images');
-  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir }, hub, deps.mail ?? null);
+  const imagesDir = deps.imagesDir ?? join(deps.voicesDir, '_images'), communityDir = deps.communityDir ?? join(deps.voicesDir, '_community');
+  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, hub, deps.mail ?? null);
   projectRoutes(app, deps.db, hub);
   liveRoutes(app, hub);
   commentRoutes(app, deps.db, hub);
@@ -86,7 +89,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch);
   generationRoutes(app, deps.db, deps.box, deps.llmFetch, deps.fontsDir, imagesDir);
   imageRoutes(app, deps.db, deps.box, sign, imagesDir, deps.llmFetch);
-  thumbnailRoutes(app, deps.db, imagesDir, deps.fontsDir);
+  const thumbnail = thumbnailRoutes(app, deps.db, imagesDir, deps.fontsDir);
+  communityRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, thumbnail);
 
   if (deps.webDist && existsSync(deps.webDist)) {
     const { default: fastifyStatic } = await import('@fastify/static');

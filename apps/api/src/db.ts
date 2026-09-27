@@ -251,6 +251,36 @@ const MIGRATIONS: string[] = [
    ALTER TABLE generations ADD COLUMN assets_total integer NOT NULL DEFAULT 0`,
   // and composes its music and sounds: kept on the job too
   `ALTER TABLE generations ADD COLUMN audio jsonb`,
+  // the community: a project published as a frozen copy (its media copied beside it), liked, remixed into other
+  // workspaces; a remix remembers what it came from
+  `CREATE TABLE publications (
+     id uuid PRIMARY KEY,
+     project_id uuid REFERENCES projects(id) ON DELETE SET NULL,
+     workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+     author_id uuid REFERENCES users(id) ON DELETE SET NULL,
+     title text NOT NULL,
+     description text NOT NULL DEFAULT '',
+     tags jsonb NOT NULL DEFAULT '[]',
+     license text NOT NULL DEFAULT 'cc-by',
+     data jsonb NOT NULL,
+     project_version integer NOT NULL,
+     duration real NOT NULL DEFAULT 0,
+     remix_of uuid REFERENCES publications(id) ON DELETE SET NULL,
+     remixes integer NOT NULL DEFAULT 0,
+     likes integer NOT NULL DEFAULT 0,
+     views integer NOT NULL DEFAULT 0,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     updated_at timestamptz NOT NULL DEFAULT now()
+   );
+   CREATE INDEX publications_created ON publications (created_at DESC);
+   CREATE UNIQUE INDEX publications_project ON publications (project_id) WHERE project_id IS NOT NULL;
+   CREATE TABLE publication_likes (
+     publication_id uuid NOT NULL REFERENCES publications(id) ON DELETE CASCADE,
+     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (publication_id, user_id)
+   );
+   ALTER TABLE projects ADD COLUMN remix_of uuid REFERENCES publications(id) ON DELETE SET NULL`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */

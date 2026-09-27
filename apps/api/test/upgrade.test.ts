@@ -9,7 +9,8 @@ import { adoptLegacyVoices } from '../src/routes/voices';
 import { buildServer } from '../src/server';
 import { signUp } from './client';
 
-describe('upgrading a database from before accounts', () => {
+// builds a database at an old schema, then replays every later migration: seconds of work, more when the suite runs in parallel
+describe('upgrading a database from before accounts', { timeout: 30_000 }, () => {
   it('keeps every project, key, model choice and recording, handed to the first account', async () => {
     const db = await openDb({ url: null, memory: true });
     await migrate(db, 4); // the schema as it was before accounts (migration 5 adds them)
@@ -22,7 +23,7 @@ describe('upgrading a database from before accounts', () => {
     const voices = mkdtempSync(join(tmpdir(), 'af-v-')), asset = 'a'.repeat(32);
     mkdirSync(voices, { recursive: true }); writeFileSync(join(voices, `${asset}.wav`), 'RIFF');
 
-    expect(await migrate(db)).toBe(6); // accounts, comments, password resets, live log, drawings and sound of generations
+    expect(await migrate(db)).toBe(7); // accounts, comments, password resets, live log, drawings and sound of generations, community
     const ws = (await db.query<{ id: string }>('SELECT id FROM workspaces')).rows;
     expect(ws).toHaveLength(1);
     for (const t of ['projects', 'credentials', 'model_assignments', 'generations']) {

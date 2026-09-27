@@ -1,5 +1,6 @@
 // The team: the current workspace, its members and their roles, invitation links; creating and deleting
 // workspaces. Admins manage members and invitations; only the owner can hand over ownership or delete.
+import { publicationsOf } from './community';
 import type { FastifyInstance } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
@@ -14,7 +15,7 @@ import { workspacesOf } from './auth';
 
 const Uuid = z.string().uuid();
 
-export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string; imagesDir?: string | undefined }, hub?: LiveHub, mail: MailSetup | null = null) {
+export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string; imagesDir?: string | undefined; communityDir?: string | undefined }, hub?: LiveHub, mail: MailSetup | null = null) {
   app.get('/api/workspaces', { config: { auth: 'user' } }, async (req) => workspacesOf(db, userOf(req).id));
 
   app.post('/api/workspaces', { config: { auth: 'user' } }, async (req, reply) => {
@@ -120,11 +121,13 @@ export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     const ws = wsOf(req), b = z.object({ confirm: z.string() }).safeParse(req.body ?? {});
     if (!b.success || b.data.confirm !== ws.name) return reply.code(400).send({ error: "tapez le nom exact de l'espace pour confirmer" });
     const files = (await db.query<{ file: string | null }>('SELECT r.file FROM renders r JOIN projects p ON p.id = r.project_id WHERE p.workspace_id = $1', [ws.id])).rows;
+    const published = await publicationsOf(db, ws.id);
     await db.query('DELETE FROM workspaces WHERE id = $1', [ws.id]);
     await hub?.kick(ws.id);
     for (const f of files) if (f.file) rmSync(f.file, { force: true });
     rmSync(join(dirs.voicesDir, ws.id), { recursive: true, force: true });
     if (dirs.imagesDir) rmSync(join(dirs.imagesDir, ws.id), { recursive: true, force: true });
+    if (dirs.communityDir) for (const id of published) rmSync(join(dirs.communityDir, id), { recursive: true, force: true });
     return reply.code(204).send();
   });
 }

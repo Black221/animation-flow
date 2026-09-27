@@ -16,7 +16,12 @@ const WIDTH = 480, KEEP = 300;
 /** a frame that shows the film: well into its first scene, once things have appeared */
 export const thumbnailTime = (p: Project) => { const s = timeProject(p).scenes[0]; return s ? s.start + Math.min(s.duration * 0.6, 2.5) : 0; };
 
-export function thumbnailRoutes(app: FastifyInstance, db: Db, imagesDir: string, fontsDir?: string) {
+export type Thumbnailer = (key: string, project: Project, images: Record<string, string>) => Promise<Buffer>;
+/** `shared`: an image anyone may see (the community); otherwise only the signed-in browser keeps it */
+export const sendPng = (reply: FastifyReply, png: Buffer, immutable: boolean, shared = false) =>
+  reply.type('image/png').header('cache-control', `${shared ? 'public' : 'private'}, ${immutable ? 'max-age=31536000, immutable' : 'max-age=60'}`).send(png);
+
+export function thumbnailRoutes(app: FastifyInstance, db: Db, imagesDir: string, fontsDir?: string): Thumbnailer {
   const cache = new Map<string, Buffer>();
   let queue: Promise<unknown> = Promise.resolve();
   const render = (key: string, project: Project, images: Record<string, string>) => {
@@ -31,8 +36,7 @@ export function thumbnailRoutes(app: FastifyInstance, db: Db, imagesDir: string,
     queue = job.catch(() => undefined);
     return job;
   };
-  const send = (reply: FastifyReply, png: Buffer, immutable: boolean) =>
-    reply.type('image/png').header('cache-control', immutable ? 'private, max-age=31536000, immutable' : 'private, max-age=60').send(png);
+  const send = sendPng;
 
   app.get('/api/projects/:id/thumbnail.png', { config: { role: 'viewer' } }, async (req, reply) => {
     const p = z.object({ id: z.string().uuid() }).safeParse(req.params), ws = wsOf(req).id;
@@ -51,4 +55,5 @@ export function thumbnailRoutes(app: FastifyInstance, db: Db, imagesDir: string,
     if (!parsed?.ok) return reply.code(404).send({ error: 'modèle inconnu' });
     return send(reply, await render(`template:${name}`, parsed.project, {}), false);
   });
+  return render;
 }
