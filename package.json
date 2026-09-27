@@ -1,0 +1,26 @@
+{
+  "name": "animation-flow",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Générer des animations à partir d'une interface web : format d'animation déclaratif, moteur multi-styles, éditeur, fournisseurs de modèles au choix.",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @af/api --filter @af/web dev",
+    "build": "pnpm --filter @af/web build && pnpm --filter @af/api build",
+    "start": "pnpm --filter @af/api start",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "pnpm --filter @af/web e2e"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

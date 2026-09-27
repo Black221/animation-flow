@@ -1,0 +1,21 @@
+{
+  "name": "@af/styles",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Packs de style : dessinent les primitives du moteur (Canvas 2D, dans le navigateur comme sur un serveur).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@af/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@af/library": "workspace:*",
+    "@af/schema": "workspace:*",
+    "@napi-rs/canvas": "^1.0.9"
+  },
+  "scripts": {
+    "still": "tsx scripts/still.ts"
+  }
+}

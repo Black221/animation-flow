@@ -1,0 +1,9 @@
+{
+  "name": "@af/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Le moteur : horloge des répliques, images clés, caméra, et calcul d'une image à l'instant t en primitives indépendantes du style.",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@af/schema": "workspace:*" }
+}

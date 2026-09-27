@@ -1,0 +1,8 @@
+{
+  "name": "@af/providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fournisseurs de modèles (texte et voix) : catalogue, test d'une clé, liste des modèles. Aucune clé n'est stockée ici.",
+  "exports": { ".": "./src/index.ts" }
+}

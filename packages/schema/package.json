@@ -1,0 +1,9 @@
+{
+  "name": "@af/schema",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Le format d'animation d'animation-flow : schémas Zod, types, validation.",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "zod": "^4.1.0" }
+}

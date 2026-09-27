@@ -1,0 +1,16 @@
+{
+  "name": "@af/library",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personnages, accessoires et d\u00e9cors, ind\u00e9pendants du style : ils produisent des primitives que les packs de style dessinent.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@af/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@af/schema": "workspace:*"
+  }
+}

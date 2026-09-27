@@ -1,0 +1,111 @@
+import { exampleProject, parseProject, type Project } from '@af/schema';
+import { catalog, registry } from '../src';
+import { describe, expect, it } from 'vitest';
+import { checkAgainstLibrary, createEvaluator, estimateDuration, GAP, LEAD, sampleElement, refResolver, timeLines, timeProject, toSrt, TAIL } from '@af/engine';
+
+const project = (() => { const r = parseProject(exampleProject); if (!r.ok) throw new Error(JSON.stringify(r.issues)); return r.project; })();
+const withEdit = (f: (p: Project) => void) => { const p = structuredClone(project); f(p); return p; };
+
+describe('timing', () => {
+  it('chains lines with the lead-in, the gap and holds', () => {
+    const lines = timeLines([
+      { id: 'a', speaker: 'narrator', text: 'Bonjour.', holdAfter: 1 },
+      { id: 'b', speaker: 'narrator', text: 'Deux.', duration: 2, holdAfter: 0 },
+    ]);
+    expect(lines[0]!.start).toBe(LEAD);
+    expect(lines[0]!.end).toBeCloseTo(LEAD + estimateDuration('Bonjour.'));
+    expect(lines[1]!.start).toBeCloseTo(lines[0]!.end + GAP + 1);
+    expect(lines[1]!.end - lines[1]!.start).toBe(2);
+    expect(lines[1]!.estimated).toBe(false);
+  });
+
+  it('resolves line references with edges and offsets', () => {
+    const at = refResolver(timeLines([{ id: 'a', speaker: 'narrator', text: 'x', duration: 2, holdAfter: 0 }]));
+    expect(at({ line: 'a', edge: 'end', offset: 0.5 })).toBeCloseTo(LEAD + 2.5);
+    expect(at({ line: 'missing', edge: 'start', offset: 0 }, 7)).toBe(7);
+    expect(at(3)).toBe(3);
+  });
+
+  it('grows a scene to fit its voice and counts frames', () => {
+    const p = withEdit((q) => { q.scenes[1]!.duration = 1; });
+    const tl = timeProject(p), s2 = tl.scenes[1]!;
+    expect(s2.duration).toBeCloseTo(s2.lines.at(-1)!.end + TAIL);
+    expect(tl.frames).toBe(Math.ceil(tl.duration * 24 - 1e-9));
+    expect(tl.scenes[1]!.start).toBe(tl.scenes[0]!.duration);
+  });
+});
+
+describe('keys', () => {
+  const at = refResolver([]);
+  it('interpolates each property only between the keys that set it', () => {
+    const keys = [{ t: 0, x: 0, y: 0 }, { t: 1, pose: 'wave' }, { t: 2, x: 100, ease: 'linear' as const }];
+    const s = sampleElement(keys, 1, at);
+    expect(s.x).toBeCloseTo(50);
+    expect(s.y).toBe(0);
+    expect(s.pose).toBe('wave');
+    expect(sampleElement(keys, 0.5, at).pose).toBe('wave'); // before its key, the first value set holds
+    expect(sampleElement(keys, 9, at).x).toBe(100);
+  });
+  it('holds with step easing', () => {
+    const keys = [{ t: 0, x: 0 }, { t: 2, x: 10, ease: 'step' as const }];
+    expect(sampleElement(keys, 1.99, at).x).toBe(0);
+    expect(sampleElement(keys, 2, at).x).toBe(10);
+  });
+});
+
+describe('evaluate', () => {
+  const ev = createEvaluator(project, registry);
+
+  it('is a pure function of time', () => {
+    expect(JSON.stringify(ev.frameAt(4.2))).toBe(JSON.stringify(createEvaluator(project, registry).frameAt(4.2)));
+  });
+
+  it('places elements through the camera, but not screen-space ones', () => {
+    const f = ev.frameAt(0.9);
+    const title = f.items.find((p) => p.id === 'title:text');
+    expect(title && title.kind === 'text' && title.x).toBe(960);
+    expect(f.decor?.still.length).toBeGreaterThan(10);
+    expect(f.subtitle?.text).toBe('Voici Awa.');
+  });
+
+  it('culls what is outside the frame', () => {
+    const f = ev.frameAt(0);
+    expect(f.items.some((p) => p.id.startsWith('jumo:'))).toBe(false); // Jumo starts at x = 2250, off screen
+    expect(f.items.some((p) => p.id.startsWith('tractor:'))).toBe(true);
+  });
+
+  it('respects enter / exit', () => {
+    const tl = ev.timeline, l5 = tl.scenes[0]!.lines.find((l) => l.id === 'l5')!;
+    expect(ev.frameAt(l5.start - 0.1).items.some((p) => p.id.startsWith('protocol:'))).toBe(false);
+    expect(ev.frameAt(l5.start + 1).items.some((p) => p.id.startsWith('protocol:'))).toBe(true);
+  });
+
+  it('fades into a scene with a fade transition', () => {
+    const s2 = ev.timeline.scenes[1]!;
+    expect(ev.frameAt(s2.start + 0.01).fade).toBeGreaterThan(0.9);
+    expect(ev.frameAt(s2.start - 0.01).fade).toBeGreaterThan(0.9);
+    expect(ev.frameAt(s2.start + 2).fade).toBe(0);
+  });
+
+  it('draws a placeholder for an unknown prop, and the library check reports it', () => {
+    const p = withEdit((q) => { q.scenes[0]!.elements.find((e) => e.id === 'tree')!.ref = 'baobab'; });
+    const f = createEvaluator(p, registry).frameAt(1);
+    expect(f.items.some((i) => i.id === 'tree:q')).toBe(true);
+    expect(checkAgainstLibrary(p, registry, catalog)).toContainEqual({ path: 'scenes.0.elements.1.ref', message: expect.stringContaining('baobab') });
+  });
+
+  it('finds poses the character does not have', () => {
+    const p = withEdit((q) => { q.scenes[0]!.elements.find((e) => e.id === 'awa')!.keys[0]!.pose = 'backflip'; });
+    expect(checkAgainstLibrary(p, registry, catalog).some((w) => w.message.includes('backflip'))).toBe(true);
+    expect(checkAgainstLibrary(project, registry, catalog)).toEqual([]);
+  });
+});
+
+describe('subtitles', () => {
+  it('writes numbered SRT cues in order, two lines at most', () => {
+    const srt = toSrt(project, timeProject(project));
+    const cues = srt.trim().split(/\n\n/);
+    expect(cues[0]).toMatch(/^1\n00:00:00,300 --> 00:00:0\d,\d{3}\nVoici Awa\.$/);
+    for (const c of cues) expect(c.split('\n').length).toBeLessThanOrEqual(4);
+  });
+});
