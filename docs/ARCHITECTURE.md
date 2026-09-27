@@ -142,6 +142,33 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 - Migration : les données d'avant les comptes vont dans un espace par défaut ; le premier compte en devient
   propriétaire ; les voix déjà enregistrées sont déplacées dans son dossier au démarrage.
 
+## Édition en temps réel (`packages/schema/src/ops.ts`, `live.ts`, `apps/api/src/live`)
+
+- **Opérations** : `diffJson(avant, après)` réduit une modification aux feuilles qui changent (`set`, `remove`) ;
+  `applyOps` les rejoue sur une copie. Les tableaux dont les éléments ont un `id` (scènes, éléments, répliques)
+  sont adressés par identifiant (`['scenes', { id: 's2' }, 'title']`) ; ajouter, retirer ou réordonner est une
+  opération `list` (ordre voulu, éléments ajoutés, éléments retirés) qui garde les éléments ajoutés entre-temps par
+  d'autres et l'état actuel de ceux qu'elle conserve. Les autres tableaux (clés d'animation, caméra) vont indice par
+  indice, et sont remplacés entiers si leur longueur change. Chemins interdits (`__proto__`…) et opérations mal
+  formées sont refusés.
+- **Serveur** (`LiveHub`, une salle par projet ouvert) : la salle tient le projet de référence, numérote chaque
+  modification acceptée, la valide (schéma complet), l'envoie aux autres et accuse réception à l'auteur (`ack`) ou
+  la refuse (`nack` + raison). Enregistrement 2 s après la dernière modification (10 s au plus), et quand le dernier
+  participant part ; les enregistrements d'une séance mettent à jour la même version tant qu'elle reste la dernière,
+  du même auteur et récente, jamais une version que la salle n'a pas écrite (création, enregistrement par l'API).
+  Un `PUT` par l'API enregistre d'abord la salle, puis la remet à zéro pour tous (`reset`).
+- **Client** (`LiveDoc`, partagé par l'éditeur et les tests) : il applique tout de suite ce que l'utilisateur tape,
+  le garde « en attente » jusqu'à l'accusé, et rejoue les modifications en attente par-dessus celles des autres :
+  tout le monde converge vers l'ordre du serveur (vérifié sur des entrelacements aléatoires). Après une
+  reconnexion, ce qui n'avait pas été accusé est rejoué sur le projet actuel.
+- **Sécurité** : `GET /api/projects/:id/live?ws=<espace>` passe par le même contrôle (session, espace, rôle
+  lecteur au moins) ; l'origine de la page doit être le serveur lui-même ; un lecteur reçoit mais ne peut rien
+  envoyer ; messages de 4 Mo au plus. Quand le rôle d'un membre change ou qu'il quitte l'espace, ses connexions
+  se ferment (code 4001) et l'éditeur se reconnecte avec ses nouveaux droits ; un projet supprimé ferme la salle.
+- **Limite** : les salles vivent dans le processus de l'API. Avec plusieurs instances de l'API, il faut router un
+  même projet vers la même instance (affinité), ou relier les salles (PostgreSQL `LISTEN/NOTIFY`). Les workers de
+  rendu ne sont pas concernés.
+
 ## API (`apps/api`)
 
 | route | rôle |
@@ -156,6 +183,7 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 | `GET /api/library`, `GET /api/schema` | bibliothèque, styles, modèles de projet ; schéma JSON du format |
 | `GET/POST /api/projects`, `GET/PUT/DELETE /api/projects/:id` | projets ; `PUT` exige `baseVersion` (sinon 409 avec la version actuelle) et valide (422 avec les erreurs) |
 | `GET /api/projects/:id/versions`, `GET /api/projects/:id/subtitles.srt` | historique ; sous-titres |
+| `GET /api/projects/:id/live?ws=` (WebSocket) | édition en temps réel : reçoit `hello`, `ops`, `ack`/`nack`, `presence`, `saved`, `reset` ; envoie `ops`, `presence`, `save` |
 | `GET /api/providers` | fournisseurs et tâches |
 | `GET/POST /api/credentials`, `PATCH/DELETE /api/credentials/:id` | clés (jamais renvoyées) |
 | `POST /api/credentials/:id/test` | teste la clé et liste les modèles |

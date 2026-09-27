@@ -12,48 +12,75 @@ import { useSoundtrack } from '../audio/useSoundtrack';
 import { Timeline } from '../components/Timeline';
 import { Playback } from '../playback';
 import { useSession } from '../session';
+import { useLive } from '../live';
 
 type Tab = 'scene' | 'voices' | 'project' | 'cast';
 // until the project is loaded, the soundtrack hook gets this (it mixes nothing while disabled)
 const EMPTY = { schemaVersion: 1, title: '-', language: 'fr', fps: 24, width: 16, height: 16, style: 'flat', cast: {}, scenes: [] } as unknown as Project;
 
 const withScene = (p: Project, i: number, s: unknown) => ({ ...p, scenes: p.scenes.map((x, k) => (k === i ? s : x)) });
+const TAB_LABEL: Record<string, string> = { scene: 'scène', voices: 'voix', project: 'projet', cast: 'distribution', comments: 'commentaires' };
 const issuesOf = (candidate: unknown): JsonIssue[] => { const r = parseProject(candidate); return r.ok ? [] : r.issues; };
 
 export function Editor() {
   const { id = '' } = useParams();
   const [doc, setDoc] = useState<ProjectDoc | null>(null);
-  const [draft, setDraft] = useState<Project | null>(null);
+  const [restDraft, setRestDraft] = useState<Project | null>(null);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState<ProjectDoc | null>(null);
   const [saving, setSaving] = useState(false);
-  const [sel, setSel] = useState(0);
+  // the selected scene, by id: it stays selected when someone else inserts, moves or removes scenes
+  const [selId, setSelId] = useState<string | null>(null);
+  const lastIndex = useRef(0);
   const [tab, setTab] = useState<Tab>('scene');
   const [resetN, setResetN] = useState(0);
   const [ask, setAsk] = useState('');
   const [asking, setAsking] = useState(false);
   const [aiNote, setAiNote] = useState('');
-  const [undo, setUndo] = useState<{ index: number; scene: Scene } | null>(null);
+  const [undo, setUndo] = useState<{ id: string; scene: Scene } | null>(null);
   const pb = useMemo(() => new Playback(), []);
-  const editable = useSession().can('editor');
+  const session = useSession();
   const [sound, setSound] = useState(true);
+  const [liveSaving, setLiveSaving] = useState(false);
+
+  // live co-editing when the WebSocket is there; otherwise (fallback) the project is saved by hand below
+  const live = useLive(id, session.epoch);
+  const liveOn = live.status !== 'offline' && live.status !== 'connecting' ? !!live.project : false;
+  const fellBack = useRef(false);
+  useEffect(() => {
+    // the live connection ended for good after working: carry on by hand from what it had
+    if (live.status === 'offline' && live.project && !fellBack.current) {
+      fellBack.current = true;
+      setRestDraft(live.project); setDirty(live.unsaved); setDoc((d) => (d ? { ...d, version: live.version || d.version } : d));
+    }
+  }, [live.status, live.project, live.unsaved, live.version]);
+  const project = liveOn ? live.project : restDraft;
+  const editable = session.can('editor') && (!liveOn || live.canEdit);
+  const unsaved = liveOn ? live.unsaved : dirty;
+  const version = liveOn ? live.version : doc?.version ?? 0;
 
   const load = useCallback(async () => {
     try {
       const d = await Api.project(id), r = parseProject(d.project);
-      setDoc(d); setDraft(r.ok ? r.project : d.project); setDirty(false); setConflict(null); setResetN((n) => n + 1); setError('');
+      setDoc(d); setRestDraft(r.ok ? r.project : d.project); setDirty(false); setConflict(null); setResetN((n) => n + 1); setError('');
     } catch (e) { setError((e as Error).message); }
   }, [id]);
   useEffect(() => { void load(); }, [load]);
 
-  const update = (p: Project) => { const r = parseProject(p); if (r.ok) { setDraft(r.project); setDirty(true); } };
+  const update = (p: Project) => {
+    const r = parseProject(p);
+    if (!r.ok) return;
+    if (liveOn) live.edit(r.project);
+    else { setRestDraft(r.project); setDirty(true); }
+  };
 
   const save = useCallback(async (baseVersion?: number): Promise<boolean> => {
-    if (!doc || !draft) return false;
+    if (liveOn) { setLiveSaving(true); try { return await live.save(); } finally { setLiveSaving(false); } }
+    if (!doc || !restDraft) return false;
     setSaving(true);
     try {
-      const d = await Api.saveProject(doc.id, draft, baseVersion ?? doc.version);
+      const d = await Api.saveProject(doc.id, restDraft, baseVersion ?? doc.version);
       setDoc(d); setDirty(false); setConflict(null); setError('');
       return true;
     } catch (e) {
@@ -61,7 +88,7 @@ export function Editor() {
       else setError((e as Error).message);
       return false;
     } finally { setSaving(false); }
-  }, [doc, draft]);
+  }, [doc, restDraft, liveOn, live.save]);
 
   // keyboard: space plays, Ctrl/Cmd+S saves
   const saveRef = useRef(save); saveRef.current = save;
@@ -75,28 +102,39 @@ export function Editor() {
     return () => window.removeEventListener('keydown', onKey);
   }, [pb]);
   useEffect(() => {
-    const warn = (e: BeforeUnloadEvent) => { if (dirty) e.preventDefault(); };
+    // live: the server saves what it received; only what has not reached it yet would be lost
+    const pending = liveOn ? live.unconfirmed > 0 : dirty;
+    const warn = (e: BeforeUnloadEvent) => { if (pending) e.preventDefault(); };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  }, [dirty, liveOn, live.unconfirmed]);
 
-  const timeline = useMemo(() => (draft ? timeProject(draft) : null), [draft]);
-  const soundtrack = useSoundtrack(draft ?? EMPTY, sound && !!draft);
-  const warnings = useMemo(() => (draft ? checkAgainstLibrary(draft, registry, catalog) : []), [draft]);
+  const timeline = useMemo(() => (project ? timeProject(project) : null), [project]);
+  const soundtrack = useSoundtrack(project ?? EMPTY, sound && !!project);
+  const warnings = useMemo(() => (project ? checkAgainstLibrary(project, registry, catalog) : []), [project]);
+  const found = project ? project.scenes.findIndex((s) => s.id === selId) : -1;
+  const i = project ? (found >= 0 ? found : Math.min(lastIndex.current, project.scenes.length - 1)) : 0;
+  lastIndex.current = i;
+  const sceneId = project?.scenes[i]?.id ?? null;
+  useEffect(() => { if (liveOn) live.presence(sceneId, tab); }, [liveOn, sceneId, tab, live.presence]);
 
-  if (error && !draft) return <div className="page"><p className="error">{error}</p><Link to="/">← Projets</Link></div>;
-  if (!draft || !doc || !timeline) return <div className="page muted">Chargement…</div>;
-  const i = Math.min(sel, draft.scenes.length - 1), scene = draft.scenes[i]!;
+  if (error && !project) return <div className="page"><p className="error">{error}</p><Link to="/">← Projets</Link></div>;
+  if (!project || !doc || !timeline) return <div className="page muted">Chargement…</div>;
+  const draft = project; // what the editor shows and edits, live or not
+  const scene = draft.scenes[i]!;
+  const others = live.peers.filter((p, k, all) => p.userId !== live.you?.userId && all.findIndex((q) => q.userId === p.userId) === k);
+  const where = (p: { sceneId: string | null; tab: string | null }) => [p.sceneId && `scène ${p.sceneId}`, p.tab && p.tab !== 'scene' && TAB_LABEL[p.tab]].filter(Boolean).join(', ');
 
+  const setSel = (k: number) => setSelId(draft.scenes[k]?.id ?? null);
   const select = (k: number) => { setSel(k); setTab('scene'); pb.pause(); pb.seek(timeline.scenes[k]!.start); };
   const addScene = () => {
     const n = draft.scenes.length + 1;
     let sid = `s${n}`; while (draft.scenes.some((s) => s.id === sid)) sid += 'b';
     const s: Scene = { id: sid, title: 'Nouvelle scène', duration: 5, decor: { kind: 'plain', params: {} }, narration: [], elements: [], camera: [], transition: 'cut', music: { mood: 'none', gain: 0 }, sfx: [] };
-    update({ ...draft, scenes: [...draft.scenes.slice(0, i + 1), s, ...draft.scenes.slice(i + 1)] }); setSel(i + 1); setResetN((x) => x + 1);
+    update({ ...draft, scenes: [...draft.scenes.slice(0, i + 1), s, ...draft.scenes.slice(i + 1)] }); setSelId(sid); lastIndex.current = i + 1; setResetN((x) => x + 1);
   };
-  const removeScene = () => { if (draft.scenes.length < 2 || !confirm(`Supprimer la scène « ${scene.title || scene.id} » ?`)) return; update({ ...draft, scenes: draft.scenes.filter((_, k) => k !== i) }); setSel(Math.max(0, i - 1)); setResetN((x) => x + 1); };
-  const moveScene = (d: -1 | 1) => { const j = i + d; if (j < 0 || j >= draft.scenes.length) return; const s = draft.scenes.slice(); [s[i], s[j]] = [s[j]!, s[i]!]; update({ ...draft, scenes: s }); setSel(j); setResetN((x) => x + 1); };
+  const removeScene = () => { if (draft.scenes.length < 2 || !confirm(`Supprimer la scène « ${scene.title || scene.id} » ?`)) return; update({ ...draft, scenes: draft.scenes.filter((_, k) => k !== i) }); setSelId(draft.scenes[i > 0 ? i - 1 : 1]!.id); setResetN((x) => x + 1); };
+  const moveScene = (d: -1 | 1) => { const j = i + d; if (j < 0 || j >= draft.scenes.length) return; const s = draft.scenes.slice(); [s[i], s[j]] = [s[j]!, s[i]!]; update({ ...draft, scenes: s }); setResetN((x) => x + 1); };
   const downloadSrt = async () => {
     const r = await fetch(`/api/projects/${doc.id}/subtitles.srt`, { headers: { 'x-workspace-id': getWorkspace() } });
     if (!r.ok) return setError('export des sous-titres impossible');
@@ -108,13 +146,27 @@ export function Editor() {
       <div className="editor-bar">
         <Link to="/" className="muted">← Projets</Link>
         <h1 title={draft.title}>{draft.title}</h1>
-        <span className={`badge${dirty ? ' warn' : ''}`} data-testid="save-state">{dirty ? 'modifié' : `version ${doc.version}`}</span>
-        {!dirty && doc.updatedBy && <span className="muted small" data-testid="author">par {doc.updatedBy}</span>}
+        <span className={`badge${unsaved ? ' warn' : ''}`} data-testid="save-state" title={liveOn ? 'enregistrement automatique' : undefined}>{unsaved ? 'modifié' : `version ${version}`}</span>
+        {!unsaved && (liveOn ? live.savedBy ?? doc.updatedBy : doc.updatedBy) && <span className="muted small" data-testid="author">par {liveOn ? live.savedBy ?? doc.updatedBy : doc.updatedBy}</span>}
+        {live.status === 'reconnecting' && <span className="badge warn" data-testid="live-state">reconnexion…</span>}
+        {live.status === 'offline' && <span className="badge" data-testid="live-state" title="la connexion en direct n'a pas pu être établie : enregistrez à la main">hors direct</span>}
+        {liveOn && (
+          <ul className="peers" aria-label="personnes présentes" data-testid="peers">
+            {others.map((p) => <li key={p.userId} style={{ background: p.color }} title={`${p.name}${where(p) ? ` · ${where(p)}` : ''}`}>{p.name.slice(0, 1).toUpperCase()}<span className="sr-only"> {p.name}</span></li>)}
+          </ul>
+        )}
         <button onClick={downloadSrt}>Sous-titres .srt</button>
-        {editable ? <button className="primary" onClick={() => void save()} disabled={!dirty || saving}>{saving ? 'Enregistrement…' : 'Enregistrer'}</button>
+        {editable ? (liveOn
+          ? <button className="primary" onClick={() => void save()} disabled={liveSaving} title="enregistré automatiquement ; ceci clôt la version en cours (Ctrl+S)">{liveSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
+          : <button className="primary" onClick={() => void save()} disabled={!dirty || saving}>{saving ? 'Enregistrement…' : 'Enregistrer'}</button>)
           : <span className="readonly-note" data-testid="read-only">Lecture seule (rôle lecteur)</span>}
       </div>
-      {conflict && (
+      {live.note && (
+        <div className={`banner ${live.note.kind === 'error' ? 'error' : 'warn'}`} role="status" data-testid="live-note">
+          {live.note.text} <button onClick={live.clearNote} aria-label="fermer">✕</button>
+        </div>
+      )}
+      {conflict && !liveOn && (
         <div className="banner warn" role="alert">
           Quelqu'un a enregistré la version {conflict.version} pendant que vous travailliez.
           <button onClick={() => void load()}>Recharger sa version</button>
@@ -130,6 +182,7 @@ export function Editor() {
             <li key={s.id + k}>
               <button className={k === i ? 'active' : ''} onClick={() => select(k)}>
                 <span className="sid">{s.id}</span> {s.title || 'sans titre'}
+                {others.filter((p) => p.sceneId === s.id).map((p) => <span key={p.userId} className="peer-dot" style={{ background: p.color }} title={`${p.name} est ici`} aria-label={`${p.name} est ici`} />)}
                 <span className="muted small">{timeline.scenes[k]!.duration.toFixed(1)} s</span>
               </button>
             </li>
@@ -154,7 +207,7 @@ export function Editor() {
           audio={soundtrack.buffer} sound={sound} onSound={setSound}
           soundInfo={!sound ? '' : soundtrack.error ? `son : ${soundtrack.error}` : soundtrack.mixing ? 'mixage du son…' : soundtrack.missing.length ? `${soundtrack.missing.length} réplique(s) sans voix` : soundtrack.buffer ? 'son prêt' : ''} />
         <Timeline project={draft} timeline={timeline} pb={pb} selected={i} onSelect={select} />
-        <RenderPanel projectId={doc.id} project={draft} sceneId={scene.id} dirty={dirty} saveFirst={() => save()} readOnly={!editable} />
+        <RenderPanel projectId={doc.id} project={draft} sceneId={scene.id} dirty={unsaved} saveFirst={() => save()} readOnly={!editable} />
       </section>
 
       <aside className="inspector">
@@ -170,7 +223,7 @@ export function Editor() {
             setAsking(true); setAiNote('');
             try {
               const r = await Api.editScene(draft, i, ask.trim());
-              setUndo({ index: i, scene }); update(withScene(draft, i, r.scene) as Project); setResetN((x) => x + 1); setAsk('');
+              setUndo({ id: scene.id, scene }); update(withScene(draft, i, r.scene) as Project); setResetN((x) => x + 1); setAsk('');
               setAiNote(`${r.model} · ${r.usage.inputTokens}+${r.usage.outputTokens} tokens`);
             } catch (err) {
               const b = (err as { body?: { issues?: { path: string; message: string }[] } }).body;
@@ -179,12 +232,12 @@ export function Editor() {
           })(); }}>
             <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="Demander une modification à l'IA : « Jumo arrive par la gauche », « plus de mouvements de caméra »…" aria-label="modification demandée à l'IA" />
             <button type="submit" disabled={asking || ask.trim().length < 3}>{asking ? 'L\'IA travaille…' : 'Modifier'}</button>
-            {undo && undo.index === i && <button type="button" onClick={() => { update(withScene(draft, undo.index, undo.scene) as Project); setUndo(null); setResetN((x) => x + 1); setAiNote('modification annulée'); }}>Annuler la modification</button>}
+            {undo && undo.id === scene.id && <button type="button" onClick={() => { update(withScene(draft, i, undo.scene) as Project); setUndo(null); setResetN((x) => x + 1); setAiNote('modification annulée'); }}>Annuler la modification</button>}
             {aiNote && <span className="muted small" data-testid="ai-note">{aiNote}</span>}
           </form>
         )}
         {tab === 'scene' && (
-          <JsonEditor label="scène (JSON)" readOnly={!editable} value={scene} resetKey={`scene:${i}:${resetN}`} validate={(v) => issuesOf(withScene(draft, i, v))} onApply={(v) => update(withScene(draft, i, v) as Project)} />
+          <JsonEditor label="scène (JSON)" readOnly={!editable} value={scene} resetKey={`scene:${scene.id}:${resetN}`} remoteKey={live.remoteN} validate={(v) => issuesOf(withScene(draft, i, v))} onApply={(v) => update(withScene(draft, i, v) as Project)} />
         )}
         {tab === 'voices' && <VoicesPanel project={draft} onChange={update} readOnly={!editable} />}
         {tab === 'project' && (
@@ -199,7 +252,7 @@ export function Editor() {
           </div>
         )}
         {tab === 'cast' && (
-          <JsonEditor label="distribution (JSON)" readOnly={!editable} value={draft.cast} resetKey={`cast:${resetN}`} validate={(v) => issuesOf({ ...draft, cast: v })} onApply={(v) => update({ ...draft, cast: v as Project['cast'] })} />
+          <JsonEditor label="distribution (JSON)" readOnly={!editable} value={draft.cast} resetKey={`cast:${resetN}`} remoteKey={live.remoteN} validate={(v) => issuesOf({ ...draft, cast: v })} onApply={(v) => update({ ...draft, cast: v as Project['cast'] })} />
         )}
       </aside>
     </div>

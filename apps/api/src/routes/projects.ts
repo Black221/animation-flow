@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
+import type { LiveHub } from '../live/hub';
 import { TEMPLATES } from '../templates';
 
 interface Row { id: string; title: string; data: unknown; version: number; created_at: Date; updated_at: Date; updated_by_name: string | null; created_by_name: string | null }
@@ -18,7 +19,7 @@ const Uuid = z.object({ id: z.string().uuid() });
 const SELECT = `SELECT p.*, uu.name AS updated_by_name, cu.name AS created_by_name FROM projects p
   LEFT JOIN users uu ON uu.id = p.updated_by LEFT JOIN users cu ON cu.id = p.created_by`;
 
-export function projectRoutes(app: FastifyInstance, db: Db) {
+export function projectRoutes(app: FastifyInstance, db: Db, hub?: LiveHub) {
   const load = async (id: string, ws: string) => (await db.query<Row>(`${SELECT} WHERE p.id = $1 AND p.workspace_id = $2`, [id, ws])).rows[0];
 
   app.get('/api/library', { config: { auth: 'user' } }, async () => ({
@@ -58,7 +59,11 @@ export function projectRoutes(app: FastifyInstance, db: Db) {
   app.put('/api/projects/:id', { config: { role: 'editor' } }, async (req, reply) => {
     const p = Uuid.safeParse(req.params), body = z.object({ project: z.unknown(), baseVersion: z.number().int() }).safeParse(req.body);
     if (!p.success || !body.success) return reply.code(400).send({ error: 'requête invalide : { project, baseVersion } attendus' });
-    const ws = wsOf(req).id, by = userOf(req).id, row = await load(p.data.id, ws);
+    const ws = wsOf(req).id, by = userOf(req).id;
+    // people editing it live: save their changes first, so the version compared below is the real one
+    const live = hub?.get(p.data.id);
+    if (live) await (await live).flush();
+    const row = await load(p.data.id, ws);
     if (!row) return reply.code(404).send({ error: 'projet introuvable' });
     if (row.version !== body.data.baseVersion) return reply.code(409).send({ error: 'le projet a été modifié entre-temps', current: { ...summary(row), project: row.data } });
     const parsed = parseProject(body.data.project);
@@ -70,12 +75,14 @@ export function projectRoutes(app: FastifyInstance, db: Db) {
       return upd.rows[0];
     });
     if (!saved) return reply.code(409).send({ error: 'le projet a été modifié entre-temps' });
+    if (live) (await live).reset(parsed.project, version, `enregistré par ${userOf(req).name}`);
     return { ...summary((await load(row.id, ws))!), project: parsed.project, warnings: checkAgainstLibrary(parsed.project, registry, catalog) };
   });
 
   app.delete('/api/projects/:id', { config: { role: 'editor' } }, async (req, reply) => {
     const p = Uuid.safeParse(req.params);
     const r = p.success ? await db.query('DELETE FROM projects WHERE id = $1 AND workspace_id = $2 RETURNING id', [p.data.id, wsOf(req).id]) : { rows: [] };
+    if (r.rows.length) await hub?.closeProject(p.data!.id);
     return r.rows.length ? reply.code(204).send() : reply.code(404).send({ error: 'projet introuvable' });
   });
 

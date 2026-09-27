@@ -208,3 +208,5 @@ export function textHash(text: string): string {
 export const voiceIsCurrent = (l: Pick<Line, 'text' | 'audio'>) => !!l.audio && l.audio.textHash === textHash(l.text);
 
 export { exampleProject } from './example';
+export { diffJson, applyOps, OpConflict, OpInvalid, type Op, type PathSeg } from './ops';
+export { LiveDoc, type LiveCause, type Peer, type LiveServerMsg, type LiveClientMsg } from './live';

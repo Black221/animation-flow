@@ -14,6 +14,8 @@ import { voiceRoutes } from './routes/voices';
 import { generationRoutes } from './routes/generations';
 import { authRoutes, type SignupMode } from './routes/auth';
 import { workspaceRoutes } from './routes/workspace';
+import { liveRoutes } from './routes/live';
+import { LiveHub } from './live/hub';
 import { signer, type Signer } from './render/sign';
 
 export interface ServerDeps {
@@ -32,16 +34,22 @@ export interface ServerDeps {
   postFetch?: PostFetch;
   /** for text models (tests) */
   llmFetch?: JsonPost;
+  /** live co-editing: delay before a change is saved (ms) */
+  liveSaveDelay?: number;
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
-  const app = Fastify({
+  const app: FastifyInstance = Fastify({
     bodyLimit: 8 * 1024 * 1024,
     logger: deps.logger ? { level: 'info', redact: { paths: ['req.headers.authorization', 'req.headers["x-api-key"]', 'req.headers.cookie'], censor: '[masqué]' } } : false,
   });
 
   // accounts, sessions, workspaces and roles: every route below declares what it needs (see auth/context.ts)
   installAuth(app, deps.db);
+  const { default: websocket } = await import('@fastify/websocket');
+  await app.register(websocket, { options: { maxPayload: 4 * 1024 * 1024 } });
+  const hub = new LiveHub(deps.db, deps.liveSaveDelay ?? 2000);
+  app.addHook('onClose', async () => { await hub.flushAll(); });
   app.setErrorHandler((err: { statusCode?: number; message: string }, req, reply) => {
     const code = err.statusCode && err.statusCode >= 400 && err.statusCode < 500 ? err.statusCode : 500;
     if (code === 500) req.log.error(err);
@@ -50,8 +58,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true }));
   authRoutes(app, deps.db, deps.signup ?? 'invite');
-  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir });
-  projectRoutes(app, deps.db);
+  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir }, hub);
+  projectRoutes(app, deps.db, hub);
+  liveRoutes(app, hub);
   providerRoutes(app, deps.db, deps.box, deps.fetchImpl);
   const sign = deps.signer ?? signer(randomBytes(32));
   renderRoutes(app, deps.db, sign);

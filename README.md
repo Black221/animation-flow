@@ -45,8 +45,16 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
   (deux fois au plus) ; une scène qui reste invalide est remplacée par une scène simple tirée du storyboard, signalée.
   Dans l'éditeur, « Modifier » demande à l'IA de retoucher la scène ouverte (annulable). Tokens et appels sont
   affichés à chaque étape.
-- **Projets** : créer (exemple « Awa et Jumo » ou projet vide), ouvrir, enregistrer. Chaque enregistrement crée une
-  version ; deux personnes qui éditent en même temps ne s'écrasent pas (l'éditeur propose de recharger ou de garder la sienne).
+- **Projets** : créer (exemple « Awa et Jumo » ou projet vide), ouvrir, enregistrer. Chaque version garde son auteur.
+- **Édition à plusieurs en temps réel** : les membres qui ouvrent le même projet voient les modifications des autres
+  au fil de la frappe, qui est là (pastilles dans la barre, point sur la scène où chacun se trouve) et l'état de
+  l'enregistrement. Deux personnes qui touchent des champs différents se complètent ; sur le même champ, la dernière
+  arrivée au serveur l'emporte ; une modification qui ne s'applique plus (scène supprimée entre-temps) ou qui rendrait
+  le projet invalide est refusée avec la raison. Les scènes, éléments et répliques sont repérés par leur identifiant :
+  une retouche de la scène `s2` reste sur `s2` même si quelqu'un insère une scène avant. Le texte JSON ouvert suit
+  les modifications des autres, sans perdre le curseur. Enregistrement automatique (une version par séance et par
+  auteur) ; « Enregistrer » (ou Ctrl+S) clôt la version en cours. Un lecteur suit en direct sans pouvoir modifier.
+  Sans WebSocket (vieux proxy), l'éditeur revient à l'enregistrement à la main, qui détecte les conflits.
 - **Aperçu en direct** dans chaque style, lecture, déplacement dans le temps, sous-titres, frise des scènes et des répliques.
 - **Édition** d'une scène ou de la distribution en JSON : chaque frappe valide est appliquée à l'aperçu, une erreur est
   expliquée avec son chemin (`scenes.0.elements.2.ref`) et n'atteint jamais le projet.
@@ -106,6 +114,10 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 | `RENDER_THREADS` | threads par rendu (défaut : nombre de cœurs − 1) |
 | `FONTS_DIR` | polices du rendu serveur (défaut : celles de l'éditeur) |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | binaires FFmpeg (défaut : ceux du `PATH`) |
+
+Derrière un proxy inverse (nginx, Caddy, Traefik), laisser passer les WebSocket (`Upgrade`) sur
+`/api/projects/<id>/live` et transmettre `Host` (ou `X-Forwarded-Host`) : le serveur compare l'origine de la page à
+son propre nom. Avec plusieurs instances de l'API, router un même projet vers la même instance.
 
 ## Générer avec l'IA
 
@@ -195,7 +207,8 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 3. **Narration et son** (fait) : voix par réplique avec le fournisseur choisi (durées mesurées → l'horloge se recale seule), musique et bruitages synthétisés, mixage −16 LUFS, son dans l'aperçu et dans le MP4.
 4. **Génération par IA** (fait) : texte → storyboard relu → scènes validées (corrections guidées, scène de secours), retouche d'une scène dans l'éditeur, tokens affichés.
 5. **Multi-utilisateur** (fait) : comptes, espaces de travail, rôles, invitations, isolation des données, auteur de chaque version.
-6. **Ensuite** : édition à plusieurs en temps réel, commentaires, modèles de projets, packs de styles supplémentaires, envoi des invitations par e-mail.
+6. **Travail d'équipe** (en cours) : édition à plusieurs en temps réel (fait) ; commentaires sur les scènes ; envoi des invitations et réinitialisation du mot de passe par e-mail.
+7. **Ensuite** : modèles de projets, packs de styles supplémentaires.
 
 ## Crédits
 

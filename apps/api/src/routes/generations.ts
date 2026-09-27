@@ -71,18 +71,24 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
         const model = await modelFor(db, box, ws, 'scenes', fetchImpl);
         const models = (await load(id))?.models ?? {};
         await set(id, { models: { ...models, scenes: model.label } });
-        let done = 0; const fallbacks: string[] = [];
+        // progress writes go one after the other: on a pool, two in flight could land in the wrong order
+        let done = 0, progress: Promise<unknown> = Promise.resolve(); const fallbacks: string[] = [];
         const { project } = await generateScenes(model, sb, {
           concurrency: 2, signal: ctrl.signal, onStep: logStep(id),
-          onScene: (_i, r) => { done++; if (r.fallback) fallbacks.push(r.scene.id); void set(id, { scenes_done: done, fallbacks }); },
+          onScene: (_i, r) => {
+            done++; if (r.fallback) fallbacks.push(r.scene.id);
+            const now = { scenes_done: done, fallbacks: [...fallbacks] };
+            progress = progress.then(() => set(id, now)).catch(() => undefined);
+          },
         });
+        await progress;
         if (ctrl.signal.aborted) return;
         const pid = randomUUID(), data = JSON.stringify(project), by = (await load(id))?.created_by ?? null;
         await db.tx(async (q) => {
           await q.query('INSERT INTO projects (id, title, data, workspace_id, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $5)', [pid, project.title, data, ws, by]);
           await q.query('INSERT INTO project_versions (project_id, version, data, created_by) VALUES ($1, 1, $2, $3)', [pid, data, by]);
         });
-        await set(id, { status: 'done', project_id: pid, fallbacks });
+        await set(id, { status: 'done', project_id: pid, scenes_done: done, fallbacks });
       } catch (e) { if (!ctrl.signal.aborted) await set(id, { status: 'failed', error: failure(e) }); }
       finally { if (running.get(id) === ctrl) running.delete(id); }
     })();

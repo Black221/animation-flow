@@ -8,11 +8,12 @@ import { z } from 'zod';
 import { RANK, userOf, wsOf, type Role } from '../auth/context';
 import { hashToken } from '../auth/sessions';
 import type { Db } from '../db';
+import type { LiveHub } from '../live/hub';
 import { workspacesOf } from './auth';
 
 const Uuid = z.string().uuid();
 
-export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string }) {
+export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string }, hub?: LiveHub) {
   app.get('/api/workspaces', { config: { auth: 'user' } }, async (req) => workspacesOf(db, userOf(req).id));
 
   app.post('/api/workspaces', { config: { auth: 'user' } }, async (req, reply) => {
@@ -78,10 +79,12 @@ export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
         await q.query(`UPDATE memberships SET role = 'owner' WHERE workspace_id = $1 AND user_id = $2`, [ws.id, uid.data]);
         await q.query(`UPDATE memberships SET role = 'admin' WHERE workspace_id = $1 AND user_id = $2`, [ws.id, me]);
       });
+      await hub?.kick(ws.id, uid.data); await hub?.kick(ws.id, me);
       return { ok: true };
     }
     if (target.role === 'owner') return reply.code(403).send({ error: 'transmettez la propriété avant de changer votre rôle' });
     await db.query('UPDATE memberships SET role = $3 WHERE workspace_id = $1 AND user_id = $2', [ws.id, uid.data, b.data.role]);
+    await hub?.kick(ws.id, uid.data); // open live editors reconnect with the new role
     return { ok: true };
   });
 
@@ -95,6 +98,7 @@ export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     if (!target) return reply.code(404).send({ error: 'membre introuvable' });
     if (target.role === 'owner') return reply.code(403).send({ error: "le propriétaire ne peut pas partir : transmettez d'abord la propriété" });
     await db.query('DELETE FROM memberships WHERE workspace_id = $1 AND user_id = $2', [ws.id, uid.data]);
+    await hub?.kick(ws.id, uid.data);
     return reply.code(204).send();
   });
 
@@ -104,6 +108,7 @@ export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     if (!b.success || b.data.confirm !== ws.name) return reply.code(400).send({ error: "tapez le nom exact de l'espace pour confirmer" });
     const files = (await db.query<{ file: string | null }>('SELECT r.file FROM renders r JOIN projects p ON p.id = r.project_id WHERE p.workspace_id = $1', [ws.id])).rows;
     await db.query('DELETE FROM workspaces WHERE id = $1', [ws.id]);
+    await hub?.kick(ws.id);
     for (const f of files) if (f.file) rmSync(f.file, { force: true });
     rmSync(join(dirs.voicesDir, ws.id), { recursive: true, force: true });
     return reply.code(204).send();

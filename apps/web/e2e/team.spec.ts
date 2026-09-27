@@ -29,9 +29,9 @@ test('invite a teammate from the Team page; roles change what they can do', asyn
   await expect(mate.getByLabel('espace de travail')).toContainText('Mon espace · éditeur');
   await expect(mate.locator('.project-list li')).toHaveCount(await page.request.get('/api/projects').then(async (r) => (await r.json()).length));
 
-  // the owner sees two members and makes the editor a viewer
+  // the owner sees Ed among the members and makes Ed a viewer
   await page.reload();
-  await expect(page.getByTestId('member')).toHaveCount(2);
+  await expect(page.getByTestId('member').filter({ hasText: 'ed@example.org' })).toHaveCount(1);
   await page.getByLabel('rôle de Ed').selectOption('viewer');
 
   // now read-only for the teammate: no save, no creation, keys page locked

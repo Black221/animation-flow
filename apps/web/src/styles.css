@@ -205,3 +205,10 @@ fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
 .auth-brand { text-align: center; margin: 32px 0 0; font-weight: 600; color: var(--text); }
 .auth-brand .logo { color: var(--accent); }
 .auth { min-height: auto; }
+
+/* live co-editing: who is here */
+.peers { list-style: none; display: flex; gap: 4px; margin: 0; padding: 0; }
+.peers li { width: 26px; height: 26px; border-radius: 50%; color: #fff; display: grid; place-items: center; font-size: 0.8rem; font-weight: 600; cursor: default; }
+.peer-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; align-self: center; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.json-editor .banner { grid-column: auto; margin: 0 0 6px; padding: 6px 10px; border-radius: 6px; flex-wrap: wrap; }

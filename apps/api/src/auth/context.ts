@@ -36,7 +36,9 @@ export function installAuth(app: FastifyInstance, db: Db) {
     if (!user) { if (isPublic) return; return reply.code(401).send({ error: 'connexion requise' }); }
     req.ctx = { user, workspace: null };
     if (isPublic || cfg.auth === 'user') return;
-    const wanted = typeof req.headers['x-workspace-id'] === 'string' ? req.headers['x-workspace-id'] : null;
+    // a browser cannot set headers on a WebSocket: the workspace may come as ?ws= there
+    const q = (req.query ?? {}) as { ws?: unknown };
+    const wanted = typeof req.headers['x-workspace-id'] === 'string' ? req.headers['x-workspace-id'] : typeof q.ws === 'string' ? q.ws : null;
     const { rows } = await db.query<{ id: string; name: string; role: Role }>(
       `SELECT w.id, w.name, m.role FROM memberships m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = $1 ${wanted ? 'AND w.id::text = $2' : ''} ORDER BY m.created_at LIMIT 1`,
       wanted ? [user.id, wanted] : [user.id]);
