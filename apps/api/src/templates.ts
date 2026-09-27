@@ -1,4 +1,6 @@
 import { exampleProject, type ProjectInput } from '@af/schema';
+// a whole film drawn for its story (15 drawings, a score, 8 sound effects, 6 scenes), as a generation makes one
+import pizzaTime from './examples/pizza-time.json';
 
 export const blankProject = (title: string): ProjectInput => ({
   schemaVersion: 1,
@@ -12,5 +14,6 @@ export const blankProject = (title: string): ProjectInput => ({
 
 export const TEMPLATES: Record<string, (title?: string) => ProjectInput> = {
   example: (title) => ({ ...structuredClone(exampleProject), ...(title ? { title } : {}) }),
+  pizza: (title) => ({ ...(structuredClone(pizzaTime) as unknown as ProjectInput), ...(title ? { title } : {}) }),
   blank: (title) => blankProject(title || 'Nouveau projet'),
 };

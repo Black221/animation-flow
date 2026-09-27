@@ -45,6 +45,16 @@ describe('migrations', () => {
 
 describe('projects', () => {
   let id = '';
+  it('offers a film drawn for its story as a template', async () => {
+    const r = await c.inject({ method: 'POST', url: '/api/projects', payload: { template: 'pizza' } });
+    expect(r.statusCode).toBe(201);
+    const p = (await c.inject({ url: `/api/projects/${r.json().id}` })).json().project;
+    expect(p.title).toBe('Pizza Time');
+    expect(Object.keys(p.assets)).toHaveLength(15);
+    expect(Object.keys(p.score)).toEqual(['tictac', 'tarentelle']);
+    expect(p.scenes.map((s: { id: string }) => s.id)).toEqual(['s1', 's2', 's3', 's4', 's5', 's6']);
+  });
+
   it('creates a project from a template', async () => {
     const r = await c.inject({ method: 'POST', url: '/api/projects', payload: { template: 'example' } });
     expect(r.statusCode).toBe(201);

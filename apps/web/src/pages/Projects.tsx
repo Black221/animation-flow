@@ -4,7 +4,7 @@ import { stylePacks } from '@af/styles';
 import { Api, type Generation, type ProjectSummary } from '../api';
 import { useSession } from '../session';
 
-const TEMPLATE_LABELS: Record<string, string> = { example: 'Exemple (Awa et Jumo)', blank: 'Projet vide' };
+const TEMPLATE_LABELS: Record<string, string> = { example: 'Exemple (Awa et Jumo)', pizza: 'Exemple : pub « Pizza Time » (tout dessiné pour elle)', blank: 'Projet vide' };
 
 export function Projects() {
   const [list, setList] = useState<ProjectSummary[] | null>(null);

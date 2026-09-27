@@ -73,9 +73,13 @@ bruitages (sfx/scène) ──┘                                                
   −26 LUFS quelle que soit l'ambiance, puis baissée de 8 dB sous la voix (suiveur d'enveloppe) ; les bruitages gardent
   leur niveau de synthèse. Le tout est enfin ramené à −16 LUFS intégrés (BS.1770 : pondération K, blocs de 400 ms,
   portes à −70 LUFS et −10 LU) avec un limiteur à anticipation sur les crêtes réelles (suréchantillonnage ×4).
-- La musique : une tonalité pour tout le film, un tempo, un mode et des instruments par ambiance (nappe, pizzicati,
-  basse, cloches, grosse caisse et charleston discrets), des boucles d'accords de quatre mesures, des fondus d'une
-  scène à l'autre, une réverbération. Tout est déterministe (aléatoire à graine).
+- La musique est une **partition** (`project.score`) : des morceaux (tempo, tonalité, mode, grille d'accords en chiffres
+  romains, parties jouées par 11 instruments et 7 percussions sur des motifs de 16 pas, mélodies en degrés de la gamme),
+  composés pour le film par le modèle de la tâche « Musique et bruitages ». `scene.music.mood` nomme un morceau de la
+  partition, ou une des six ambiances intégrées (elles-mêmes des morceaux), ou `none`. Fondus d'une scène à l'autre,
+  réverbération ; tout est déterministe (aléatoire à graine).
+- Les bruitages sont des **recettes** (`project.sounds`) : des couches d'onde ou de bruit qui glissent en hauteur,
+  filtrées, avec enveloppe, vibrato et répétitions, conçues pour le film ; les noms intégrés (`pop`, `whoosh`…) restent.
 
 ## Décors et plates
 
@@ -83,16 +87,38 @@ Un décor produit une partie **fixe** (peinte une seule fois par scène, gardée
 résolution du plus fort zoom de la scène) et une partie **vivante** (nuages, étoiles qui scintillent) redessinée à chaque image.
 La caméra ne fait que déplacer la plate. C'est ce qui rend l'aquarelle rapide : environ 10 ms par image en 960 px, dans Node.
 
+Pour un décor dessiné (`project.assets`), la plate s'arrête à la première partie qui bouge : elle et tout ce qui est
+dessiné après elle sont redessinés à chaque image, pour que l'ordre du dessin tienne (une nappe devant des rayons qui
+tournent). Un décor peut aussi porter une **image** peinte par un modèle d'images (`asset.image`, fichier dans
+`IMAGES_DIR/<espace>/`) : elle couvre le décor, dont le dessin reste dessous, montré tant qu'elle n'est pas chargée
+(aperçu : liens signés ; rendu serveur : fichiers décodés avant la première image).
+
 ## Génération par IA (`packages/ai`, `apps/api/src/routes/generations.ts`)
 
 ```
-texte ──► storyboard (Storyboard, zod) ──► relecture dans l'interface ──► scène par scène (Scene, zod + bibliothèque) ──► projet
-              ▲  │                                                            ▲  │
-              └──┘ erreurs renvoyées au modèle (2 fois au plus)               └──┘ idem, puis scène de secours
+texte ─► storyboard ─► relecture ─► dessins ─────────────► musique et ─► scène par scène ─► projet
+         (distribution,  (interface)  chacun : JSON vérifié,  bruitages     avec ces dessins,
+          accessoires,                rendu en PNG, montré    (partition,   ces morceaux,
+          décors, sons)               au modèle qui le relit  recettes)     ces bruitages
+                                      et corrige (2 tours) ;
+                                      décors peints en image
+                                      si un modèle d'images
+                                      est choisi
+      à chaque étape : erreurs renvoyées au modèle (2 fois au plus), puis version de secours
 ```
 
-- `complete()` (`packages/providers`) parle à chaque fournisseur de modèles de texte ; `modelFor()` lie la tâche
-  (storyboard ou scènes) à sa clé déchiffrée le temps d'une génération.
+Rien ne vient d'un catalogue fixe : le storyboard dit ce que le film demande, en mots, et chaque chose est faite pour
+lui. Un dessin (`Asset`) est un arbre de parties avec pivots ; les poses font tourner, balancer, rebondir ou tourner en
+continu chaque partie, les expressions choisissent une variante par groupe (yeux, bouche). `checkAsset` vérifie la
+taille, les pieds au sol, les poses (`idle`, `walk`, `talk`, `point`, `wave`) et expressions (`neutral`, `happy`,
+`sad`, `surprised`) dont les scènes ont besoin. La relecture visuelle passe par `renderStill` (le même moteur que
+le rendu) ; un modèle qui ne lit pas les images est détecté à sa première réponse 4xx et la relecture s'arrête pour
+le reste de la génération.
+
+- `complete()` (`packages/providers`) parle à chaque fournisseur de modèles de texte (images comprises, au format de
+  chacun) ; `generateImage()` aux modèles d'images (OpenAI, Gemini, Imagen). `modelFor()` lie une tâche (storyboard,
+  scènes, dessins, musique ; ces deux dernières retombent sur le modèle des scènes) à sa clé déchiffrée le temps d'une
+  génération ; `imageModel()` rend le modèle de « Décors en images », ou rien (tâche facultative).
 - Une génération tourne dans le processus de l'API (les appels sont réseau) ; son état, ses tokens et chaque appel
   (avec les problèmes trouvés) sont en base (`generations`). Un redémarrage marque les générations en cours comme
   interrompues ; on peut relancer le storyboard ou les scènes.
@@ -125,8 +151,10 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 ## Ajouter…
 
 - **un style** : un objet `StylePack` (`packages/styles/src/types.ts`) qui sait dessiner les quatre primitives, puis l'ajouter à `stylePacks`.
-- **un personnage, un accessoire, un décor** : une fonction dans `packages/library`, déclarée dans `registry` et décrite dans `catalog`
-  (le catalogue sert à l'éditeur, à la validation et aux consignes données aux modèles).
+- **un personnage, un accessoire, un décor** : d'ordinaire, rien à coder : c'est un dessin du projet (`project.assets`),
+  fait par le modèle ou dans l'onglet « Dessins ». `packages/ai/src/examples.ts` montre un exemple de chaque sorte, et
+  le modèle de projet « Pizza Time » (`apps/api/src/examples`) un film entier dessiné pour son histoire. Les fonctions
+  de `packages/library` (déclarées dans `registry`, décrites dans `catalog`) restent pour les projets plus anciens.
 - **un fournisseur de modèles** : une entrée dans `PROVIDERS` (`packages/providers`) et, si son API diffère, sa façon de lister les modèles.
 
 ## Comptes, espaces et rôles (`apps/api/src/auth`)
