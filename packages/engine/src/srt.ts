@@ -32,16 +32,22 @@ export function wrapTwoLines(s: string, max = 42): string {
   return best > 0 ? s.slice(0, best) + '\n' + s.slice(best + 1) : s;
 }
 
-export function toSrt(project: Project, tl: Timeline): string {
-  const out: string[] = [];
+/** SRT of the whole film, or of [range.from, range.to) with times shifted so the excerpt starts at 0 */
+export function toSrt(project: Project, tl: Timeline, range?: { from: number; to: number }): string {
+  const out: string[] = [], from = range?.from ?? 0, to = range?.to ?? Infinity;
   let n = 0;
   for (const ts of tl.scenes) for (const l of ts.lines) {
+    const a0 = ts.start + l.start, b0 = ts.start + l.end;
+    if (b0 <= from || a0 >= to) continue;
     const who = l.speaker === 'narrator' ? '' : `${(project.cast[l.speaker]?.name ?? l.speaker).toUpperCase()} — `;
     const parts = splitCue(who + l.text), total = parts.reduce((a, p) => a + p.length, 0);
-    let a = ts.start + l.start;
+    let a = a0;
     for (const p of parts) {
-      const b = a + ((l.end - l.start) * p.length) / total;
-      out.push(`${++n}\n${srtStamp(a)} --> ${srtStamp(Math.max(b, a + 0.8))}\n${wrapTwoLines(p)}\n`);
+      const b = a + ((b0 - a0) * p.length) / total;
+      if (b > from && a < to) {
+        const s = Math.max(a, from) - from, e = Math.min(Math.max(b, a + 0.8), to) - from;
+        out.push(`${++n}\n${srtStamp(s)} --> ${srtStamp(e)}\n${wrapTwoLines(p)}\n`);
+      }
       a = b;
     }
   }

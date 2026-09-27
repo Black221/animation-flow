@@ -9,10 +9,12 @@ COPY packages packages
 COPY apps apps
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
-# the API with its production dependencies only (the bundle keeps fastify, pg and PGlite external)
+# the API with its production dependencies only (the bundle keeps fastify, pg, PGlite and the canvas library external)
 RUN pnpm --filter @af/api deploy --prod --legacy /out
 
 FROM node:22-bookworm-slim
+# FFmpeg encodes the rendered frames into MP4
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST=/app/web DATA_DIR=/data
 WORKDIR /app
 COPY --from=build /out/node_modules ./node_modules

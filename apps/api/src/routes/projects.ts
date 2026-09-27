@@ -34,8 +34,10 @@ export function projectRoutes(app: FastifyInstance, db: Db) {
     const parsed = parseProject(project ?? TEMPLATES[template]!(title));
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
     const id = randomUUID(), data = JSON.stringify(parsed.project);
-    await db.query('INSERT INTO projects (id, title, data) VALUES ($1, $2, $3)', [id, parsed.project.title, data]);
-    await db.query('INSERT INTO project_versions (project_id, version, data) VALUES ($1, 1, $2)', [id, data]);
+    await db.tx(async (q) => {
+      await q.query('INSERT INTO projects (id, title, data) VALUES ($1, $2, $3)', [id, parsed.project.title, data]);
+      await q.query('INSERT INTO project_versions (project_id, version, data) VALUES ($1, 1, $2)', [id, data]);
+    });
     const row = (await load(id))!;
     return reply.code(201).send({ ...summary(row), project: parsed.project, warnings: checkAgainstLibrary(parsed.project, registry, catalog) });
   });
@@ -57,10 +59,13 @@ export function projectRoutes(app: FastifyInstance, db: Db) {
     const parsed = parseProject(body.data.project);
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
     const data = JSON.stringify(parsed.project), version = row.version + 1;
-    const upd = await db.query<Row>('UPDATE projects SET data = $1, title = $2, version = $3, updated_at = now() WHERE id = $4 AND version = $5 RETURNING *', [data, parsed.project.title, version, row.id, row.version]);
-    if (!upd.rows[0]) return reply.code(409).send({ error: 'le projet a été modifié entre-temps' });
-    await db.query('INSERT INTO project_versions (project_id, version, data) VALUES ($1, $2, $3)', [row.id, version, data]);
-    return { ...summary(upd.rows[0]), project: parsed.project, warnings: checkAgainstLibrary(parsed.project, registry, catalog) };
+    const saved = await db.tx(async (q) => {
+      const upd = await q.query<Row>('UPDATE projects SET data = $1, title = $2, version = $3, updated_at = now() WHERE id = $4 AND version = $5 RETURNING *', [data, parsed.project.title, version, row.id, row.version]);
+      if (upd.rows[0]) await q.query('INSERT INTO project_versions (project_id, version, data) VALUES ($1, $2, $3)', [row.id, version, data]);
+      return upd.rows[0];
+    });
+    if (!saved) return reply.code(409).send({ error: 'le projet a été modifié entre-temps' });
+    return { ...summary(saved), project: parsed.project, warnings: checkAgainstLibrary(parsed.project, registry, catalog) };
   });
 
   app.delete('/api/projects/:id', async (req, reply) => {

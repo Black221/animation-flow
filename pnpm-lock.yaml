@@ -32,6 +32,9 @@ importers:
       '@af/providers':
         specifier: workspace:*
         version: link:../../packages/providers
+      '@af/render':
+        specifier: workspace:*
+        version: link:../../packages/render
       '@af/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -44,6 +47,9 @@ importers:
       '@fastify/static':
         specifier: ^10.1.5
         version: 10.1.5
+      '@napi-rs/canvas':
+        specifier: ^1.0.9
+        version: 1.0.9
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
@@ -127,6 +133,28 @@ importers:
         version: link:../schema
 
   packages/providers: {}
+
+  packages/render:
+    dependencies:
+      '@af/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@af/library':
+        specifier: workspace:*
+        version: link:../library
+      '@af/schema':
+        specifier: workspace:*
+        version: link:../schema
+      '@af/styles':
+        specifier: workspace:*
+        version: link:../styles
+      '@napi-rs/canvas':
+        specifier: ^1.0.9
+        version: 1.0.9
+    devDependencies:
+      tsx:
+        specifier: ^4.21.0
+        version: 4.23.15
 
   packages/schema:
     dependencies:

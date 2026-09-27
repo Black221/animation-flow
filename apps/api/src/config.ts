@@ -6,8 +6,14 @@
 //                              production; in development one is generated once into DATA_DIR (never committed)
 //   APP_ACCESS_TOKEN           optional shared token: when set, every /api call must send "Authorization: Bearer …"
 //   WEB_DIST                   built web app to serve (default ../web/dist)
+//   ROLE                       all (default: API + render worker in one process) · api · worker (renders only; needs a
+//                              shared PostgreSQL and a shared RENDERS_DIR)
+//   RENDERS_DIR                where videos are written (default DATA_DIR/renders)
+//   RENDER_THREADS             threads per render job (default: CPU count − 1)
+//   FONTS_DIR                  fonts for server rendering (default: the editor's fonts)
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { join, resolve } from 'node:path';
 
 export interface Config {
@@ -19,6 +25,10 @@ export interface Config {
   accessToken: string | null;
   webDist: string | null;
   production: boolean;
+  role: 'all' | 'api' | 'worker';
+  rendersDir: string;
+  renderThreads: number;
+  fontsDir: string | null;
 }
 
 export function parseKey(raw: string): Buffer {
@@ -39,6 +49,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     encryptionKey = parseKey(readFileSync(file, 'utf8'));
   }
   const webDist = resolve(env.WEB_DIST ?? '../web/dist');
+  const role = (env.ROLE ?? 'all') as Config['role'];
+  if (!['all', 'api', 'worker'].includes(role)) throw new Error('ROLE must be all, api or worker');
+  const fontsDir = [env.FONTS_DIR, join(webDist, 'fonts'), resolve('../web/public/fonts')].find((d): d is string => !!d && existsSync(d)) ?? null;
   return {
     port: Number(env.PORT ?? 3000),
     host: env.HOST ?? '127.0.0.1',
@@ -48,5 +61,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     accessToken: env.APP_ACCESS_TOKEN || null,
     webDist: existsSync(join(webDist, 'index.html')) ? webDist : null,
     production,
+    role,
+    rendersDir: resolve(env.RENDERS_DIR ?? join(dataDir, 'renders')),
+    renderThreads: Math.max(1, Number(env.RENDER_THREADS ?? Math.max(1, availableParallelism() - 1))),
+    fontsDir,
   };
 }

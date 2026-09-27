@@ -111,7 +111,7 @@ export const exampleProject: ProjectInput = {
         {
           id: 'caption', type: 'text', space: 'screen', layer: 5,
           params: { text: 'modèle → ombre → jumeau', size: 48, color: '#BDF1F6', font: 'display' },
-          keys: [{ t: L('l1', 'end'), x: 960, y: 190, opacity: 0 }, { t: L('l1', 'end', 0.6), opacity: 1 }],
+          keys: [{ t: L('l1', 'end'), x: 960, y: 110, opacity: 0 }, { t: L('l1', 'end', 0.6), opacity: 1 }],
         },
       ],
     },

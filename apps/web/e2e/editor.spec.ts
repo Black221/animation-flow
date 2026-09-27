@@ -24,7 +24,7 @@ test('create a project, preview it in both styles, edit a scene, save', async ({
 
   // switching style repaints differently
   const before = await snapshot(page);
-  await page.getByLabel('style').selectOption('flat');
+  await page.getByLabel('style', { exact: true }).selectOption('flat');
   await expect.poll(() => snapshot(page)).not.toBe(before);
   await expect(page.getByTestId('save-state')).toHaveText('modifié');
 
@@ -37,7 +37,7 @@ test('create a project, preview it in both styles, edit a scene, save', async ({
   await expect(page.getByTestId('issues')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /s1 · Carte modifiée/ }).first()).toBeVisible();
 
-  await page.getByRole('button', { name: 'Enregistrer' }).click();
+  await page.getByRole('button', { name: 'Enregistrer', exact: true }).click();
   await expect(page.getByTestId('save-state')).toHaveText('version 2');
   await page.reload();
   await expect(page.getByRole('button', { name: /s1 · Carte modifiée/ }).first()).toBeVisible();

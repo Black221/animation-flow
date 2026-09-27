@@ -1,8 +1,9 @@
 name: CI
 
+# Manual only for now: GitHub Actions does not start jobs on this account. Run it from the Actions tab once it does,
+# or put `push:` and `pull_request:` back. Locally: pnpm typecheck && pnpm test && pnpm build && pnpm e2e
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   check:
@@ -24,7 +25,7 @@ jobs:
       - name: Unit and API tests (embedded PGlite)
         run: pnpm test
       - name: API tests against PostgreSQL
-        run: pnpm vitest run apps/api
+        run: pnpm vitest run apps/api --no-file-parallelism
         env: { TEST_DATABASE_URL: "postgres://af:af@127.0.0.1:5432/af" }
       - run: pnpm build
       - name: End-to-end (editor in Chromium)

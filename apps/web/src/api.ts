@@ -36,6 +36,14 @@ export interface StyleInfo { id: string; label: string; description: string }
 export interface Library { catalog: Catalog; styles: StyleInfo[]; templates: string[] }
 export interface Credential { id: string; provider: string; label: string; hint: string; baseUrl: string | null; createdAt: string; lastTestedAt: string | null; lastTestOk: boolean | null }
 export interface Assignment { task: string; credentialId: string | null; model: string }
+export type RenderStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled';
+export interface RenderJob {
+  id: string; projectId: string; projectVersion: number; status: RenderStatus;
+  options: { style: string; width: number; crf: number; sceneId?: string; subtitles: boolean };
+  framesDone: number; framesTotal: number; fps: number | null; error: string | null; bytes: number | null;
+  createdAt: string; startedAt: string | null; finishedAt: string | null; videoUrl: string | null;
+}
+export interface RenderRequest { style?: string; width: number; quality: 'draft' | 'standard' | 'high'; sceneId?: string; subtitles: boolean }
 export type { Issue, ProviderInfo, TaskInfo, TestResult };
 
 export const Api = {
@@ -53,5 +61,9 @@ export const Api = {
   deleteCredential: (id: string) => api<void>(`/api/credentials/${id}`, { method: 'DELETE' }),
   testCredential: (id: string) => api<TestResult>(`/api/credentials/${id}/test`, { method: 'POST' }),
   assignments: () => api<Assignment[]>('/api/assignments'),
+  renders: (projectId: string) => api<RenderJob[]>(`/api/projects/${projectId}/renders`),
+  startRender: (projectId: string, r: RenderRequest) => api<RenderJob>(`/api/projects/${projectId}/renders`, { method: 'POST', body: r }),
+  cancelRender: (id: string) => api<RenderJob>(`/api/renders/${id}/cancel`, { method: 'POST' }),
+  deleteRender: (id: string) => api<void>(`/api/renders/${id}`, { method: 'DELETE' }),
   assign: (task: string, credentialId: string | null, model: string) => api<Assignment>(`/api/assignments/${task}`, { method: 'PUT', body: { credentialId, model } }),
 };

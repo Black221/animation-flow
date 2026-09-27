@@ -2,12 +2,14 @@
 // run it in memory with app.inject(), without a network or a real Postgres.
 import type { FetchLike } from '@af/providers';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import type { SecretBox } from './crypto';
 import type { Db } from './db';
 import { projectRoutes } from './routes/projects';
 import { providerRoutes } from './routes/providers';
+import { renderRoutes } from './routes/renders';
+import { signer, type Signer } from './render/sign';
 
 export interface ServerDeps {
   db: Db;
@@ -16,6 +18,8 @@ export interface ServerDeps {
   webDist?: string | null;
   fetchImpl?: FetchLike;
   logger?: boolean;
+  /** signs video links; defaults to a random key (links then die with the process) */
+  signer?: Signer;
 }
 
 const sameToken = (a: string, b: string) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
@@ -30,7 +34,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   if (deps.accessToken) {
     const token = deps.accessToken;
     app.addHook('onRequest', async (req, reply) => {
-      if (!req.url.startsWith('/api/') || req.url === '/api/health') return;
+      if (!req.url.startsWith('/api/') || req.url === '/api/health' || (req.routeOptions.config as { public?: boolean } | undefined)?.public) return;
       const h = req.headers.authorization ?? '';
       if (!h.startsWith('Bearer ') || !sameToken(h.slice(7), token)) return reply.code(401).send({ error: 'accès refusé : jeton manquant ou invalide' });
     });
@@ -44,6 +48,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get('/api/health', async () => ({ ok: true, auth: !!deps.accessToken }));
   projectRoutes(app, deps.db);
   providerRoutes(app, deps.db, deps.box, deps.fetchImpl);
+  renderRoutes(app, deps.db, deps.signer ?? signer(randomBytes(32)));
 
   if (deps.webDist && existsSync(deps.webDist)) {
     const { default: fastifyStatic } = await import('@fastify/static');

@@ -6,6 +6,7 @@ import { Link, useParams } from 'react-router';
 import { Api, ApiError, getToken, type ProjectDoc } from '../api';
 import { JsonEditor, type JsonIssue } from '../components/JsonEditor';
 import { Player } from '../components/Player';
+import { RenderPanel } from '../components/RenderPanel';
 import { Timeline } from '../components/Timeline';
 import { Playback } from '../playback';
 
@@ -37,15 +38,17 @@ export function Editor() {
 
   const update = (p: Project) => { const r = parseProject(p); if (r.ok) { setDraft(r.project); setDirty(true); } };
 
-  const save = useCallback(async (baseVersion?: number) => {
-    if (!doc || !draft) return;
+  const save = useCallback(async (baseVersion?: number): Promise<boolean> => {
+    if (!doc || !draft) return false;
     setSaving(true);
     try {
       const d = await Api.saveProject(doc.id, draft, baseVersion ?? doc.version);
       setDoc(d); setDirty(false); setConflict(null); setError('');
+      return true;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) setConflict(e.body.current);
       else setError((e as Error).message);
+      return false;
     } finally { setSaving(false); }
   }, [doc, draft]);
 
@@ -135,6 +138,7 @@ export function Editor() {
       <section className="center">
         <Player project={draft} pb={pb} style={draft.style} onStyle={(s) => update({ ...draft, style: s })} />
         <Timeline project={draft} timeline={timeline} pb={pb} selected={i} onSelect={select} />
+        <RenderPanel projectId={doc.id} project={draft} sceneId={scene.id} dirty={dirty} saveFirst={() => save()} />
       </section>
 
       <aside className="inspector">

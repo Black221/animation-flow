@@ -5,21 +5,16 @@ import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { parseKey } from '../src/config';
 import { secretBox } from '../src/crypto';
-import { migrate, openDb, type Db } from '../src/db';
+import { migrate, type Db } from '../src/db';
 import { buildServer } from '../src/server';
+import { openTestDb } from './testdb';
 
 const KEY = 'sk-ant-api03-SUPERSECRET-abcd1234';
 let db: Db, app: FastifyInstance;
 const fetchImpl = vi.fn<FetchLike>(async () => ({ ok: true, status: 200, json: async () => ({ data: [{ id: 'claude-test', display_name: 'Claude Test' }] }) }));
 
-// By default the tests use an in-memory PGlite. Set TEST_DATABASE_URL to run them against a real PostgreSQL:
-// that database is WIPED first, so point it at a throwaway one.
-const TEST_URL = process.env.TEST_DATABASE_URL ?? null;
-
 beforeAll(async () => {
-  db = await openDb({ url: TEST_URL, memory: true });
-  if (TEST_URL) await db.query('DROP TABLE IF EXISTS model_assignments, credentials, project_versions, projects, _migrations CASCADE');
-  await migrate(db);
+  db = await openTestDb();
   app = await buildServer({ db, box: secretBox(randomBytes(32)), fetchImpl });
 });
 afterAll(async () => { await app.close(); await db.close(); });

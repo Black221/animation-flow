@@ -61,6 +61,27 @@ Un décor produit une partie **fixe** (peinte une seule fois par scène, gardée
 résolution du plus fort zoom de la scène) et une partie **vivante** (nuages, étoiles qui scintillent) redessinée à chaque image.
 La caméra ne fait que déplacer la plate. C'est ce qui rend l'aquarelle rapide : environ 10 ms par image en 960 px, dans Node.
 
+## Rendu vidéo (`packages/render`, `apps/api/src/render`)
+
+```
+POST /api/projects/:id/renders ──► table renders (file d'attente dans PostgreSQL)
+                                        │  claim : UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED)
+                                        ▼
+                             worker (dans l'API, ou ROLE=worker)
+                                        │  renderVideo() : N blocs d'images en parallèle (worker_threads)
+                                        │  chaque bloc : moteur → style → canvas → pixels RGBA → FFmpeg (H.264)
+                                        ▼
+                             concat sans réencodage + piste de sous-titres → RENDERS_DIR/<id>.mp4
+```
+
+- Le rendu utilise la **version enregistrée** au moment de la demande (`project_versions`) : on peut continuer à éditer.
+- Les images étant déterministes, découper en blocs ne change rien au résultat.
+- Le worker envoie progression et battement de cœur toutes les 0,7 s ; il y lit aussi une éventuelle annulation.
+  Un rendu sans battement depuis 90 s repart dans la file, et échoue après deux essais. À l'arrêt, un worker rend son
+  travail en cours à la file.
+- La vidéo est servie par un lien signé (HMAC, valable une heure, clé dérivée de `APP_ENCRYPTION_KEY`), car une balise
+  `<video>` ne peut pas envoyer d'en-tête d'authentification. Les requêtes partielles (`Range`) sont gérées pour la lecture.
+
 ## Ajouter…
 
 - **un style** : un objet `StylePack` (`packages/styles/src/types.ts`) qui sait dessiner les quatre primitives, puis l'ajouter à `stylePacks`.
@@ -80,5 +101,9 @@ La caméra ne fait que déplacer la plate. C'est ce qui rend l'aquarelle rapide 
 | `GET/POST /api/credentials`, `PATCH/DELETE /api/credentials/:id` | clés (jamais renvoyées) |
 | `POST /api/credentials/:id/test` | teste la clé et liste les modèles |
 | `GET /api/assignments`, `PUT /api/assignments/:task` | un modèle par tâche |
+| `POST /api/projects/:id/renders`, `GET /api/projects/:id/renders` | demander un rendu (`style`, `width`, `quality`, `sceneId`, `subtitles`) ; liste |
+| `GET /api/renders/:id`, `POST /api/renders/:id/cancel`, `DELETE /api/renders/:id` | suivre, annuler, supprimer |
+| `GET /api/renders/:id/video?exp&sig` | la vidéo (lien signé, sans jeton ; `&download=1` pour télécharger) |
 
-Base de données : PostgreSQL (`pg`) ou PGlite embarqué, même SQL, migrations numérotées appliquées au démarrage.
+Base de données : PostgreSQL (`pg`) ou PGlite embarqué, même SQL, migrations numérotées appliquées au démarrage,
+chacune dans une transaction (sur une seule connexion : `Db.tx`).
