@@ -146,3 +146,12 @@ main { height: calc(100% - 52px); }
 .render-list .spacer { flex: 1; }
 a.button { display: inline-flex; align-items: center; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 12px; min-height: 34px; color: var(--text); }
 a.button:hover { border-color: var(--accent); text-decoration: none; }
+
+/* narration */
+.voices { display: grid; gap: 10px; }
+.voice-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.voice-list li { display: grid; grid-template-columns: 58px 1fr auto auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 8px; background: var(--panel-2); font-size: 0.88rem; }
+.voice-list .sid { font-family: var(--mono); font-size: 0.78em; color: var(--muted); }
+.voice-list .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-list button.icon { width: 30px; min-height: 28px; }
+.warn { color: var(--warn); }

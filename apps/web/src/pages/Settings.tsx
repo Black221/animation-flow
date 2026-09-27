@@ -58,8 +58,8 @@ export function Settings() {
     if (!confirm(`Supprimer la clé « ${c.label} » ? Les tâches qui l'utilisent n'auront plus de modèle.`)) return;
     await Api.deleteCredential(c.id).catch((e) => setError(e.message)); void refresh();
   };
-  const setTask = async (task: string, credentialId: string | null, model: string) => {
-    try { const a = await Api.assign(task, credentialId, model); setAssign((all) => all.map((x) => (x.task === task ? a : x))); }
+  const setTask = async (task: string, credentialId: string | null, model: string, voice = '') => {
+    try { const a = await Api.assign(task, credentialId, model, voice); setAssign((all) => all.map((x) => (x.task === task ? a : x))); }
     catch (e) { setError((e as Error).message); }
   };
 
@@ -98,23 +98,33 @@ export function Settings() {
         <section>
           <h3>Un modèle par tâche</h3>
           {tasks.map((task) => {
-            const a = assign.find((x) => x.task === task.id) ?? { task: task.id, credentialId: null, model: '' };
+            const a = assign.find((x) => x.task === task.id) ?? { task: task.id, credentialId: null, model: '', voice: '' };
             const usable = creds.filter((c) => byId[c.provider]?.kinds.includes(task.kind));
-            const t = a.credentialId ? tests[a.credentialId] : undefined, models = t && t !== 'pending' && t.ok ? t.models : [];
+            const cred = creds.find((c) => c.id === a.credentialId), prov = cred ? byId[cred.provider] : undefined;
+            const t = a.credentialId ? tests[a.credentialId] : undefined, listed = t && t !== 'pending' && t.ok ? t.models : [];
+            // voice providers: models are a known list; voices are built in (OpenAI) or listed by the key test (Fish Audio, ElevenLabs)
+            const models = task.kind === 'tts' ? (prov?.tts?.models ?? []).map((id) => ({ id, label: id })) : listed;
+            const voices = prov?.tts?.voices ? prov.tts.voices.map((id) => ({ id, label: id })) : listed;
             return (
-              <div key={task.id} className="card form task">
+              <div key={task.id} className="card form task" data-testid={`task-${task.id}`}>
                 <strong>{task.label}</strong>
                 <p className="muted small">{task.description}</p>
                 <label>Clé
-                  <select value={a.credentialId ?? ''} onChange={(e) => void setTask(task.id, e.target.value || null, a.model)}>
+                  <select value={a.credentialId ?? ''} onChange={(e) => void setTask(task.id, e.target.value || null, a.model, a.voice)}>
                     <option value="">— aucune —</option>
                     {usable.map((c) => <option key={c.id} value={c.id}>{c.label} ({byId[c.provider]?.label})</option>)}
                   </select>
                 </label>
-                <label>{task.kind === 'tts' ? 'Voix / modèle' : 'Modèle'}
-                  <input list={`models-${task.id}`} defaultValue={a.model} key={a.credentialId + a.model} placeholder={models.length ? 'choisir dans la liste' : 'testez la clé pour voir la liste'} onBlur={(e) => e.target.value !== a.model && void setTask(task.id, a.credentialId, e.target.value.trim())} />
+                <label>Modèle
+                  <input list={`models-${task.id}`} defaultValue={a.model} key={`m${a.credentialId}${a.model}`} placeholder={task.kind === 'tts' ? prov?.tts?.defaultModel ?? '' : models.length ? 'choisir dans la liste' : 'testez la clé pour voir la liste'} onBlur={(e) => e.target.value.trim() !== a.model && void setTask(task.id, a.credentialId, e.target.value.trim(), a.voice)} />
                   <datalist id={`models-${task.id}`}>{models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</datalist>
                 </label>
+                {task.kind === 'tts' && (
+                  <label>Voix du narrateur
+                    <input list={`voices-${task.id}`} defaultValue={a.voice} key={`v${a.credentialId}${a.voice}`} placeholder={voices.length ? 'choisir dans la liste' : prov ? 'identifiant de la voix (testez la clé pour voir vos voix)' : ''} onBlur={(e) => e.target.value.trim() !== a.voice && void setTask(task.id, a.credentialId, a.model, e.target.value.trim())} />
+                    <datalist id={`voices-${task.id}`}>{voices.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</datalist>
+                  </label>
+                )}
               </div>
             );
           })}

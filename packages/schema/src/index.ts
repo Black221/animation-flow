@@ -75,6 +75,23 @@ export const Line = z.object({
   duration: z.number().positive().optional(),
   /** extra silence after the line (s) */
   holdAfter: z.number().min(0).default(0),
+  /** the recorded voice: an audio asset, and a hash of the text it says (a different text means it is out of date) */
+  audio: z.object({ asset: z.string().regex(/^[0-9a-f]{32}$/, 'identifiant de fichier audio'), textHash: z.string() }).optional(),
+});
+
+/** Background music of a scene: a mood the score generator knows, and a level in dB relative to the default. */
+export const Music = z.object({
+  mood: z.enum(['none', 'calm', 'curious', 'playful', 'epic', 'night', 'tense']).default('none'),
+  gain: z.number().min(-40).max(12).default(0),
+});
+
+/** A sound effect at a moment of the scene (kinds: see the sound catalog of @af/audio). */
+export const Sfx = z.object({
+  t: TimeRef,
+  kind: z.string().min(1),
+  gain: z.number().min(-40).max(12).default(0),
+  /** −1 left … 1 right */
+  pan: z.number().min(-1).max(1).default(0),
 });
 
 export const Decor = z.object({ kind: z.string().min(1), params: Params.default({}) });
@@ -89,6 +106,8 @@ export const Scene = z.object({
   elements: z.array(Element).default([]),
   camera: z.array(CameraKey).default([]),
   transition: z.enum(['cut', 'fade']).default('cut'),
+  music: Music.default({ mood: 'none', gain: 0 }),
+  sfx: z.array(Sfx).default([]),
 });
 
 export const CastMember = z.object({
@@ -96,6 +115,8 @@ export const CastMember = z.object({
   kind: z.string().min(1),
   name: z.string().min(1),
   params: Params.default({}),
+  /** voice id for this character's lines, with the narration provider; otherwise the narrator's voice */
+  voice: z.string().optional(),
 });
 
 export const ProjectBase = z.object({
@@ -133,6 +154,7 @@ export const Project = ProjectBase.superRefine((p, ctx) => {
       if (l.speaker !== 'narrator' && !(l.speaker in p.cast)) ctx.addIssue({ code: 'custom', path: [...base, 'narration', li, 'speaker'], message: `personnage « ${l.speaker} » absent de la distribution` });
     });
     s.camera.forEach((k, ki) => checkTime(k.t, [...base, 'camera', ki, 't']));
+    s.sfx.forEach((x, xi) => checkTime(x.t, [...base, 'sfx', xi, 't']));
     s.elements.forEach((e, ei) => {
       const ep = [...base, 'elements', ei];
       if (e.type === 'character' && !(e.ref && e.ref in p.cast)) ctx.addIssue({ code: 'custom', path: [...ep, 'ref'], message: `personnage « ${e.ref ?? ''} » absent de la distribution` });
@@ -152,6 +174,8 @@ export type Element = z.output<typeof Element>;
 export type CameraKey = z.output<typeof CameraKey>;
 export type Line = z.output<typeof Line>;
 export type Decor = z.output<typeof Decor>;
+export type Music = z.output<typeof Music>;
+export type Sfx = z.output<typeof Sfx>;
 export type Scene = z.output<typeof Scene>;
 export type CastMember = z.output<typeof CastMember>;
 export type Project = z.output<typeof Project>;
@@ -172,5 +196,15 @@ export function parseProject(input: unknown): ParseResult {
 
 /** JSON Schema of the format, for models that accept a response schema and for editor tooling */
 export const projectJsonSchema = () => z.toJSONSchema(ProjectBase, { io: 'input' });
+
+/** what a line's audio.textHash must be for the recording to be up to date (FNV-1a of the trimmed text) */
+export function textHash(text: string): string {
+  let h = 0x811c9dc5;
+  const s = text.trim();
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+/** has this line a recording that says its current text? */
+export const voiceIsCurrent = (l: Pick<Line, 'text' | 'audio'>) => !!l.audio && l.audio.textHash === textHash(l.text);
 
 export { exampleProject } from './example';

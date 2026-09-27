@@ -26,6 +26,14 @@ export const exampleProject: ProjectInput = {
       title: 'La carte avant le voyage',
       duration: 30,
       decor: { kind: 'dawn-field', params: { sun: '#F2C14E', sky: ['#BFD9E6', '#F6D6B0'], field: '#7FAF6A' } },
+      music: { mood: 'curious', gain: 0 },
+      sfx: [
+        { t: L('l1', 'end', -0.6), kind: 'whoosh', gain: -4, pan: 0.6 },
+        { t: L('l3'), kind: 'boing', gain: -3 },
+        { t: L('l5', 'start', 0.3), kind: 'pop' },
+        { t: L('l7', 'end', -0.2), kind: 'lock', pan: 0.5 },
+        { t: L('l8', 'start', 0.75), kind: 'stamp' },
+      ],
       narration: [
         { id: 'l1', text: 'Voici Awa.', holdAfter: 0.6 },
         { id: 'l2', text: "Elle rêve d'un jumeau numérique capable de dire à son territoire quels futurs sont encore possibles." },
@@ -101,6 +109,8 @@ export const exampleProject: ProjectInput = {
       duration: 8,
       transition: 'fade',
       decor: { kind: 'night-sky', params: { sky: ['#101E36', '#1F3A5F'], stars: 90 } },
+      music: { mood: 'night', gain: 0 },
+      sfx: [{ t: L('l1', 'end', 0.5), kind: 'sparkle' }],
       narration: [{ id: 'l1', text: 'La nuit, Jumo apprend à écouter le terrain.' }],
       camera: [{ t: 0, x: 960, y: 540, zoom: 1.1 }, { t: 8, ease: 'inOut', x: 960, y: 540, zoom: 1 }],
       elements: [

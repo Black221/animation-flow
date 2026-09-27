@@ -2,6 +2,9 @@ import { exampleProject } from '@af/schema';
 import type { FetchLike } from '@af/providers';
 import type { FastifyInstance } from 'fastify';
 import { randomBytes } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { parseKey } from '../src/config';
 import { secretBox } from '../src/crypto';
@@ -10,12 +13,13 @@ import { buildServer } from '../src/server';
 import { openTestDb } from './testdb';
 
 const KEY = 'sk-ant-api03-SUPERSECRET-abcd1234';
+const voicesDir = mkdtempSync(join(tmpdir(), 'af-voices-'));
 let db: Db, app: FastifyInstance;
 const fetchImpl = vi.fn<FetchLike>(async () => ({ ok: true, status: 200, json: async () => ({ data: [{ id: 'claude-test', display_name: 'Claude Test' }] }) }));
 
 beforeAll(async () => {
   db = await openTestDb();
-  app = await buildServer({ db, box: secretBox(randomBytes(32)), fetchImpl });
+  app = await buildServer({ db, box: secretBox(randomBytes(32)), fetchImpl, voicesDir });
 });
 afterAll(async () => { await app.close(); await db.close(); });
 
@@ -128,19 +132,19 @@ describe('credentials', () => {
     const ok = await app.inject({ method: 'PUT', url: '/api/assignments/storyboard', payload: { credentialId: id, model: 'claude-test' } });
     expect(ok.statusCode).toBe(200);
     const all = (await app.inject({ url: '/api/assignments' })).json();
-    expect(all).toContainEqual({ task: 'storyboard', credentialId: id, model: 'claude-test' });
-    expect(all).toContainEqual({ task: 'narration', credentialId: null, model: '' });
+    expect(all).toContainEqual({ task: 'storyboard', credentialId: id, model: 'claude-test', voice: '' });
+    expect(all).toContainEqual({ task: 'narration', credentialId: null, model: '', voice: '' });
   });
 
   it('deleting a key clears the tasks that used it', async () => {
     expect((await app.inject({ method: 'DELETE', url: `/api/credentials/${id}` })).statusCode).toBe(204);
-    expect((await app.inject({ url: '/api/assignments' })).json()).toContainEqual({ task: 'storyboard', credentialId: null, model: 'claude-test' });
+    expect((await app.inject({ url: '/api/assignments' })).json()).toContainEqual({ task: 'storyboard', credentialId: null, model: 'claude-test', voice: '' });
   });
 });
 
 describe('access token', () => {
   it('guards the API when set, but not the health check', async () => {
-    const guarded = await buildServer({ db, box: secretBox(randomBytes(32)), accessToken: 'team-token' });
+    const guarded = await buildServer({ db, box: secretBox(randomBytes(32)), accessToken: 'team-token', voicesDir });
     expect((await guarded.inject({ url: '/api/projects' })).statusCode).toBe(401);
     expect((await guarded.inject({ url: '/api/projects', headers: { authorization: 'Bearer wrong' } })).statusCode).toBe(401);
     expect((await guarded.inject({ url: '/api/projects', headers: { authorization: 'Bearer team-token' } })).statusCode).toBe(200);

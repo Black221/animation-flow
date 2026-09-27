@@ -3,9 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Rendu vidéo côté serveur : le moteur et les packs de style dans Node, images envoyées à FFmpeg par blocs parallèles, MP4 avec sous-titres.",
-  "exports": { ".": "./src/index.ts", "./chunk-worker": "./src/chunk-worker.ts" },
-  "scripts": { "render": "tsx scripts/render.ts" },
+  "description": "Rendu vid\u00e9o c\u00f4t\u00e9 serveur : le moteur et les packs de style dans Node, images envoy\u00e9es \u00e0 FFmpeg par blocs parall\u00e8les, MP4 avec sous-titres.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./chunk-worker": "./src/chunk-worker.ts"
+  },
+  "scripts": {
+    "render": "tsx scripts/render.ts"
+  },
   "dependencies": {
     "@af/engine": "workspace:*",
     "@af/library": "workspace:*",
@@ -13,5 +18,8 @@
     "@af/styles": "workspace:*",
     "@napi-rs/canvas": "^1.0.9"
   },
-  "devDependencies": { "tsx": "^4.21.0" }
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "@af/audio": "workspace:*"
+  }
 }

@@ -21,7 +21,8 @@
     "pg": "^8.23.0",
     "zod": "^4.1.0",
     "@af/render": "workspace:*",
-    "@napi-rs/canvas": "^1.0.9"
+    "@napi-rs/canvas": "^1.0.9",
+    "@af/audio": "workspace:*"
   },
   "devDependencies": {
     "@types/pg": "^8.23.1",

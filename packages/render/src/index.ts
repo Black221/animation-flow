@@ -11,7 +11,7 @@ import { Worker } from 'node:worker_threads';
 import { renderChunk, type ChunkJob } from './chunk';
 import { AbortError, FFMPEG, run } from './ffmpeg';
 
-export { probe, AbortError } from './ffmpeg';
+export { probe, AbortError, decodeAudio } from './ffmpeg';
 export { registerFonts } from './fonts';
 
 export interface Progress { done: number; total: number; elapsedMs: number; fps: number }
@@ -29,6 +29,8 @@ export interface RenderVideoOptions {
   preset?: 'ultrafast' | 'veryfast' | 'fast' | 'medium' | 'slow' | undefined;
   /** add the narration as a subtitle track; default true */
   subtitles?: boolean | undefined;
+  /** a WAV soundtrack covering the rendered range (from @af/audio's mixSoundtrack), muxed as AAC */
+  audioFile?: string | undefined;
   /** worker threads; 0 renders inline on the calling thread (tests, tiny renders) */
   threads?: number | undefined;
   fontsDir?: string | undefined;
@@ -102,9 +104,14 @@ export async function renderVideo(o: RenderVideoOptions): Promise<RenderResult> 
     const list = join(parts, 'list.txt');
     writeFileSync(list, jobs.map((j) => `file '${pathToFileURL(j.out).pathname.replace(/'/g, "'\\''")}'`).join('\n'));
     const srt = o.subtitles === false ? '' : toSrt(project, tl, { from: first / fps, to: last / fps });
-    const args = ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list];
-    if (srt) { writeFileSync(join(parts, 'subs.srt'), srt); args.push('-i', join(parts, 'subs.srt'), '-map', '0:v', '-map', '1:s', '-c:s', 'mov_text', '-metadata:s:s:0', `language=${LANG[project.language] ?? 'und'}`); }
-    args.push('-c:v', 'copy', '-metadata', `title=${project.title}`, '-movflags', '+faststart', o.out);
+    const args = ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list], maps = ['-map', '0:v'];
+    let next = 1;
+    const lang = LANG[project.language] ?? 'und';
+    if (o.audioFile) { args.push('-i', o.audioFile); maps.push('-map', `${next++}:a`, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-metadata:s:a:0', `language=${lang}`); }
+    if (srt) { writeFileSync(join(parts, 'subs.srt'), srt); args.push('-i', join(parts, 'subs.srt')); maps.push('-map', `${next++}:s`, '-c:s', 'mov_text', '-metadata:s:s:0', `language=${lang}`); }
+    // an explicit length, not -shortest: that stops at the end of the shortest stream, and the subtitle track ends
+    // with the last line of narration, often well before the picture
+    args.push(...maps, '-c:v', 'copy', '-t', (total / fps).toFixed(3), '-metadata', `title=${project.title}`, '-movflags', '+faststart', o.out);
     await run(FFMPEG, args, o.signal);
     return { file: o.out, frames: total, width, height, fps, duration: total / fps, bytes: statSync(o.out).size, ms: Date.now() - t0 };
   } catch (e) {

@@ -1,11 +1,14 @@
-import { exampleProject } from '@af/schema';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { encodeWav, mixSoundtrack, SR } from '@af/audio';
+import { timeProject } from '@af/engine';
+import { exampleProject, parseProject } from '@af/schema';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { probe, renderVideo, AbortError } from '../src';
 
 const dir = mkdtempSync(join(tmpdir(), 'af-render-'));
+const project = (() => { const r = parseProject(exampleProject); if (!r.ok) throw new Error('bad example'); return r.project; })();
 
 describe('renderVideo', () => {
   it('renders an excerpt inline with the right size, frame count and a subtitle track', async () => {
@@ -15,6 +18,7 @@ describe('renderVideo', () => {
     const info = await probe(out);
     expect(info).toMatchObject({ width: 320, height: 180, fps: 24, frames: 48 });
     expect(info.streams).toEqual(['video', 'subtitle']);
+    expect(info.duration).toBeCloseTo(2, 1);
     expect(seen.at(-1)).toBe(48);
     expect(existsSync(`${out}.parts`)).toBe(false);
   }, 60_000);
@@ -34,6 +38,18 @@ describe('renderVideo', () => {
     await expect(p).rejects.toBeInstanceOf(AbortError);
     expect(existsSync(out)).toBe(false);
     expect(existsSync(`${out}.parts`)).toBe(false);
+  }, 60_000);
+
+  it('muxes a soundtrack and keeps the full length even when the narration ends early', async () => {
+    // scene 2 lasts 8 s but its only line ends after ~3 s: the file must still be 8 s long
+    const out = join(dir, 'audio.mp4'), tl = timeProject(project), s2 = tl.scenes[1]!, range = { from: s2.start, to: s2.start + s2.duration };
+    const m = mixSoundtrack({ project, voices: new Map(), range });
+    writeFileSync(join(dir, 'a.wav'), encodeWav({ sampleRate: SR, channels: [m.left, m.right] }));
+    await renderVideo({ project: exampleProject, out, width: 256, range, preset: 'ultrafast', threads: 0, audioFile: join(dir, 'a.wav') });
+    const info = await probe(out);
+    expect(info.streams).toEqual(['video', 'audio', 'subtitle']);
+    expect(info.duration).toBeCloseTo(s2.duration, 1);
+    expect(info.frames).toBe(Math.round(s2.duration * 24));
   }, 60_000);
 
   it('refuses an invalid project or an empty range', async () => {

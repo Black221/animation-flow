@@ -63,13 +63,13 @@ export function providerRoutes(app: FastifyInstance, db: Db, box: SecretBox, fet
   });
 
   app.get('/api/assignments', async () => {
-    const { rows } = await db.query<{ task: string; credential_id: string | null; model: string }>('SELECT task, credential_id, model FROM model_assignments');
-    return TASKS.map((t) => { const r = rows.find((x) => x.task === t.id); return { task: t.id, credentialId: r?.credential_id ?? null, model: r?.model ?? '' }; });
+    const { rows } = await db.query<{ task: string; credential_id: string | null; model: string; voice: string }>('SELECT task, credential_id, model, voice FROM model_assignments');
+    return TASKS.map((t) => { const r = rows.find((x) => x.task === t.id); return { task: t.id, credentialId: r?.credential_id ?? null, model: r?.model ?? '', voice: r?.voice ?? '' }; });
   });
 
   app.put('/api/assignments/:task', async (req, reply) => {
     const task = taskById((req.params as { task: string }).task);
-    const b = z.object({ credentialId: z.string().uuid().nullable(), model: z.string().max(200).default('') }).safeParse(req.body);
+    const b = z.object({ credentialId: z.string().uuid().nullable(), model: z.string().max(200).default(''), voice: z.string().max(200).default('') }).safeParse(req.body);
     if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
     if (!b.success) return reply.code(400).send({ error: 'requête invalide' });
     if (b.data.credentialId) {
@@ -77,8 +77,8 @@ export function providerRoutes(app: FastifyInstance, db: Db, box: SecretBox, fet
       if (!c || !p) return reply.code(400).send({ error: 'clé introuvable' });
       if (!p.kinds.includes(task.kind)) return reply.code(400).send({ error: `${p.label} ne fournit pas de modèle pour « ${task.label} »` });
     }
-    await db.query(`INSERT INTO model_assignments (task, credential_id, model, updated_at) VALUES ($1, $2, $3, now())
-                    ON CONFLICT (task) DO UPDATE SET credential_id = EXCLUDED.credential_id, model = EXCLUDED.model, updated_at = now()`, [task.id, b.data.credentialId, b.data.model]);
-    return { task: task.id, credentialId: b.data.credentialId, model: b.data.model };
+    await db.query(`INSERT INTO model_assignments (task, credential_id, model, voice, updated_at) VALUES ($1, $2, $3, $4, now())
+                    ON CONFLICT (task) DO UPDATE SET credential_id = EXCLUDED.credential_id, model = EXCLUDED.model, voice = EXCLUDED.voice, updated_at = now()`, [task.id, b.data.credentialId, b.data.model, b.data.voice]);
+    return { task: task.id, credentialId: b.data.credentialId, model: b.data.model, voice: b.data.voice };
   });
 }

@@ -1,6 +1,6 @@
 // The HTTP server. buildServer() takes its dependencies (database, secret box, optional fetch for providers) so tests
 // run it in memory with app.inject(), without a network or a real Postgres.
-import type { FetchLike } from '@af/providers';
+import type { FetchLike, PostFetch } from '@af/providers';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -9,6 +9,7 @@ import type { Db } from './db';
 import { projectRoutes } from './routes/projects';
 import { providerRoutes } from './routes/providers';
 import { renderRoutes } from './routes/renders';
+import { voiceRoutes } from './routes/voices';
 import { signer, type Signer } from './render/sign';
 
 export interface ServerDeps {
@@ -20,6 +21,10 @@ export interface ServerDeps {
   logger?: boolean;
   /** signs video links; defaults to a random key (links then die with the process) */
   signer?: Signer;
+  /** where recorded lines are stored */
+  voicesDir: string;
+  /** for voice providers (tests) */
+  postFetch?: PostFetch;
 }
 
 const sameToken = (a: string, b: string) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
@@ -48,7 +53,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get('/api/health', async () => ({ ok: true, auth: !!deps.accessToken }));
   projectRoutes(app, deps.db);
   providerRoutes(app, deps.db, deps.box, deps.fetchImpl);
-  renderRoutes(app, deps.db, deps.signer ?? signer(randomBytes(32)));
+  const sign = deps.signer ?? signer(randomBytes(32));
+  renderRoutes(app, deps.db, sign);
+  voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch);
 
   if (deps.webDist && existsSync(deps.webDist)) {
     const { default: fastifyStatic } = await import('@fastify/static');

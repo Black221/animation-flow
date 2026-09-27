@@ -49,3 +49,25 @@ export async function probe(file: string): Promise<ProbeInfo> {
 }
 
 export class AbortError extends Error { constructor() { super('render canceled'); this.name = 'AbortError'; } }
+
+/** decode any audio FFmpeg reads (MP3, WAV, OGG…) to mono 32-bit float at `rate` Hz */
+export function decodeAudio(bytes: Uint8Array, rate = 48000, signal?: AbortSignal): Promise<Float32Array> {
+  return new Promise((ok, bad) => {
+    const p = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-ac', '1', '-ar', String(rate), '-f', 'f32le', 'pipe:1']);
+    const chunks: Buffer[] = []; let err = '';
+    p.stdout.on('data', (d: Buffer) => chunks.push(d));
+    p.stderr.on('data', (d: Buffer) => { err = (err + d.toString()).slice(-2000); });
+    const abort = () => p.kill('SIGKILL');
+    signal?.addEventListener('abort', abort, { once: true });
+    p.on('error', bad);
+    p.on('close', (code) => {
+      signal?.removeEventListener('abort', abort);
+      if (code !== 0) return bad(new Error(`audio could not be decoded: ${err.trim().split('\n').pop() ?? code}`));
+      const buf = Buffer.concat(chunks), out = new Float32Array(buf.length >> 2);
+      for (let i = 0; i < out.length; i++) out[i] = buf.readFloatLE(i * 4);
+      ok(out);
+    });
+    p.stdin.on('error', () => undefined); // the process may exit before reading everything (corrupt input)
+    p.stdin.end(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+  });
+}

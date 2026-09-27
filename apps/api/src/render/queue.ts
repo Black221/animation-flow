@@ -5,11 +5,11 @@ import { randomUUID } from 'node:crypto';
 import type { Db } from '../db';
 
 export type RenderStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled';
-export interface RenderOptionsDb { style: string; width: number; crf: number; from?: number; to?: number; sceneId?: string; subtitles: boolean }
+export interface RenderOptionsDb { style: string; width: number; crf: number; from?: number; to?: number; sceneId?: string; subtitles: boolean; audio?: boolean }
 export interface RenderRow {
   id: string; project_id: string; project_version: number; status: RenderStatus; options: RenderOptionsDb;
   frames_done: number; frames_total: number; fps: number | null; attempts: number; error: string | null;
-  file: string | null; bytes: string | number | null; worker: string | null;
+  file: string | null; bytes: string | number | null; worker: string | null; warnings: string[];
   created_at: Date; started_at: Date | null; heartbeat_at: Date | null; finished_at: Date | null;
 }
 
@@ -39,8 +39,8 @@ export async function beat(db: Db, id: string, done: number, fps: number): Promi
   return rows[0]?.status ?? null;
 }
 
-export async function finish(db: Db, id: string, file: string, bytes: number, frames: number) {
-  await db.query(`UPDATE renders SET status = 'done', file = $2, bytes = $3, frames_done = $4, frames_total = $4, finished_at = now() WHERE id = $1 AND status = 'running'`, [id, file, bytes, frames]);
+export async function finish(db: Db, id: string, file: string, bytes: number, frames: number, warnings: string[] = []) {
+  await db.query(`UPDATE renders SET status = 'done', file = $2, bytes = $3, frames_done = $4, frames_total = $4, warnings = $5, finished_at = now() WHERE id = $1 AND status = 'running'`, [id, file, bytes, frames, JSON.stringify(warnings)]);
 }
 export async function fail(db: Db, id: string, error: string) {
   await db.query(`UPDATE renders SET status = 'failed', error = $2, finished_at = now() WHERE id = $1 AND status = 'running'`, [id, error.slice(0, 2000)]);

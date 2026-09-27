@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { maskKey, PROVIDERS, testCredential, type FetchLike } from '../src';
+import { maskKey, PROVIDERS, synthesize, testCredential, type FetchLike } from '../src';
 
 const reply = (status: number, body: unknown = {}) => ({ ok: status < 400, status, json: async () => body });
 
@@ -52,3 +52,48 @@ it('masks keys and has unique provider ids', () => {
   expect(maskKey('short')).toBe('…');
   expect(new Set(PROVIDERS.map((p) => p.id)).size).toBe(PROVIDERS.length);
 });
+
+describe('synthesize', () => {
+  const audio = new Uint8Array(200).fill(7);
+  const ok = () => vi.fn(async () => ({ ok: true, status: 200, arrayBuffer: async () => audio.buffer }));
+
+  it('calls Fish Audio with the voice as reference_id and the model header', async () => {
+    const f = ok();
+    const r = await testSpeech('fish-audio', f, { text: ' Bonjour. ', voice: 'voice-123', model: 's1' });
+    expect(r).toMatchObject({ ok: true, format: 'mp3' });
+    const [url, init] = f.mock.calls[0]! as unknown as [string, { headers: Record<string, string>; body: string }];
+    expect(url).toBe('https://api.fish.audio/v1/tts');
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer k-123456789012', model: 's1' });
+    expect(JSON.parse(init.body)).toMatchObject({ text: 'Bonjour.', reference_id: 'voice-123', format: 'mp3' });
+  });
+
+  it('calls ElevenLabs with the voice in the path and the default model', async () => {
+    const f = ok();
+    await testSpeech('elevenlabs', f, { text: 'Salut', voice: 'abc DEF', language: 'fr' });
+    const [url, init] = f.mock.calls[0]! as unknown as [string, { headers: Record<string, string>; body: string }];
+    expect(url).toBe('https://api.elevenlabs.io/v1/text-to-speech/abc%20DEF?output_format=mp3_44100_128');
+    expect(init.headers['xi-api-key']).toBe('k-123456789012');
+    expect(JSON.parse(init.body)).toEqual({ text: 'Salut', model_id: 'eleven_multilingual_v2', language_code: 'fr' });
+  });
+
+  it('asks OpenAI for WAV, with a built-in voice by default', async () => {
+    const f = ok();
+    const r = await testSpeech('openai', f, { text: 'Hello', voice: '' });
+    expect(r).toMatchObject({ ok: true, format: 'wav' });
+    const [url, init] = f.mock.calls[0]! as unknown as [string, { body: string }];
+    expect(url).toBe('https://api.openai.com/v1/audio/speech');
+    expect(JSON.parse(init.body)).toEqual({ model: 'gpt-4o-mini-tts', voice: 'alloy', input: 'Hello', response_format: 'wav' });
+  });
+
+  it('explains failures without leaking the key', async () => {
+    const f = vi.fn(async () => ({ ok: false, status: 402, arrayBuffer: async () => new ArrayBuffer(0) }));
+    const r = await testSpeech('fish-audio', f, { text: 'x', voice: 'v' });
+    expect(r).toEqual({ ok: false, status: 402, error: 'crédit insuffisant sur ce compte' });
+    expect(await synthesize('anthropic', { apiKey: 'k' }, { text: 'x', voice: 'v' }, f as never)).toMatchObject({ ok: false });
+    expect(await synthesize('fish-audio', { apiKey: 'k' }, { text: 'x', voice: '' }, f as never)).toMatchObject({ ok: false, error: expect.stringContaining('voix') });
+    expect(await synthesize('fish-audio', {}, { text: 'x', voice: 'v' }, f as never)).toEqual({ ok: false, error: 'clé manquante' });
+  });
+});
+
+const testSpeech = (p: string, f: unknown, req: { text: string; voice: string; model?: string; language?: string }) =>
+  synthesize(p, { apiKey: 'k-123456789012' }, req, f as never);

@@ -9,6 +9,7 @@
 //   ROLE                       all (default: API + render worker in one process) · api · worker (renders only; needs a
 //                              shared PostgreSQL and a shared RENDERS_DIR)
 //   RENDERS_DIR                where videos are written (default DATA_DIR/renders)
+//   VOICES_DIR                 recorded lines, one WAV per text and voice (default DATA_DIR/voices)
 //   RENDER_THREADS             threads per render job (default: CPU count − 1)
 //   FONTS_DIR                  fonts for server rendering (default: the editor's fonts)
 import { randomBytes } from 'node:crypto';
@@ -27,6 +28,7 @@ export interface Config {
   production: boolean;
   role: 'all' | 'api' | 'worker';
   rendersDir: string;
+  voicesDir: string;
   renderThreads: number;
   fontsDir: string | null;
 }
@@ -63,6 +65,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     production,
     role,
     rendersDir: resolve(env.RENDERS_DIR ?? join(dataDir, 'renders')),
+    voicesDir: resolve(env.VOICES_DIR ?? join(dataDir, 'voices')),
     renderThreads: Math.max(1, Number(env.RENDER_THREADS ?? Math.max(1, availableParallelism() - 1))),
     fontsDir,
   };

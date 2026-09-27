@@ -21,6 +21,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst }: {
   const [quality, setQuality] = useState<RenderRequest['quality']>('standard');
   const [scope, setScope] = useState<'film' | 'scene'>('film');
   const [subtitles, setSubtitles] = useState(true);
+  const [audio, setAudio] = useState(true);
   const [watching, setWatching] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -35,7 +36,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst }: {
     setBusy(true); setError('');
     try {
       if (dirty && !(await saveFirst())) return;
-      const j = await Api.startRender(projectId, { style, width, quality, subtitles, ...(scope === 'scene' ? { sceneId } : {}) });
+      const j = await Api.startRender(projectId, { style, width, quality, subtitles, audio, ...(scope === 'scene' ? { sceneId } : {}) });
       setJobs((all) => [j, ...all]);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
@@ -51,6 +52,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst }: {
         <label>Qualité <select value={quality} onChange={(e) => setQuality(e.target.value as RenderRequest['quality'])}>{Object.entries(QUALITY).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         <label>Portée <select value={scope} onChange={(e) => setScope(e.target.value as 'film' | 'scene')} aria-label="portée"><option value="film">film entier</option><option value="scene">scène {sceneId}</option></select></label>
         <label className="check"><input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} /> sous-titres</label>
+        <label className="check"><input type="checkbox" checked={audio} onChange={(e) => setAudio(e.target.checked)} aria-label="son du rendu" /> son</label>
         <button className="primary" onClick={() => void start()} disabled={busy}>{dirty ? 'Enregistrer et rendre' : 'Rendre la vidéo'}</button>
       </div>
       {error && <p className="error small" role="alert">{error}</p>}
@@ -69,6 +71,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst }: {
                 {j.status === 'running' && <span className="muted small">{pct} %{j.fps ? ` · ${j.fps.toFixed(0)} i/s` : ''}</span>}
                 {j.status === 'done' && <span className="muted small">{mb(j.bytes)}</span>}
                 {j.status === 'failed' && <span className="error small" title={j.error ?? ''}>{j.error}</span>}
+                {j.status === 'done' && j.warnings.length > 0 && <span className="warn small" title={j.warnings.join('\n')}>⚠ {j.warnings[0]}</span>}
                 <span className="spacer" />
                 {(j.status === 'queued' || j.status === 'running') && <button onClick={() => void act(() => Api.cancelRender(j.id))}>Annuler</button>}
                 {j.videoUrl && j.id !== shown?.id && <button onClick={() => setWatching(j.id)}>Voir</button>}

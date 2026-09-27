@@ -5,7 +5,7 @@ validé) : ce qui se passe à l'écran, pas la façon de le dessiner. Le même p
 l'éditeur et se rend dans **plusieurs styles** (vectoriel plat, aquarelle…). Les modèles d'IA sont **au choix** :
 chaque équipe enregistre ses propres clés d'API et choisit un modèle par tâche.
 
-État : **étapes 1 et 2** (fondations, rendu vidéo). La narration et la génération par IA arrivent aux étapes suivantes
+État : **étapes 1 à 3** (fondations, rendu vidéo, narration et son). La génération par IA est l'étape suivante
 (voir [Feuille de route](#feuille-de-route)).
 
 ## Démarrer
@@ -38,9 +38,17 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 - **Contrôle par la bibliothèque** : décor, accessoire, pose ou expression inconnus sont signalés (et dessinés comme
   un repère « ? » au lieu de faire échouer l'image).
 - **Sous-titres** `.srt` exportés depuis l'horloge des répliques.
+- **Narration** (onglet « Voix ») : chaque réplique est dite par le fournisseur de voix choisi (Fish Audio, ElevenLabs,
+  OpenAI), avec la voix du narrateur ou celle du personnage. La durée mesurée remplace l'estimation : l'horloge de la
+  scène suit la vraie voix. Une réplique n'est jamais payée deux fois (même texte, même voix → même fichier) ; si son
+  texte change, elle est signalée « texte modifié ».
+- **Musique et bruitages** synthétisés (aucun fichier, aucune licence) : une ambiance par scène (`calm`, `curious`,
+  `playful`, `epic`, `night`, `tense`) et des bruitages calés sur les répliques (`pop`, `whoosh`, `chime`, `stamp`…).
+- **Son dans l'aperçu** : voix, musique et bruitages mixés dans le navigateur avec le même code que le rendu.
 - **Rendu vidéo** depuis l'éditeur (panneau « Vidéo ») : style, largeur (640 à 1920 px), qualité, film entier ou une
   scène, sous-titres intégrés comme piste. Le rendu porte sur la version enregistrée ; la progression s'affiche en direct,
-  on peut l'annuler, puis regarder ou télécharger le MP4 (H.264).
+  on peut l'annuler, puis regarder ou télécharger le MP4 (H.264 + AAC, sonie −16 LUFS). Le rendu signale les répliques
+  encore sans voix.
 - **Fournisseurs de modèles** : Anthropic, OpenAI, Google Gemini, Mistral, OpenRouter, serveur local compatible OpenAI
   (Ollama, LM Studio, vLLM), et pour la voix Fish Audio et ElevenLabs. Plusieurs clés par fournisseur, test de la clé,
   liste des modèles, un modèle par tâche (storyboard, scènes, narration).
@@ -65,9 +73,24 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 | `WEB_DIST` | éditeur construit à servir (défaut `../web/dist`) |
 | `ROLE` | `all` (défaut : API + rendu dans le même processus), `api`, ou `worker` (rendu seul ; demande PostgreSQL et un `RENDERS_DIR` partagé) |
 | `RENDERS_DIR` | dossier des vidéos (défaut `DATA_DIR/renders`) |
+| `VOICES_DIR` | répliques enregistrées, une par texte et par voix (défaut `DATA_DIR/voices`) |
 | `RENDER_THREADS` | threads par rendu (défaut : nombre de cœurs − 1) |
 | `FONTS_DIR` | polices du rendu serveur (défaut : celles de l'éditeur) |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | binaires FFmpeg (défaut : ceux du `PATH`) |
+
+## Narration et son
+
+1. **Réglages → Fournisseurs** : ajouter une clé de voix (Fish Audio, ElevenLabs ou OpenAI), puis, pour la tâche
+   « Narration », choisir la clé, le modèle et la voix du narrateur (OpenAI : voix intégrées ; Fish Audio et
+   ElevenLabs : « Tester » la clé liste vos voix). Un personnage peut avoir sa voix : champ `voice` dans la distribution.
+2. **Éditeur → onglet Voix** : « Enregistrer les voix manquantes ». Chaque réplique est synthétisée, ses silences
+   coupés, sa sonie ramenée à −18 LUFS, sa durée mesurée et écrite dans le projet.
+3. **Musique et bruitages** : dans le JSON de la scène, `"music": { "mood": "curious", "gain": 0 }` et
+   `"sfx": [{ "t": { "line": "l5", "offset": 0.3 }, "kind": "pop" }]`.
+
+Le mixage (`packages/audio`) : voix au centre, musique calée 8 LU sous la voix et baissée de 8 dB de plus quand
+quelqu'un parle, bruitages, puis sonie intégrée ramenée à −16 LUFS (mesure ITU-R BS.1770, vérifiée contre FFmpeg)
+et crêtes réelles (entre les échantillons) limitées à −2 dBTP, pour rester sous −1 dBTP après l'encodage AAC. Environ une seconde de calcul pour une minute de film.
 
 ## Rendre une vidéo
 
@@ -112,7 +135,8 @@ pnpm --filter @af/styles still -- --style=watercolor --t=1,4,9   # images fixes 
 | `packages/library` | personnages (`person`, `drone`), accessoires, décors, textes : indépendants du style |
 | `packages/styles` | packs de style `flat` et `watercolor` (Canvas 2D : navigateur et Node, sans GPU) |
 | `packages/providers` | catalogue des fournisseurs, test d'une clé, liste des modèles |
-| `packages/render` | rendu vidéo : moteur + style dans Node, blocs parallèles, FFmpeg, MP4 avec sous-titres |
+| `packages/audio` | musique et bruitages synthétisés, placement des voix, mixage, sonie (navigateur et Node) |
+| `packages/render` | rendu vidéo : moteur + style dans Node, blocs parallèles, FFmpeg, MP4 avec son et sous-titres |
 | `apps/api` | Fastify : projets versionnés, clés chiffrées, fournisseurs, file et workers de rendu ; sert l'éditeur construit |
 | `apps/web` | l'éditeur (Vite + React) |
 
@@ -122,7 +146,7 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 1. **Fondations** (fait) : format, moteur, deux styles, éditeur avec aperçu, fournisseurs et clés, Docker.
 2. **Rendu serveur** (fait) : file de tâches dans PostgreSQL, workers qui rendent par blocs en parallèle, MP4 (FFmpeg) avec sous-titres, progression en direct, liens signés.
-3. **Narration et son** : voix par réplique avec le fournisseur choisi (durées mesurées → l'horloge se recale seule), musique et bruitages, mixage −16 LUFS.
+3. **Narration et son** (fait) : voix par réplique avec le fournisseur choisi (durées mesurées → l'horloge se recale seule), musique et bruitages synthétisés, mixage −16 LUFS, son dans l'aperçu et dans le MP4.
 4. **Génération par IA** : texte → storyboard → format d'animation validé (réparation automatique des erreurs), puis retouches dans l'éditeur.
 5. **Ensuite** : comptes et invitations, collaboration, modèles de projets, packs de styles supplémentaires.
 

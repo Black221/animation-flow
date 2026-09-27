@@ -9,7 +9,36 @@ import { fmtTime, usePlayback, type Playback } from '../playback';
 
 const QUALITIES = [640, 960, 1280, 1920];
 
-export function Player({ project, pb, style, onStyle }: { project: Project; pb: Playback; style: string; onStyle: (s: string) => void }) {
+/** plays the soundtrack in step with the playback: started at the playhead, restarted when it jumps */
+function useAudioSync(pb: Playback, buffer: AudioBuffer | null, on: boolean) {
+  const ctx = useRef<AudioContext | null>(null), src = useRef<AudioBufferSourceNode | null>(null), anchor = useRef({ ctxTime: 0, t: 0 });
+  useEffect(() => {
+    const stop = () => { try { src.current?.stop(); } catch { /* already stopped */ } src.current?.disconnect(); src.current = null; };
+    const start = () => {
+      if (!buffer) return;
+      ctx.current ??= new AudioContext();
+      void ctx.current.resume();
+      const s = ctx.current.createBufferSource();
+      s.buffer = buffer; s.connect(ctx.current.destination);
+      s.start(0, Math.min(pb.time, buffer.duration));
+      src.current = s; anchor.current = { ctxTime: ctx.current.currentTime, t: pb.time };
+    };
+    const sync = () => {
+      if (!on || !buffer || !pb.playing) { stop(); return; }
+      if (!src.current) { start(); return; }
+      const heard = anchor.current.t + (ctx.current!.currentTime - anchor.current.ctxTime);
+      if (Math.abs(heard - pb.time) > 0.25) { stop(); start(); }
+    };
+    sync();
+    const unsub = pb.subscribe(sync);
+    return () => { unsub(); stop(); };
+  }, [pb, buffer, on]);
+}
+
+export function Player({ project, pb, style, onStyle, audio, sound, onSound, soundInfo }: {
+  project: Project; pb: Playback; style: string; onStyle: (s: string) => void;
+  audio?: AudioBuffer | null; sound?: boolean; onSound?: (on: boolean) => void; soundInfo?: string;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [quality, setQuality] = useState(960);
   const [subtitles, setSubtitles] = useState(true);
@@ -18,6 +47,7 @@ export function Player({ project, pb, style, onStyle }: { project: Project; pb: 
   const snap = usePlayback(pb);
   const renderer = useRef<Renderer | null>(null);
   const dirty = useRef(true);
+  useAudioSync(pb, audio ?? null, !!sound);
 
   useEffect(() => { pb.setDuration(ev.timeline.duration); dirty.current = true; }, [ev, pb]);
 
@@ -65,6 +95,8 @@ export function Player({ project, pb, style, onStyle }: { project: Project; pb: 
         <label>Style <select value={style} onChange={(e) => onStyle(e.target.value)} aria-label="style">{Object.values(stylePacks).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
         <label>Aperçu <select value={quality} onChange={(e) => setQuality(+e.target.value)} aria-label="qualité">{QUALITIES.map((q) => <option key={q} value={q}>{q} px</option>)}</select></label>
         <label className="check"><input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} /> sous-titres</label>
+        {onSound && <label className="check"><input type="checkbox" checked={!!sound} onChange={(e) => onSound(e.target.checked)} aria-label="son" /> son</label>}
+        {soundInfo && <span className="muted small" data-testid="sound-info">{soundInfo}</span>}
         <span className="muted small">scène {scene.id} · {ms.toFixed(0)} ms / image</span>
       </div>
     </div>

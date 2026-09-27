@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "L'éditeur : projets, aperçu en direct dans chaque style, scènes, frise, réglages des fournisseurs.",
+  "description": "L'\u00e9diteur : projets, aper\u00e7u en direct dans chaque style, sc\u00e8nes, frise, r\u00e9glages des fournisseurs.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -11,6 +11,7 @@
     "e2e": "vite build && playwright test"
   },
   "dependencies": {
+    "@af/audio": "workspace:*",
     "@af/engine": "workspace:*",
     "@af/library": "workspace:*",
     "@af/providers": "workspace:*",

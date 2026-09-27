@@ -95,6 +95,9 @@ const MIGRATIONS: string[] = [
    );
    CREATE INDEX renders_queue ON renders (status, created_at);
    CREATE INDEX renders_project ON renders (project_id, created_at);`,
+  // narration: the voice chosen for a task; what a render could not include (lines without a recording…)
+  `ALTER TABLE model_assignments ADD COLUMN voice text NOT NULL DEFAULT '';
+   ALTER TABLE renders ADD COLUMN warnings jsonb NOT NULL DEFAULT '[]'`,
 ];
 
 export async function migrate(db: Db): Promise<number> {

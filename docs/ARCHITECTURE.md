@@ -29,7 +29,9 @@ projet JSON ──► moteur ──► primitives (écran) ──► pack de sty
   "scenes": [{
     "id": "s1", "title": "…", "duration": 30,
     "decor": { "kind": "dawn-field", "params": { "sun": "#F2C14E" } },
-    "narration": [{ "id": "l1", "text": "Voici Awa.", "holdAfter": 0.6 }],
+    "narration": [{ "id": "l1", "text": "Voici Awa.", "holdAfter": 0.6, "duration": 0.84, "audio": { "asset": "3f…", "textHash": "9c2a41d0" } }],
+    "music": { "mood": "curious", "gain": 0 },
+    "sfx": [{ "t": { "line": "l1", "edge": "end", "offset": -0.6 }, "kind": "whoosh", "pan": 0.6 }],
     "camera": [{ "t": 0, "zoom": 1 }, { "t": { "line": "l1", "edge": "end" }, "ease": "inOut", "zoom": 1.25, "x": 860, "y": 600 }],
     "elements": [{
       "id": "awa", "type": "character", "ref": "awa", "layer": 5,
@@ -54,6 +56,26 @@ projet JSON ──► moteur ──► primitives (écran) ──► pack de sty
   `checkAgainstLibrary` signale ensuite ce que la bibliothèque ne connaît pas (décor, accessoire, pose, expression).
   Les erreurs ont un chemin lisible, pour l'éditeur comme pour renvoyer une correction à un modèle.
 - `projectJsonSchema()` exporte le schéma JSON, utilisé pour contraindre la sortie des modèles qui l'acceptent.
+
+- **Voix** : `line.audio` désigne l'enregistrement et l'empreinte du texte qu'il dit (`textHash`). Si le texte change,
+  l'enregistrement n'est plus « à jour » (`voiceIsCurrent`) : il est ignoré au mixage et signalé dans l'éditeur.
+  `cast.<id>.voice` donne une voix propre à un personnage.
+
+## Son (`packages/audio`)
+
+```
+répliques enregistrées ─┐
+musique (ambiance/scène)├─► mixSoundtrack() ─► −16 LUFS, crêtes −2 dBTP ───► aperçu (Web Worker + Web Audio)
+bruitages (sfx/scène) ──┘                                                   └► rendu (WAV → AAC dans le MP4)
+```
+
+- Les voix sont stockées à −18 LUFS (`normalizeVoice`, à l'enregistrement) ; la musique est mesurée et placée à
+  −26 LUFS quelle que soit l'ambiance, puis baissée de 8 dB sous la voix (suiveur d'enveloppe) ; les bruitages gardent
+  leur niveau de synthèse. Le tout est enfin ramené à −16 LUFS intégrés (BS.1770 : pondération K, blocs de 400 ms,
+  portes à −70 LUFS et −10 LU) avec un limiteur à anticipation sur les crêtes réelles (suréchantillonnage ×4).
+- La musique : une tonalité pour tout le film, un tempo, un mode et des instruments par ambiance (nappe, pizzicati,
+  basse, cloches, grosse caisse et charleston discrets), des boucles d'accords de quatre mesures, des fondus d'une
+  scène à l'autre, une réverbération. Tout est déterministe (aléatoire à graine).
 
 ## Décors et plates
 
@@ -104,6 +126,8 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 | `POST /api/projects/:id/renders`, `GET /api/projects/:id/renders` | demander un rendu (`style`, `width`, `quality`, `sceneId`, `subtitles`) ; liste |
 | `GET /api/renders/:id`, `POST /api/renders/:id/cancel`, `DELETE /api/renders/:id` | suivre, annuler, supprimer |
 | `GET /api/renders/:id/video?exp&sig` | la vidéo (lien signé, sans jeton ; `&download=1` pour télécharger) |
+| `POST /api/voices` | dire une réplique (`text`, `voice?`, `language?`) avec la voix de la tâche « Narration » : `{ asset, textHash, duration, cached, url }` |
+| `POST /api/voices/links`, `GET /api/voices/:asset.wav?exp&sig` | liens signés vers des enregistrements ; l'enregistrement |
 
 Base de données : PostgreSQL (`pg`) ou PGlite embarqué, même SQL, migrations numérotées appliquées au démarrage,
 chacune dans une transaction (sur une seule connexion : `Db.tx`).

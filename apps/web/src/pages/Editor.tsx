@@ -7,10 +7,14 @@ import { Api, ApiError, getToken, type ProjectDoc } from '../api';
 import { JsonEditor, type JsonIssue } from '../components/JsonEditor';
 import { Player } from '../components/Player';
 import { RenderPanel } from '../components/RenderPanel';
+import { VoicesPanel } from '../components/VoicesPanel';
+import { useSoundtrack } from '../audio/useSoundtrack';
 import { Timeline } from '../components/Timeline';
 import { Playback } from '../playback';
 
-type Tab = 'scene' | 'project' | 'cast';
+type Tab = 'scene' | 'voices' | 'project' | 'cast';
+// until the project is loaded, the soundtrack hook gets this (it mixes nothing while disabled)
+const EMPTY = { schemaVersion: 1, title: '-', language: 'fr', fps: 24, width: 16, height: 16, style: 'flat', cast: {}, scenes: [] } as unknown as Project;
 
 const withScene = (p: Project, i: number, s: unknown) => ({ ...p, scenes: p.scenes.map((x, k) => (k === i ? s : x)) });
 const issuesOf = (candidate: unknown): JsonIssue[] => { const r = parseProject(candidate); return r.ok ? [] : r.issues; };
@@ -27,6 +31,7 @@ export function Editor() {
   const [tab, setTab] = useState<Tab>('scene');
   const [resetN, setResetN] = useState(0);
   const pb = useMemo(() => new Playback(), []);
+  const [sound, setSound] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -70,6 +75,7 @@ export function Editor() {
   }, [dirty]);
 
   const timeline = useMemo(() => (draft ? timeProject(draft) : null), [draft]);
+  const soundtrack = useSoundtrack(draft ?? EMPTY, sound && !!draft);
   const warnings = useMemo(() => (draft ? checkAgainstLibrary(draft, registry, catalog) : []), [draft]);
 
   if (error && !draft) return <div className="page"><p className="error">{error}</p><Link to="/">← Projets</Link></div>;
@@ -80,7 +86,7 @@ export function Editor() {
   const addScene = () => {
     const n = draft.scenes.length + 1;
     let sid = `s${n}`; while (draft.scenes.some((s) => s.id === sid)) sid += 'b';
-    const s: Scene = { id: sid, title: 'Nouvelle scène', duration: 5, decor: { kind: 'plain', params: {} }, narration: [], elements: [], camera: [], transition: 'cut' };
+    const s: Scene = { id: sid, title: 'Nouvelle scène', duration: 5, decor: { kind: 'plain', params: {} }, narration: [], elements: [], camera: [], transition: 'cut', music: { mood: 'none', gain: 0 }, sfx: [] };
     update({ ...draft, scenes: [...draft.scenes.slice(0, i + 1), s, ...draft.scenes.slice(i + 1)] }); setSel(i + 1); setResetN((x) => x + 1);
   };
   const removeScene = () => { if (draft.scenes.length < 2 || !confirm(`Supprimer la scène « ${scene.title || scene.id} » ?`)) return; update({ ...draft, scenes: draft.scenes.filter((_, k) => k !== i) }); setSel(Math.max(0, i - 1)); setResetN((x) => x + 1); };
@@ -136,22 +142,25 @@ export function Editor() {
       </aside>
 
       <section className="center">
-        <Player project={draft} pb={pb} style={draft.style} onStyle={(s) => update({ ...draft, style: s })} />
+        <Player project={draft} pb={pb} style={draft.style} onStyle={(s) => update({ ...draft, style: s })}
+          audio={soundtrack.buffer} sound={sound} onSound={setSound}
+          soundInfo={!sound ? '' : soundtrack.error ? `son : ${soundtrack.error}` : soundtrack.mixing ? 'mixage du son…' : soundtrack.missing.length ? `${soundtrack.missing.length} réplique(s) sans voix` : soundtrack.buffer ? 'son prêt' : ''} />
         <Timeline project={draft} timeline={timeline} pb={pb} selected={i} onSelect={select} />
         <RenderPanel projectId={doc.id} project={draft} sceneId={scene.id} dirty={dirty} saveFirst={() => save()} />
       </section>
 
       <aside className="inspector">
         <div className="tabs" role="tablist">
-          {(['scene', 'project', 'cast'] as Tab[]).map((t) => (
+          {(['scene', 'voices', 'project', 'cast'] as Tab[]).map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-              {t === 'scene' ? `Scène ${scene.id}` : t === 'project' ? 'Projet' : 'Distribution'}
+              {t === 'scene' ? `Scène ${scene.id}` : t === 'voices' ? 'Voix' : t === 'project' ? 'Projet' : 'Distribution'}
             </button>
           ))}
         </div>
         {tab === 'scene' && (
           <JsonEditor label="scène (JSON)" value={scene} resetKey={`scene:${i}:${resetN}`} validate={(v) => issuesOf(withScene(draft, i, v))} onApply={(v) => update(withScene(draft, i, v) as Project)} />
         )}
+        {tab === 'voices' && <VoicesPanel project={draft} onChange={update} />}
         {tab === 'project' && (
           <div className="form">
             <label>Titre <input value={draft.title} onChange={(e) => e.target.value.trim() && update({ ...draft, title: e.target.value })} /></label>

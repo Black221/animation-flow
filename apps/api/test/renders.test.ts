@@ -12,7 +12,7 @@ import { signer } from '../src/render/sign';
 import { buildServer } from '../src/server';
 import { openTestDb } from './testdb';
 
-const key = randomBytes(32), rendersDir = mkdtempSync(join(tmpdir(), 'af-renders-'));
+const key = randomBytes(32), rendersDir = mkdtempSync(join(tmpdir(), 'af-renders-')), voicesDir = mkdtempSync(join(tmpdir(), 'af-voices-'));
 let db: Db, app: FastifyInstance, runner: Runner, blank = '', example = '';
 
 const until = async (f: () => Promise<boolean>, ms = 60_000) => { const t = Date.now(); while (!(await f())) { if (Date.now() - t > ms) throw new Error('timeout'); await new Promise((r) => setTimeout(r, 100)); } };
@@ -20,10 +20,10 @@ const render = async (id: string) => (await app.inject({ url: `/api/renders/${id
 
 beforeAll(async () => {
   db = await openTestDb();
-  app = await buildServer({ db, box: secretBox(key), signer: signer(key) });
+  app = await buildServer({ db, box: secretBox(key), signer: signer(key), voicesDir });
   blank = (await app.inject({ method: 'POST', url: '/api/projects', payload: { template: 'blank', title: 'Court' } })).json().id;
   example = (await app.inject({ method: 'POST', url: '/api/projects', payload: { template: 'example' } })).json().id;
-  runner = startRunner({ db, rendersDir, threads: 0, pollMs: 50 });
+  runner = startRunner({ db, rendersDir, voicesDir, threads: 0, pollMs: 50 });
 });
 afterAll(async () => { await runner.stop(); await app.close(); await db.close(); });
 
@@ -103,13 +103,21 @@ describe('queue', () => {
     await db.query(`UPDATE renders SET heartbeat_at = now() - interval '10 minutes' WHERE id = $1`, [job.id]);
     await requeueStale(db);
     expect((await render(job.id))).toMatchObject({ status: 'failed', error: expect.stringContaining('interrompu') });
-    runner = startRunner({ db, rendersDir, threads: 0, pollMs: 50 });
+    runner = startRunner({ db, rendersDir, voicesDir, threads: 0, pollMs: 50 });
+  });
+});
+
+describe('runner', () => {
+  it('creates its videos folder (the soundtrack is written there before the first frame)', async () => {
+    const dir = join(rendersDir, 'nested', 'renders'), r = startRunner({ db, rendersDir: dir, voicesDir, threads: 0, pollMs: 50 });
+    expect(existsSync(dir)).toBe(true);
+    await r.stop();
   });
 });
 
 describe('access token', () => {
   it('protects render routes but lets a signed video link through', async () => {
-    const guarded = await buildServer({ db, box: secretBox(key), signer: signer(key), accessToken: 'tok' });
+    const guarded = await buildServer({ db, box: secretBox(key), signer: signer(key), accessToken: 'tok', voicesDir });
     const job = await enqueue(db, blank, 1, { style: 'flat', width: 640, crf: 28, subtitles: false }, 120);
     expect((await guarded.inject({ url: `/api/renders/${job.id}` })).statusCode).toBe(401);
     // not rendered yet: the link is valid but there is no video, so 404 and not 401
