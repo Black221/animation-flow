@@ -52,8 +52,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   installAuth(app, deps.db);
   const { default: websocket } = await import('@fastify/websocket');
   await app.register(websocket, { options: { maxPayload: 4 * 1024 * 1024 } });
+  // live editing: rooms in this process, kept in step with the other processes through the database
   const hub = new LiveHub(deps.db, deps.liveSaveDelay ?? 2000);
-  app.addHook('onClose', async () => { await hub.flushAll(); });
+  await hub.start();
+  app.addHook('onClose', async () => { await hub.close(); });
   app.setErrorHandler((err: { statusCode?: number; message: string }, req, reply) => {
     const code = err.statusCode && err.statusCode >= 400 && err.statusCode < 500 ? err.statusCode : 500;
     if (code === 500) req.log.error(err);

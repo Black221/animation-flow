@@ -33,6 +33,11 @@ jobs:
           pnpm --filter @af/web exec playwright install --with-deps chromium
           pnpm --filter @af/web exec playwright test
         env: { CHROMIUM_PATH: "" }
+      - name: End-to-end with two API processes (live editing across them)
+        run: |
+          PGPASSWORD=af psql -h 127.0.0.1 -U af -d af -c "CREATE DATABASE af_cluster"
+          pnpm --filter @af/web exec playwright test -c playwright.cluster.config.ts
+        env: { CHROMIUM_PATH: "", CLUSTER_DATABASE_URL: "postgres://af:af@127.0.0.1:5432/af_cluster" }
 
   docker:
     runs-on: ubuntu-latest

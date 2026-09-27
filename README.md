@@ -131,7 +131,8 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 
 Derrière un proxy inverse (nginx, Caddy, Traefik), laisser passer les WebSocket (`Upgrade`) sur
 `/api/projects/<id>/live` et transmettre `Host` (ou `X-Forwarded-Host`) : le serveur compare l'origine de la page à
-son propre nom. Avec plusieurs instances de l'API, router un même projet vers la même instance.
+son propre nom. Plusieurs instances de l'API peuvent tourner derrière un répartiteur de charge, sans affinité : elles
+partagent l'édition en direct par PostgreSQL (il faut `DATABASE_URL` ; la base embarquée ne sert qu'un processus).
 
 ## Générer avec l'IA
 
@@ -194,6 +195,7 @@ pnpm typecheck
 pnpm test                                    # schéma, moteur, styles (rendu Node), fournisseurs, API (PGlite)
 TEST_DATABASE_URL=postgres://… pnpm vitest run apps/api --no-file-parallelism   # l'API sur un vrai PostgreSQL (base effacée !)
 pnpm e2e                                     # éditeur complet dans Chromium (Playwright)
+CLUSTER_DATABASE_URL=postgres://… pnpm --filter @af/web e2e:cluster   # deux processus d'API, un navigateur sur chacun (base effacée !)
 pnpm --filter @af/styles still -- --style=watercolor --t=1,4,9   # images fixes dans out/stills
 ```
 
@@ -222,7 +224,7 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 4. **Génération par IA** (fait) : texte → storyboard relu → scènes validées (corrections guidées, scène de secours), retouche d'une scène dans l'éditeur, tokens affichés.
 5. **Multi-utilisateur** (fait) : comptes, espaces de travail, rôles, invitations, isolation des données, auteur de chaque version.
 6. **Travail d'équipe** (fait) : édition à plusieurs en temps réel, commentaires sur les scènes, invitations et mot de passe oublié par e-mail.
-7. **Ensuite** : modèles de projets, packs de styles supplémentaires, relier les salles en direct entre plusieurs instances de l'API.
+7. **Ensuite** : modèles de projets, packs de styles supplémentaires.
 
 ## Crédits
 

@@ -5,13 +5,17 @@ import type { Project } from '@af/schema';
 import { Api, type Comment, type NewComment } from '../api';
 import { fmtTime, usePlayback, type Playback } from '../playback';
 
-export type CommentEvent = { kind: 'upsert'; comment: Comment } | { kind: 'delete'; id: string };
+/** `reload`: a change too big to be carried between server processes; the list is fetched again */
+export type CommentEvent = { kind: 'upsert'; comment: Comment } | { kind: 'delete'; id: string } | { kind: 'reload' };
 
 export function useComments(projectId: string, epoch: number) {
   const [list, setList] = useState<Comment[]>([]);
   const [error, setError] = useState('');
-  useEffect(() => { let on = true; setList([]); Api.comments(projectId).then((l) => on && setList(l), (e) => on && setError((e as Error).message)); return () => { on = false; }; }, [projectId, epoch]);
+  const [reloads, setReloads] = useState(0);
+  useEffect(() => { let on = true; Api.comments(projectId).then((l) => on && setList(l), (e) => on && setError((e as Error).message)); return () => { on = false; }; }, [projectId, epoch, reloads]);
+  useEffect(() => setList([]), [projectId, epoch]);
   const apply = useCallback((e: CommentEvent) => setList((l) => {
+    if (e.kind === 'reload') { setReloads((n) => n + 1); return l; }
     if (e.kind === 'delete') return l.filter((c) => c.id !== e.id && c.parentId !== e.id);
     const i = l.findIndex((c) => c.id === e.comment.id);
     return i < 0 ? [...l, e.comment] : l.map((c, k) => (k === i ? e.comment : c));

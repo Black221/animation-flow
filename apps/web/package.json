@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "L'\u00e9diteur : projets, aper\u00e7u en direct dans chaque style, sc\u00e8nes, frise, r\u00e9glages des fournisseurs.",
+  "description": "L'éditeur : projets, aperçu en direct dans chaque style, scènes, frise, réglages des fournisseurs.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "e2e": "vite build && playwright test"
+    "e2e": "vite build && playwright test",
+    "e2e:cluster": "vite build && playwright test -c playwright.cluster.config.ts"
   },
   "dependencies": {
     "@af/audio": "workspace:*",

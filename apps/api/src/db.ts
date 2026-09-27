@@ -8,6 +8,9 @@ export interface Queryable {
 export interface Db extends Queryable {
   /** run `fn` in one transaction on one connection (a pool would otherwise spread BEGIN and COMMIT over several) */
   tx<T>(fn: (q: Queryable) => Promise<T>): Promise<T>;
+  /** receive NOTIFY messages on a channel (from every process using the database); returns a function to stop.
+   *  With PostgreSQL this holds one dedicated connection, reopened if it drops. */
+  listen(channel: string, onMessage: (payload: string) => void): Promise<() => Promise<void>>;
   close(): Promise<void>;
 }
 
@@ -26,6 +29,22 @@ export async function openDb(opts: { url: string | null; dataDir?: string; memor
           return r;
         } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; } finally { c.release(); }
       },
+      async listen(channel, onMessage) {
+        if (!/^[a-z_]+$/.test(channel)) throw new Error('channel name: a-z and _ only');
+        // a pooled connection would be handed to someone else between queries: LISTEN needs its own
+        let client: InstanceType<typeof pg.Client> | null = null, stopped = false, retry: NodeJS.Timeout | undefined;
+        const connect = async () => {
+          const c = new pg.Client({ connectionString: opts.url! });
+          c.on('notification', (n) => { if (n.channel === channel && n.payload != null) onMessage(n.payload); });
+          c.on('error', () => undefined);
+          c.on('end', () => { if (client === c) client = null; if (!stopped) retry = setTimeout(() => void connect().catch(() => undefined), 1000); });
+          await c.connect();
+          await c.query(`LISTEN ${channel}`);
+          client = c;
+        };
+        await connect();
+        return async () => { stopped = true; clearTimeout(retry); await client?.end().catch(() => undefined); };
+      },
       close: () => pool.end(),
     };
   }
@@ -36,6 +55,7 @@ export async function openDb(opts: { url: string | null; dataDir?: string; memor
   return {
     query: (sql, params) => db.query(sql, params) as never,
     tx: (fn) => db.transaction((t) => fn({ query: (sql, params) => t.query(sql, params) as never })),
+    async listen(channel, onMessage) { const stop = await db.listen(channel, onMessage); return async () => { await stop(); }; },
     close: () => db.close(),
   };
 }
@@ -209,21 +229,39 @@ const MIGRATIONS: string[] = [
      used_at timestamptz
    );
    CREATE INDEX password_resets_user ON password_resets (user_id)`,
+  // live editing across several API processes: every accepted change goes into a log, numbered per project under a
+  // row lock, so all processes apply the same changes in the same order; `data` holds the project up to saved_seq
+  `ALTER TABLE projects ADD COLUMN live_seq bigint NOT NULL DEFAULT 0;
+   ALTER TABLE projects ADD COLUMN saved_seq bigint NOT NULL DEFAULT 0;
+   CREATE TABLE live_ops (
+     project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+     seq bigint NOT NULL,
+     kind text NOT NULL CHECK (kind IN ('ops', 'reset')),
+     ops jsonb NOT NULL,
+     version integer,
+     reason text,
+     author_id uuid REFERENCES users(id) ON DELETE SET NULL,
+     author_name text,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (project_id, seq)
+   )`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */
 export async function migrate(db: Db, upTo = Infinity): Promise<number> {
-  await db.query('CREATE TABLE IF NOT EXISTS _migrations (n integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())');
-  const { rows } = await db.query<{ n: number }>('SELECT n FROM _migrations');
-  const done = new Set(rows.map((r) => Number(r.n)));
+  // several processes may start at once (API replicas, workers): one migrates at a time, the others then see it done
+  const LOCK = 'SELECT pg_advisory_xact_lock(7720233)';
+  await db.tx(async (q) => { await q.query(LOCK); await q.query('CREATE TABLE IF NOT EXISTS _migrations (n integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())'); });
   let applied = 0;
   for (let i = 0; i < Math.min(MIGRATIONS.length, upTo); i++) {
-    if (done.has(i + 1)) continue;
-    await db.tx(async (q) => {
+    const did = await db.tx(async (q) => {
+      await q.query(LOCK);
+      if ((await q.query('SELECT 1 FROM _migrations WHERE n = $1', [i + 1])).rows.length) return false;
       for (const stmt of MIGRATIONS[i]!.split(/;\s*\n/).map((s) => s.trim()).filter(Boolean)) await q.query(stmt);
       await q.query('INSERT INTO _migrations (n) VALUES ($1)', [i + 1]);
+      return true;
     });
-    applied++;
+    if (did) applied++;
   }
   return applied;
 }

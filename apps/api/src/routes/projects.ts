@@ -10,7 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
-import type { LiveHub } from '../live/hub';
+import { logReset, saveLog, type LiveHub } from '../live/hub';
 import { TEMPLATES } from '../templates';
 
 interface Row { id: string; title: string; data: unknown; version: number; created_at: Date; updated_at: Date; updated_by_name: string | null; created_by_name: string | null }
@@ -59,23 +59,25 @@ export function projectRoutes(app: FastifyInstance, db: Db, hub?: LiveHub) {
   app.put('/api/projects/:id', { config: { role: 'editor' } }, async (req, reply) => {
     const p = Uuid.safeParse(req.params), body = z.object({ project: z.unknown(), baseVersion: z.number().int() }).safeParse(req.body);
     if (!p.success || !body.success) return reply.code(400).send({ error: 'requête invalide : { project, baseVersion } attendus' });
-    const ws = wsOf(req).id, by = userOf(req).id;
-    // people editing it live: save their changes first, so the version compared below is the real one
-    const live = hub?.get(p.data.id);
-    if (live) await (await live).flush();
-    const row = await load(p.data.id, ws);
-    if (!row) return reply.code(404).send({ error: 'projet introuvable' });
-    if (row.version !== body.data.baseVersion) return reply.code(409).send({ error: 'le projet a été modifié entre-temps', current: { ...summary(row), project: row.data } });
+    const ws = wsOf(req).id, user = userOf(req);
+    if (!(await load(p.data.id, ws))) return reply.code(404).send({ error: 'projet introuvable' });
     const parsed = parseProject(body.data.project);
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
-    const data = JSON.stringify(parsed.project), version = row.version + 1;
-    const saved = await db.tx(async (q) => {
-      const upd = await q.query<{ id: string }>('UPDATE projects SET data = $1, title = $2, version = $3, updated_at = now(), updated_by = $6 WHERE id = $4 AND version = $5 RETURNING id', [data, parsed.project.title, version, row.id, row.version, by]);
-      if (upd.rows[0]) await q.query('INSERT INTO project_versions (project_id, version, data, created_by) VALUES ($1, $2, $3, $4)', [row.id, version, data, by]);
-      return upd.rows[0];
+    const data = JSON.stringify(parsed.project);
+    const result = await db.tx(async (q) => {
+      // people editing it live (in any process): their changes become a version first, so the version compared
+      // below is the real latest one
+      await saveLog(q, p.data.id, null);
+      const cur = (await q.query<{ version: number }>('SELECT version FROM projects WHERE id = $1 FOR UPDATE', [p.data.id])).rows[0]!;
+      if (cur.version !== body.data.baseVersion) return null;
+      const version = cur.version + 1;
+      await q.query('UPDATE projects SET data = $1, title = $2, version = $3, updated_at = now(), updated_by = $5 WHERE id = $4', [data, parsed.project.title, version, p.data.id, user.id]);
+      await q.query('INSERT INTO project_versions (project_id, version, data, created_by) VALUES ($1, $2, $3, $4)', [p.data.id, version, data, user.id]);
+      await logReset(q, p.data.id, parsed.project, version, user, `enregistré par ${user.name}`); // everyone editing live restarts from it
+      return version;
     });
-    if (!saved) return reply.code(409).send({ error: 'le projet a été modifié entre-temps' });
-    if (live) (await live).reset(parsed.project, version, `enregistré par ${userOf(req).name}`);
+    const row = (await load(p.data.id, ws))!;
+    if (result == null) return reply.code(409).send({ error: 'le projet a été modifié entre-temps', current: { ...summary(row), project: row.data } });
     return { ...summary((await load(row.id, ws))!), project: parsed.project, warnings: checkAgainstLibrary(parsed.project, registry, catalog) };
   });
 

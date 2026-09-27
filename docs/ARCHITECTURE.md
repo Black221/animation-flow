@@ -151,12 +151,29 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
   d'autres et l'état actuel de ceux qu'elle conserve. Les autres tableaux (clés d'animation, caméra) vont indice par
   indice, et sont remplacés entiers si leur longueur change. Chemins interdits (`__proto__`…) et opérations mal
   formées sont refusés.
-- **Serveur** (`LiveHub`, une salle par projet ouvert) : la salle tient le projet de référence, numérote chaque
-  modification acceptée, la valide (schéma complet), l'envoie aux autres et accuse réception à l'auteur (`ack`) ou
-  la refuse (`nack` + raison). Enregistrement 2 s après la dernière modification (10 s au plus), et quand le dernier
-  participant part ; les enregistrements d'une séance mettent à jour la même version tant qu'elle reste la dernière,
-  du même auteur et récente, jamais une version que la salle n'a pas écrite (création, enregistrement par l'API).
-  Un `PUT` par l'API enregistre d'abord la salle, puis la remet à zéro pour tous (`reset`).
+- **Serveur** (`LiveHub`) : chaque processus de l'API tient une salle par projet où il a du monde ; la référence
+  est dans la base, pour que plusieurs processus (répliques derrière un répartiteur de charge) servent le même
+  projet sans affinité :
+  - chaque modification acceptée entre dans le **journal** `live_ops`, numérotée par projet (`projects.live_seq`)
+    sous le verrou de la ligne du projet : tous les processus voient les mêmes modifications dans le même ordre.
+    Elle est vérifiée contre le projet à ce numéro (schéma complet ; place supprimée entre-temps) ; l'auteur reçoit
+    `ack` ou `nack` + raison ;
+  - `NOTIFY af_live` prévient les autres processus (qui lisent le journal), et porte la présence (renouvelée toutes
+    les 15 s, oubliée après 45 s sans nouvelles : un processus arrêté disparaît), les enregistrements, les
+    commentaires (un message trop gros pour une notification devient « rechargez ») et les connexions fermées
+    (droits changés, projet supprimé). Une notification perdue (connexion d'écoute coupée, reprise au bout d'1 s)
+    est rattrapée : chaque salle ouverte regarde où en est le journal toutes les 3 s ;
+  - `projects.data` contient le projet jusqu'à `saved_seq`. Enregistrement 2 s après la dernière modification
+    (10 s au plus), quand le dernier participant d'un processus part, et sur « Enregistrer » ; les enregistrements
+    d'une séance mettent à jour la même version tant qu'elle reste la dernière, du même auteur et récente, jamais une
+    version que la salle n'a pas écrite (création, enregistrement par l'API). Ce qu'un processus arrêté n'a pas
+    enregistré reste dans le journal et l'est à la prochaine ouverture du projet. Le journal garde 10 minutes les
+    modifications déjà enregistrées (un processus plus en retard se resynchronise sur la base) ;
+  - un `PUT` par l'API, sous le même verrou, transforme d'abord en version ce que le journal a de non enregistré
+    (la comparaison avec `baseVersion` porte donc sur la vraie dernière version), puis s'inscrit au journal comme
+    `reset` : tout le monde, dans tous les processus, repart de lui.
+- **Migrations** : un verrou consultatif PostgreSQL les fait passer une à une quand plusieurs processus démarrent
+  ensemble.
 - **Client** (`LiveDoc`, partagé par l'éditeur et les tests) : il applique tout de suite ce que l'utilisateur tape,
   le garde « en attente » jusqu'à l'accusé, et rejoue les modifications en attente par-dessus celles des autres :
   tout le monde converge vers l'ordre du serveur (vérifié sur des entrelacements aléatoires). Après une
@@ -165,9 +182,9 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
   lecteur au moins) ; l'origine de la page doit être le serveur lui-même ; un lecteur reçoit mais ne peut rien
   envoyer ; messages de 4 Mo au plus. Quand le rôle d'un membre change ou qu'il quitte l'espace, ses connexions
   se ferment (code 4001) et l'éditeur se reconnecte avec ses nouveaux droits ; un projet supprimé ferme la salle.
-- **Limite** : les salles vivent dans le processus de l'API. Avec plusieurs instances de l'API, il faut router un
-  même projet vers la même instance (affinité), ou relier les salles (PostgreSQL `LISTEN/NOTIFY`). Les workers de
-  rendu ne sont pas concernés.
+- **Vérifié** : deux serveurs sur une même base (tests d'API, sur PGlite et sur PostgreSQL, coupure de l'écoute
+  comprise) et deux processus réels avec un navigateur sur chacun (`pnpm --filter @af/web e2e:cluster`, avec
+  `CLUSTER_DATABASE_URL` vers une base jetable).
 
 ## Commentaires (`apps/api/src/routes/comments.ts`)
 

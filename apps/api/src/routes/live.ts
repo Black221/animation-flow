@@ -32,6 +32,6 @@ export function liveRoutes(app: FastifyInstance, hub: LiveHub) {
       room.handle(client, msg);
     });
     socket.on('close', () => { clearInterval(ping); void room.leave(client); });
-    room.join(client);
+    void room.join(client).catch(() => socket.close(1011, 'erreur interne'));
   });
 }
