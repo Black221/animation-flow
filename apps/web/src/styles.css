@@ -212,3 +212,18 @@ fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
 .peer-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; align-self: center; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .json-editor .banner { grid-column: auto; margin: 0 0 6px; padding: 6px 10px; border-radius: 6px; flex-wrap: wrap; }
+
+/* comments */
+.comments { display: grid; gap: 10px; }
+.comments form { display: grid; gap: 6px; }
+.comments textarea { width: 100%; resize: vertical; font: inherit; }
+.comments .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.comments .threads { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.comments .threads > li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); display: grid; gap: 4px; }
+.comments .threads > li.resolved { opacity: 0.7; }
+.comments .meta { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.comments .body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comments .reply { border-left: 2px solid var(--line); padding-left: 8px; margin-left: 4px; }
+.comments .reply .body { margin-top: 2px; }
+button.link { background: none; border: none; padding: 0; color: var(--accent, inherit); text-decoration: underline; cursor: pointer; font: inherit; }
+.comment-count { font-size: 0.72rem; padding: 0 6px; border-radius: 99px; background: var(--warn); color: #fff; align-self: center; }

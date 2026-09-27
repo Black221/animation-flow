@@ -15,6 +15,7 @@ import { generationRoutes } from './routes/generations';
 import { authRoutes, type SignupMode } from './routes/auth';
 import { workspaceRoutes } from './routes/workspace';
 import { liveRoutes } from './routes/live';
+import { commentRoutes } from './routes/comments';
 import { LiveHub } from './live/hub';
 import { signer, type Signer } from './render/sign';
 
@@ -61,6 +62,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir }, hub);
   projectRoutes(app, deps.db, hub);
   liveRoutes(app, hub);
+  commentRoutes(app, deps.db, hub);
   providerRoutes(app, deps.db, deps.box, deps.fetchImpl);
   const sign = deps.signer ?? signer(randomBytes(32));
   renderRoutes(app, deps.db, sign);

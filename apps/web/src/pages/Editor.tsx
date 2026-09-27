@@ -13,8 +13,9 @@ import { Timeline } from '../components/Timeline';
 import { Playback } from '../playback';
 import { useSession } from '../session';
 import { useLive } from '../live';
+import { CommentsPanel, openThreads, useComments, type CommentEvent } from '../components/Comments';
 
-type Tab = 'scene' | 'voices' | 'project' | 'cast';
+type Tab = 'scene' | 'voices' | 'project' | 'cast' | 'comments';
 // until the project is loaded, the soundtrack hook gets this (it mixes nothing while disabled)
 const EMPTY = { schemaVersion: 1, title: '-', language: 'fr', fps: 24, width: 16, height: 16, style: 'flat', cast: {}, scenes: [] } as unknown as Project;
 
@@ -45,7 +46,8 @@ export function Editor() {
   const [liveSaving, setLiveSaving] = useState(false);
 
   // live co-editing when the WebSocket is there; otherwise (fallback) the project is saved by hand below
-  const live = useLive(id, session.epoch);
+  const comments = useComments(id, session.epoch);
+  const live = useLive(id, session.epoch, (name, data) => { if (name === 'comments') comments.apply(data as CommentEvent); });
   const liveOn = live.status !== 'offline' && live.status !== 'connecting' ? !!live.project : false;
   const fellBack = useRef(false);
   useEffect(() => {
@@ -122,6 +124,7 @@ export function Editor() {
   if (!project || !doc || !timeline) return <div className="page muted">Chargement…</div>;
   const draft = project; // what the editor shows and edits, live or not
   const scene = draft.scenes[i]!;
+  const open = openThreads(comments.list);
   const others = live.peers.filter((p, k, all) => p.userId !== live.you?.userId && all.findIndex((q) => q.userId === p.userId) === k);
   const where = (p: { sceneId: string | null; tab: string | null }) => [p.sceneId && `scène ${p.sceneId}`, p.tab && p.tab !== 'scene' && TAB_LABEL[p.tab]].filter(Boolean).join(', ');
 
@@ -182,6 +185,7 @@ export function Editor() {
             <li key={s.id + k}>
               <button className={k === i ? 'active' : ''} onClick={() => select(k)}>
                 <span className="sid">{s.id}</span> {s.title || 'sans titre'}
+                {open[s.id] ? <span className="comment-count" title={`${open[s.id]} commentaire(s) ouvert(s)`} aria-label={`${open[s.id]} commentaire(s) ouvert(s)`}>{open[s.id]}</span> : null}
                 {others.filter((p) => p.sceneId === s.id).map((p) => <span key={p.userId} className="peer-dot" style={{ background: p.color }} title={`${p.name} est ici`} aria-label={`${p.name} est ici`} />)}
                 <span className="muted small">{timeline.scenes[k]!.duration.toFixed(1)} s</span>
               </button>
@@ -212,9 +216,9 @@ export function Editor() {
 
       <aside className="inspector">
         <div className="tabs" role="tablist">
-          {(['scene', 'voices', 'project', 'cast'] as Tab[]).map((t) => (
+          {(['scene', 'voices', 'project', 'cast', 'comments'] as Tab[]).map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-              {t === 'scene' ? `Scène ${scene.id}` : t === 'voices' ? 'Voix' : t === 'project' ? 'Projet' : 'Distribution'}
+              {t === 'scene' ? `Scène ${scene.id}` : t === 'voices' ? 'Voix' : t === 'project' ? 'Projet' : t === 'cast' ? 'Distribution' : `Commentaires${Object.values(open).reduce((a, b) => a + b, 0) ? ` (${Object.values(open).reduce((a, b) => a + b, 0)})` : ''}`}
             </button>
           ))}
         </div>
@@ -250,6 +254,11 @@ export function Editor() {
             <p className="muted small">{draft.width} × {draft.height} · {timeline.duration.toFixed(1)} s · {timeline.frames} images · {draft.scenes.length} scène(s)
               {timeline.scenes.some((s) => s.lines.some((l) => l.estimated)) && ' · durées des répliques estimées (pas encore de voix enregistrée)'}</p>
           </div>
+        )}
+        {tab === 'comments' && (
+          <CommentsPanel state={comments} project={draft} sceneId={scene.id} sceneStart={timeline.scenes[i]!.start} sceneDuration={timeline.scenes[i]!.duration} pb={pb}
+            me={session.me?.user?.id ?? null} canResolve={session.can('editor')} canModerate={session.can('admin')}
+            onSeek={(sid, t) => { const k = draft.scenes.findIndex((s) => s.id === sid); if (k < 0) return; setSelId(sid); pb.pause(); pb.seek(timeline.scenes[k]!.start + t); }} />
         )}
         {tab === 'cast' && (
           <JsonEditor label="distribution (JSON)" readOnly={!editable} value={draft.cast} resetKey={`cast:${resetN}`} remoteKey={live.remoteN} validate={(v) => issuesOf({ ...draft, cast: v })} onApply={(v) => update({ ...draft, cast: v as Project['cast'] })} />

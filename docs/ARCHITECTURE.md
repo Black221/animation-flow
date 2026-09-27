@@ -169,6 +169,16 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
   même projet vers la même instance (affinité), ou relier les salles (PostgreSQL `LISTEN/NOTIFY`). Les workers de
   rendu ne sont pas concernés.
 
+## Commentaires (`apps/api/src/routes/comments.ts`)
+
+- Table `comments` : un fil (`parent_id` nul) ou une réponse ; épinglé à une scène par son identifiant (il suit la
+  scène quand on réordonne), éventuellement à un élément et à un instant `t` (secondes depuis le début de la scène).
+  Une réponse prend la place de son fil ; on ne répond pas à une réponse ; on résout un fil entier.
+- Droits : tout membre commente ; l'auteur modifie son texte ; l'auteur ou un éditeur résout et rouvre ; l'auteur ou
+  un administrateur supprime (les réponses partent avec leur fil). Un commentaire d'un autre espace est introuvable.
+- Chaque changement est envoyé aux personnes qui ont le projet ouvert (événement `comments` de la salle en direct).
+  Une scène supprimée garde ses commentaires, affichés « (supprimée) ».
+
 ## API (`apps/api`)
 
 | route | rôle |
@@ -184,6 +194,7 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 | `GET/POST /api/projects`, `GET/PUT/DELETE /api/projects/:id` | projets ; `PUT` exige `baseVersion` (sinon 409 avec la version actuelle) et valide (422 avec les erreurs) |
 | `GET /api/projects/:id/versions`, `GET /api/projects/:id/subtitles.srt` | historique ; sous-titres |
 | `GET /api/projects/:id/live?ws=` (WebSocket) | édition en temps réel : reçoit `hello`, `ops`, `ack`/`nack`, `presence`, `saved`, `reset` ; envoie `ops`, `presence`, `save` |
+| `GET/POST /api/projects/:id/comments`, `PATCH/DELETE /api/comments/:id` | commentaires : liste ; nouveau fil (`sceneId`, `elementId?`, `t?`, `body`) ou réponse (`parentId`, `body`) ; modifier (`body`), résoudre (`resolved`) ; supprimer |
 | `GET /api/providers` | fournisseurs et tâches |
 | `GET/POST /api/credentials`, `PATCH/DELETE /api/credentials/:id` | clés (jamais renvoyées) |
 | `POST /api/credentials/:id/test` | teste la clé et liste les modèles |

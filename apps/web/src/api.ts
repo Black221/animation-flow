@@ -63,6 +63,11 @@ export interface Generation {
   models: { storyboard?: string; scenes?: string }; usage: { inputTokens: number; outputTokens: number }; error: string | null; createdAt: string; updatedAt: string;
 }
 export interface GenerationRequest { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean }
+export interface Comment {
+  id: string; projectId: string; parentId: string | null; sceneId: string; elementId: string | null; t: number | null; body: string;
+  author: { id: string; name: string } | null; createdAt: string; editedAt: string | null; resolvedAt: string | null; resolvedBy: string | null;
+}
+export interface NewComment { body: string; sceneId?: string; elementId?: string | null; t?: number | null; parentId?: string }
 export type { Issue, ProviderInfo, TaskInfo, TestResult };
 
 export const Api = {
@@ -109,5 +114,9 @@ export const Api = {
   cancelGeneration: (id: string) => api<Generation>(`/api/generations/${id}/cancel`, { method: 'POST' }),
   editScene: (project: unknown, sceneIndex: number, instruction: string) => api<{ scene: unknown; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/edit-scene', { method: 'POST', body: { project, sceneIndex, instruction } }),
   record: (text: string, voice?: string, language?: string) => api<Recording>('/api/voices', { method: 'POST', body: { text, ...(voice ? { voice } : {}), ...(language ? { language } : {}) } }),
+  comments: (projectId: string) => api<Comment[]>(`/api/projects/${projectId}/comments`),
+  addComment: (projectId: string, c: NewComment) => api<Comment>(`/api/projects/${projectId}/comments`, { method: 'POST', body: c }),
+  updateComment: (id: string, c: { body?: string; resolved?: boolean }) => api<Comment>(`/api/comments/${id}`, { method: 'PATCH', body: c }),
+  deleteComment: (id: string) => api<void>(`/api/comments/${id}`, { method: 'DELETE' }),
   voiceLinks: (assets: string[]) => api<Record<string, string>>('/api/voices/links', { method: 'POST', body: { assets } }),
 };

@@ -55,6 +55,10 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
   les modifications des autres, sans perdre le curseur. Enregistrement automatique (une version par séance et par
   auteur) ; « Enregistrer » (ou Ctrl+S) clôt la version en cours. Un lecteur suit en direct sans pouvoir modifier.
   Sans WebSocket (vieux proxy), l'éditeur revient à l'enregistrement à la main, qui détecte les conflits.
+- **Commentaires** (onglet « Commentaires ») : un fil sur une scène, éventuellement sur un élément et à un instant
+  de la scène (le lien « à 0:02.0 » y ramène la lecture) ; réponses, fils résolus ou rouverts, nombre de fils ouverts
+  sur chaque scène. Tout membre commente, lecteurs compris ; les éditeurs (et l'auteur) résolvent ; l'auteur ou un
+  administrateur supprime. Les commentaires arrivent en direct chez ceux qui ont le projet ouvert.
 - **Aperçu en direct** dans chaque style, lecture, déplacement dans le temps, sous-titres, frise des scènes et des répliques.
 - **Édition** d'une scène ou de la distribution en JSON : chaque frappe valide est appliquée à l'aperçu, une erreur est
   expliquée avec son chemin (`scenes.0.elements.2.ref`) et n'atteint jamais le projet.
@@ -207,7 +211,7 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 3. **Narration et son** (fait) : voix par réplique avec le fournisseur choisi (durées mesurées → l'horloge se recale seule), musique et bruitages synthétisés, mixage −16 LUFS, son dans l'aperçu et dans le MP4.
 4. **Génération par IA** (fait) : texte → storyboard relu → scènes validées (corrections guidées, scène de secours), retouche d'une scène dans l'éditeur, tokens affichés.
 5. **Multi-utilisateur** (fait) : comptes, espaces de travail, rôles, invitations, isolation des données, auteur de chaque version.
-6. **Travail d'équipe** (en cours) : édition à plusieurs en temps réel (fait) ; commentaires sur les scènes ; envoi des invitations et réinitialisation du mot de passe par e-mail.
+6. **Travail d'équipe** (en cours) : édition à plusieurs en temps réel (fait) ; commentaires sur les scènes (fait) ; envoi des invitations et réinitialisation du mot de passe par e-mail.
 7. **Ensuite** : modèles de projets, packs de styles supplémentaires.
 
 ## Crédits

@@ -182,6 +182,23 @@ const MIGRATIONS: string[] = [
    ALTER TABLE generations ALTER COLUMN workspace_id SET NOT NULL;
    ALTER TABLE generations ADD COLUMN created_by uuid REFERENCES users(id) ON DELETE SET NULL;
    ALTER TABLE renders ADD COLUMN created_by uuid REFERENCES users(id) ON DELETE SET NULL`,
+  // comments on scenes: threads (a comment and its replies) pinned to a scene, optionally to an element and a
+  // moment of the scene; a thread is resolved as a whole
+  `CREATE TABLE comments (
+     id uuid PRIMARY KEY,
+     project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+     parent_id uuid REFERENCES comments(id) ON DELETE CASCADE,
+     scene_id text NOT NULL,
+     element_id text,
+     t double precision,
+     body text NOT NULL,
+     author_id uuid REFERENCES users(id) ON DELETE SET NULL,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     edited_at timestamptz,
+     resolved_at timestamptz,
+     resolved_by uuid REFERENCES users(id) ON DELETE SET NULL
+   );
+   CREATE INDEX comments_project ON comments (project_id, created_at)`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */
