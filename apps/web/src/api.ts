@@ -45,6 +45,17 @@ export interface RenderJob {
   createdAt: string; startedAt: string | null; finishedAt: string | null; videoUrl: string | null;
 }
 export interface RenderRequest { style?: string; width: number; quality: 'draft' | 'standard' | 'high'; sceneId?: string; subtitles: boolean; audio: boolean }
+export type GenerationStatus = 'storyboard' | 'review' | 'scenes' | 'done' | 'failed' | 'canceled';
+export interface StoryLine { id: string; speaker: string; text: string }
+export interface StorySceneT { id: string; title: string; duration: number; decor: { kind: string; params: Record<string, unknown> }; music: { mood: string; gain: number }; narration: StoryLine[]; shots: string[] }
+export interface StoryboardT { title: string; language: string; style: string; cast: { id: string; kind: string; name: string; description: string; params: Record<string, unknown>; voice?: string }[]; scenes: StorySceneT[] }
+export interface GenStep { stage: string; target: string; attempt: number; ok: boolean; issues: Issue[]; usage: { inputTokens: number; outputTokens: number }; ms: number }
+export interface Generation {
+  id: string; status: GenerationStatus; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean };
+  storyboard: StoryboardT | null; projectId: string | null; scenesDone: number; scenesTotal: number; steps: GenStep[]; fallbacks: string[];
+  models: { storyboard?: string; scenes?: string }; usage: { inputTokens: number; outputTokens: number }; error: string | null; createdAt: string; updatedAt: string;
+}
+export interface GenerationRequest { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean }
 export type { Issue, ProviderInfo, TaskInfo, TestResult };
 
 export const Api = {
@@ -67,6 +78,14 @@ export const Api = {
   cancelRender: (id: string) => api<RenderJob>(`/api/renders/${id}/cancel`, { method: 'POST' }),
   deleteRender: (id: string) => api<void>(`/api/renders/${id}`, { method: 'DELETE' }),
   assign: (task: string, credentialId: string | null, model: string, voice = '') => api<Assignment>(`/api/assignments/${task}`, { method: 'PUT', body: { credentialId, model, voice } }),
+  generations: () => api<Generation[]>('/api/generations'),
+  generation: (id: string) => api<Generation>(`/api/generations/${id}`),
+  generate: (r: GenerationRequest) => api<Generation>('/api/generations', { method: 'POST', body: r }),
+  saveStoryboard: (id: string, storyboard: StoryboardT) => api<Generation>(`/api/generations/${id}/storyboard`, { method: 'PUT', body: { storyboard } }),
+  retryStoryboard: (id: string, instructions?: string) => api<Generation>(`/api/generations/${id}/storyboard/retry`, { method: 'POST', body: instructions ? { instructions } : {} }),
+  writeScenes: (id: string) => api<Generation>(`/api/generations/${id}/scenes`, { method: 'POST' }),
+  cancelGeneration: (id: string) => api<Generation>(`/api/generations/${id}/cancel`, { method: 'POST' }),
+  editScene: (project: unknown, sceneIndex: number, instruction: string) => api<{ scene: unknown; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/edit-scene', { method: 'POST', body: { project, sceneIndex, instruction } }),
   record: (text: string, voice?: string, language?: string) => api<Recording>('/api/voices', { method: 'POST', body: { text, ...(voice ? { voice } : {}), ...(language ? { language } : {}) } }),
   voiceLinks: (assets: string[]) => api<Record<string, string>>('/api/voices/links', { method: 'POST', body: { assets } }),
 };

@@ -83,6 +83,24 @@ Un décor produit une partie **fixe** (peinte une seule fois par scène, gardée
 résolution du plus fort zoom de la scène) et une partie **vivante** (nuages, étoiles qui scintillent) redessinée à chaque image.
 La caméra ne fait que déplacer la plate. C'est ce qui rend l'aquarelle rapide : environ 10 ms par image en 960 px, dans Node.
 
+## Génération par IA (`packages/ai`, `apps/api/src/routes/generations.ts`)
+
+```
+texte ──► storyboard (Storyboard, zod) ──► relecture dans l'interface ──► scène par scène (Scene, zod + bibliothèque) ──► projet
+              ▲  │                                                            ▲  │
+              └──┘ erreurs renvoyées au modèle (2 fois au plus)               └──┘ idem, puis scène de secours
+```
+
+- `complete()` (`packages/providers`) parle à chaque fournisseur de modèles de texte ; `modelFor()` lie la tâche
+  (storyboard ou scènes) à sa clé déchiffrée le temps d'une génération.
+- Une génération tourne dans le processus de l'API (les appels sont réseau) ; son état, ses tokens et chaque appel
+  (avec les problèmes trouvés) sont en base (`generations`). Un redémarrage marque les générations en cours comme
+  interrompues ; on peut relancer le storyboard ou les scènes.
+- La scène de secours (`fallbackScene`) : le décor, l'ambiance et la narration du storyboard, les personnages qui
+  parlent debout, le titre. Le projet final est donc toujours valide.
+- Retouche (`editScene`) : ce que le modèle omet (narration, décor…) reste tel quel ; une réplique inchangée garde
+  son enregistrement et sa durée mesurée.
+
 ## Rendu vidéo (`packages/render`, `apps/api/src/render`)
 
 ```
@@ -126,6 +144,9 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 | `POST /api/projects/:id/renders`, `GET /api/projects/:id/renders` | demander un rendu (`style`, `width`, `quality`, `sceneId`, `subtitles`) ; liste |
 | `GET /api/renders/:id`, `POST /api/renders/:id/cancel`, `DELETE /api/renders/:id` | suivre, annuler, supprimer |
 | `GET /api/renders/:id/video?exp&sig` | la vidéo (lien signé, sans jeton ; `&download=1` pour télécharger) |
+| `POST /api/generations`, `GET /api/generations[/:id]` | lancer une génération (`text`, `language`, `style`, `targetSeconds`, `instructions`, `review`) ; suivre |
+| `PUT /api/generations/:id/storyboard`, `POST …/storyboard/retry`, `POST …/scenes`, `POST …/cancel` | corriger le storyboard, le refaire, écrire les scènes, annuler |
+| `POST /api/ai/edit-scene` | retoucher une scène (`project`, `sceneIndex`, `instruction`) : la scène validée |
 | `POST /api/voices` | dire une réplique (`text`, `voice?`, `language?`) avec la voix de la tâche « Narration » : `{ asset, textHash, duration, cached, url }` |
 | `POST /api/voices/links`, `GET /api/voices/:asset.wav?exp&sig` | liens signés vers des enregistrements ; l'enregistrement |
 

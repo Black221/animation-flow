@@ -1,6 +1,6 @@
 // The HTTP server. buildServer() takes its dependencies (database, secret box, optional fetch for providers) so tests
 // run it in memory with app.inject(), without a network or a real Postgres.
-import type { FetchLike, PostFetch } from '@af/providers';
+import type { FetchLike, JsonPost, PostFetch } from '@af/providers';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -10,6 +10,7 @@ import { projectRoutes } from './routes/projects';
 import { providerRoutes } from './routes/providers';
 import { renderRoutes } from './routes/renders';
 import { voiceRoutes } from './routes/voices';
+import { generationRoutes } from './routes/generations';
 import { signer, type Signer } from './render/sign';
 
 export interface ServerDeps {
@@ -25,6 +26,8 @@ export interface ServerDeps {
   voicesDir: string;
   /** for voice providers (tests) */
   postFetch?: PostFetch;
+  /** for text models (tests) */
+  llmFetch?: JsonPost;
 }
 
 const sameToken = (a: string, b: string) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
@@ -56,6 +59,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const sign = deps.signer ?? signer(randomBytes(32));
   renderRoutes(app, deps.db, sign);
   voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch);
+  generationRoutes(app, deps.db, deps.box, deps.llmFetch);
 
   if (deps.webDist && existsSync(deps.webDist)) {
     const { default: fastifyStatic } = await import('@fastify/static');

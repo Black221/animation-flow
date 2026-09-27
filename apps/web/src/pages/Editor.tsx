@@ -30,6 +30,10 @@ export function Editor() {
   const [sel, setSel] = useState(0);
   const [tab, setTab] = useState<Tab>('scene');
   const [resetN, setResetN] = useState(0);
+  const [ask, setAsk] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [aiNote, setAiNote] = useState('');
+  const [undo, setUndo] = useState<{ index: number; scene: Scene } | null>(null);
   const pb = useMemo(() => new Playback(), []);
   const [sound, setSound] = useState(true);
 
@@ -157,6 +161,24 @@ export function Editor() {
             </button>
           ))}
         </div>
+        {tab === 'scene' && (
+          <form className="ai-edit" onSubmit={(e) => { e.preventDefault(); void (async () => {
+            setAsking(true); setAiNote('');
+            try {
+              const r = await Api.editScene(draft, i, ask.trim());
+              setUndo({ index: i, scene }); update(withScene(draft, i, r.scene) as Project); setResetN((x) => x + 1); setAsk('');
+              setAiNote(`${r.model} · ${r.usage.inputTokens}+${r.usage.outputTokens} tokens`);
+            } catch (err) {
+              const b = (err as { body?: { issues?: { path: string; message: string }[] } }).body;
+              setAiNote(`${(err as Error).message}${b?.issues?.length ? ` : ${b.issues.slice(0, 2).map((x) => `${x.path} ${x.message}`).join(' ; ')}` : ''}`);
+            } finally { setAsking(false); }
+          })(); }}>
+            <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="Demander une modification à l'IA : « Jumo arrive par la gauche », « plus de mouvements de caméra »…" aria-label="modification demandée à l'IA" />
+            <button type="submit" disabled={asking || ask.trim().length < 3}>{asking ? 'L\'IA travaille…' : 'Modifier'}</button>
+            {undo && undo.index === i && <button type="button" onClick={() => { update(withScene(draft, undo.index, undo.scene) as Project); setUndo(null); setResetN((x) => x + 1); setAiNote('modification annulée'); }}>Annuler la modification</button>}
+            {aiNote && <span className="muted small" data-testid="ai-note">{aiNote}</span>}
+          </form>
+        )}
         {tab === 'scene' && (
           <JsonEditor label="scène (JSON)" value={scene} resetKey={`scene:${i}:${resetN}`} validate={(v) => issuesOf(withScene(draft, i, v))} onApply={(v) => update(withScene(draft, i, v) as Project)} />
         )}

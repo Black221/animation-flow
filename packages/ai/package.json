@@ -1,0 +1,9 @@
+{
+  "name": "@af/ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Génération par IA : texte → storyboard → scènes au format d'animation, validées et réparées, avec le modèle de son choix.",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@af/audio": "workspace:*", "@af/engine": "workspace:*", "@af/library": "workspace:*", "@af/providers": "workspace:*", "@af/schema": "workspace:*", "zod": "^4.1.0" }
+}

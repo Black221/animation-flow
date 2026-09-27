@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router';
 import { Api, onUnauthorized, setToken } from './api';
 import { Editor } from './pages/Editor';
+import { Generate } from './pages/Generate';
 import { Projects } from './pages/Projects';
 import { Settings } from './pages/Settings';
 
@@ -38,6 +39,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Projects />} />
           <Route path="/p/:id" element={<Editor />} />
+          <Route path="/g/:id" element={<Generate />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<div className="page"><h2>Page introuvable</h2></div>} />
         </Routes>

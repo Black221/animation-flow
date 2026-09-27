@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { maskKey, PROVIDERS, synthesize, testCredential, type FetchLike } from '../src';
+import { complete, maskKey, PROVIDERS, synthesize, testCredential, type FetchLike } from '../src';
 
 const reply = (status: number, body: unknown = {}) => ({ ok: status < 400, status, json: async () => body });
 
@@ -97,3 +97,54 @@ describe('synthesize', () => {
 
 const testSpeech = (p: string, f: unknown, req: { text: string; voice: string; model?: string; language?: string }) =>
   synthesize(p, { apiKey: 'k-123456789012' }, req, f as never);
+
+describe('complete', () => {
+  const json = { name: 'scene', schema: { type: 'object' } };
+  const call = (f: ReturnType<typeof vi.fn>) => { const [url, init] = f.mock.calls[0]! as unknown as [string, { headers: Record<string, string>; body: string }]; return { url, headers: init.headers, body: JSON.parse(init.body) }; };
+  const reply = (b: unknown, status = 200) => vi.fn(async () => ({ ok: status < 400, status, json: async () => b }));
+
+  it('forces a tool on Anthropic and returns its input as JSON', async () => {
+    const f = reply({ content: [{ type: 'tool_use', name: 'scene', input: { a: 1 } }], usage: { input_tokens: 10, output_tokens: 5 } });
+    const r = await complete('anthropic', { apiKey: 'k-1' }, { model: 'claude-x', system: 'S', messages: [{ role: 'user', content: 'U' }], json }, f as never);
+    expect(r).toEqual({ ok: true, text: '{"a":1}', usage: { inputTokens: 10, outputTokens: 5 } });
+    const c = call(f);
+    expect(c.url).toBe('https://api.anthropic.com/v1/messages');
+    expect(c.body).toMatchObject({ model: 'claude-x', system: 'S', tool_choice: { type: 'tool', name: 'scene' }, tools: [{ input_schema: { type: 'object' } }] });
+  });
+
+  it('uses json_schema with OpenAI and JSON mode with Mistral and OpenRouter', async () => {
+    const answer = { choices: [{ message: { content: '{"b":2}' } }], usage: { prompt_tokens: 3, completion_tokens: 4 } };
+    const f = reply(answer);
+    expect(await complete('openai', { apiKey: 'k' }, { model: 'gpt-x', system: 'S', messages: [{ role: 'user', content: 'U' }], json }, f as never)).toMatchObject({ ok: true, text: '{"b":2}' });
+    expect(call(f).body).toMatchObject({ messages: [{ role: 'system', content: 'S' }, { role: 'user', content: 'U' }], response_format: { type: 'json_schema' }, max_completion_tokens: 8000 });
+    for (const id of ['mistral', 'openrouter']) {
+      const g = reply(answer);
+      await complete(id, { apiKey: 'k' }, { model: 'm', system: 'S', messages: [], json }, g as never);
+      expect(call(g).body.response_format).toEqual({ type: 'json_object' });
+      expect(call(g).body.max_tokens).toBe(8000);
+    }
+  });
+
+  it('asks Gemini for JSON with its own message format', async () => {
+    const f = reply({ candidates: [{ content: { parts: [{ text: '{"c":3}' }] } }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2 } });
+    expect(await complete('google', { apiKey: 'k' }, { model: 'gemini-x', system: 'S', messages: [{ role: 'user', content: 'U' }, { role: 'assistant', content: 'A' }], json }, f as never)).toEqual({ ok: true, text: '{"c":3}', usage: { inputTokens: 1, outputTokens: 2 } });
+    const c = call(f);
+    expect(c.url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent');
+    expect(c.body.contents.map((x: { role: string }) => x.role)).toEqual(['user', 'model']);
+    expect(c.body.generationConfig.responseMimeType).toBe('application/json');
+  });
+
+  it('talks to a local server without a key or response_format', async () => {
+    const f = reply({ choices: [{ message: { content: 'ok' } }] });
+    await complete('openai-compatible', { baseUrl: 'http://localhost:11434/v1' }, { model: 'llama', system: 'S', messages: [], json }, f as never);
+    expect(call(f).url).toBe('http://localhost:11434/v1/chat/completions');
+    expect(call(f).body.response_format).toBeUndefined();
+  });
+
+  it('reports failures plainly', async () => {
+    expect(await complete('openai', { apiKey: 'k' }, { model: 'm', system: '', messages: [] }, reply({}, 429) as never)).toEqual({ ok: false, status: 429, error: 'trop de requêtes : réessayez plus tard' });
+    expect(await complete('openai', { apiKey: 'k' }, { model: 'm', system: '', messages: [] }, reply({ choices: [] }) as never)).toEqual({ ok: false, error: 'réponse vide du modèle' });
+    expect(await complete('fish-audio', { apiKey: 'k' }, { model: 'm', system: '', messages: [] }, reply({}) as never)).toMatchObject({ ok: false });
+    expect(await complete('openai', { apiKey: 'k' }, { model: '', system: '', messages: [] }, reply({}) as never)).toMatchObject({ ok: false, error: expect.stringContaining('modèle') });
+  });
+});

@@ -159,3 +159,90 @@ export async function synthesize(providerId: string, c: CredentialInput, req: Sp
     return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'pas de réponse du fournisseur (délai dépassé)' : 'fournisseur injoignable' };
   }
 }
+
+// ---------- text models ----------
+export interface ChatMessage { role: 'user' | 'assistant'; content: string }
+export interface CompletionRequest {
+  model: string;
+  system: string;
+  messages: ChatMessage[];
+  /** ask for JSON matching this schema (when the provider can enforce it) */
+  json?: { name: string; schema: Record<string, unknown> } | undefined;
+  maxTokens?: number | undefined;
+}
+export interface Usage { inputTokens: number; outputTokens: number }
+export type CompletionResult = { ok: true; text: string; usage: Usage } | { ok: false; status?: number; error: string };
+export type JsonPost = (url: string, init: { method: 'POST'; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+
+/**
+ * One call to a text model. With `json`, the answer is JSON text: Anthropic through a forced tool whose input
+ * is the schema, OpenAI through json_schema, Gemini, Mistral and OpenRouter through JSON mode (the schema is also
+ * in the prompt), a local compatible server through the prompt alone. The caller validates what comes back.
+ */
+export async function complete(providerId: string, c: CredentialInput, req: CompletionRequest, fetchImpl: JsonPost = fetch as unknown as JsonPost, timeoutMs = 180000): Promise<CompletionResult> {
+  const p = providerById(providerId);
+  if (!p || !p.kinds.includes('llm')) return { ok: false, error: `${p?.label ?? providerId} ne fournit pas de modèle de texte` };
+  if (!c.apiKey && !p.keyOptional) return { ok: false, error: 'clé manquante' };
+  if (!req.model) return { ok: false, error: 'aucun modèle choisi (Réglages → Fournisseurs)' };
+  const base = trimSlash(c.baseUrl || p.defaultBaseUrl || ''), max = req.maxTokens ?? 8000;
+  let url: string, headers: Record<string, string>, body: unknown;
+  let read: (b: any) => { text: string | null; usage: Usage };
+  const chat = (format: unknown) => ({
+    model: req.model,
+    messages: [{ role: 'system', content: req.system }, ...req.messages],
+    ...(format ? { response_format: format } : {}),
+    [p.id === 'openai' ? 'max_completion_tokens' : 'max_tokens']: max,
+  });
+  const readChat = (b: any) => ({ text: b?.choices?.[0]?.message?.content ?? null, usage: { inputTokens: b?.usage?.prompt_tokens ?? 0, outputTokens: b?.usage?.completion_tokens ?? 0 } });
+  switch (p.id) {
+    case 'anthropic':
+      url = `${base}/v1/messages`;
+      headers = { 'x-api-key': c.apiKey!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
+      body = {
+        model: req.model, max_tokens: max, system: req.system, messages: req.messages,
+        ...(req.json ? { tools: [{ name: req.json.name, description: 'Return the result through this tool.', input_schema: req.json.schema }], tool_choice: { type: 'tool', name: req.json.name } } : {}),
+      };
+      read = (b) => {
+        const blocks: any[] = b?.content ?? [], tool = blocks.find((x) => x?.type === 'tool_use');
+        return { text: tool ? JSON.stringify(tool.input) : blocks.filter((x) => x?.type === 'text').map((x) => x.text).join('') || null, usage: { inputTokens: b?.usage?.input_tokens ?? 0, outputTokens: b?.usage?.output_tokens ?? 0 } };
+      };
+      break;
+    case 'google':
+      url = `${base}/models/${encodeURIComponent(req.model)}:generateContent`;
+      headers = { 'x-goog-api-key': c.apiKey!, 'content-type': 'application/json' };
+      body = {
+        systemInstruction: { parts: [{ text: req.system }] },
+        contents: req.messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        generationConfig: { maxOutputTokens: max, ...(req.json ? { responseMimeType: 'application/json' } : {}) },
+      };
+      read = (b) => ({ text: (b?.candidates?.[0]?.content?.parts ?? []).map((x: any) => x?.text ?? '').join('') || null, usage: { inputTokens: b?.usageMetadata?.promptTokenCount ?? 0, outputTokens: b?.usageMetadata?.candidatesTokenCount ?? 0 } });
+      break;
+    case 'openai':
+      url = `${base}/chat/completions`;
+      headers = { ...bearer(c.apiKey), 'content-type': 'application/json' };
+      body = chat(req.json ? { type: 'json_schema', json_schema: { name: req.json.name, schema: req.json.schema, strict: false } } : null);
+      read = readChat;
+      break;
+    case 'openai-compatible': // local servers differ in what they accept: the prompt asks for JSON
+      url = `${base}/chat/completions`;
+      headers = { ...bearer(c.apiKey), 'content-type': 'application/json' };
+      body = chat(null);
+      read = readChat;
+      break;
+    default: // mistral, openrouter
+      url = `${base}/chat/completions`;
+      headers = { ...bearer(c.apiKey), 'content-type': 'application/json' };
+      body = chat(req.json ? { type: 'json_object' } : null);
+      read = readChat;
+  }
+  try {
+    const r = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
+    if (!r.ok) return { ok: false, status: r.status, error: describeStatus(r.status) };
+    const { text, usage } = read(await r.json());
+    if (!text) return { ok: false, error: 'réponse vide du modèle' };
+    return { ok: true, text, usage };
+  } catch (e) {
+    const name = (e as Error)?.name;
+    return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'pas de réponse du modèle (délai dépassé)' : 'fournisseur injoignable' };
+  }
+}

@@ -5,8 +5,8 @@ validé) : ce qui se passe à l'écran, pas la façon de le dessiner. Le même p
 l'éditeur et se rend dans **plusieurs styles** (vectoriel plat, aquarelle…). Les modèles d'IA sont **au choix** :
 chaque équipe enregistre ses propres clés d'API et choisit un modèle par tâche.
 
-État : **étapes 1 à 3** (fondations, rendu vidéo, narration et son). La génération par IA est l'étape suivante
-(voir [Feuille de route](#feuille-de-route)).
+État : **étapes 1 à 4** (fondations, rendu vidéo, narration et son, génération par IA). Voir la
+[Feuille de route](#feuille-de-route) pour la suite.
 
 ## Démarrer
 
@@ -30,6 +30,12 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 
 ## Ce que fait l'application
 
+- **Création par IA** : coller un texte (script, résumé, idée) ; le modèle choisi écrit un **storyboard** (scènes,
+  répliques, intentions de plan) que l'on relit et corrige, puis **chaque scène** au format d'animation. Chaque
+  réponse est vérifiée (schéma + bibliothèque) ; en cas d'erreur, le modèle reçoit la liste des problèmes et corrige
+  (deux fois au plus) ; une scène qui reste invalide est remplacée par une scène simple tirée du storyboard, signalée.
+  Dans l'éditeur, « Modifier » demande à l'IA de retoucher la scène ouverte (annulable). Tokens et appels sont
+  affichés à chaque étape.
 - **Projets** : créer (exemple « Awa et Jumo » ou projet vide), ouvrir, enregistrer. Chaque enregistrement crée une
   version ; deux personnes qui éditent en même temps ne s'écrasent pas (l'éditeur propose de recharger ou de garder la sienne).
 - **Aperçu en direct** dans chaque style, lecture, déplacement dans le temps, sous-titres, frise des scènes et des répliques.
@@ -77,6 +83,22 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 | `RENDER_THREADS` | threads par rendu (défaut : nombre de cœurs − 1) |
 | `FONTS_DIR` | polices du rendu serveur (défaut : celles de l'éditeur) |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | binaires FFmpeg (défaut : ceux du `PATH`) |
+
+## Générer avec l'IA
+
+1. **Réglages → Fournisseurs** : une clé de modèle de texte (Anthropic, OpenAI, Google Gemini, Mistral, OpenRouter,
+   ou un serveur local compatible OpenAI comme Ollama), puis un modèle pour « Texte → storyboard » et un pour
+   « Storyboard → scènes » (ils peuvent être différents : un grand modèle pour le récit, un plus rapide pour les scènes).
+2. **Projets → Créer avec l'IA** : le texte, la langue de la narration, le style, une durée visée. Avec « relire le
+   storyboard », la génération s'arrête après le storyboard : on corrige titres, décors, ambiances, répliques et plans,
+   puis « Écrire les scènes ». Sans relecture, tout s'enchaîne.
+3. Le projet créé s'ouvre dans l'éditeur : enregistrer les voix, retoucher, rendre la vidéo.
+
+Les consignes données aux modèles (`packages/ai/src/prompts.ts`) décrivent le format, les conventions d'écran et le
+catalogue exact de la bibliothèque (personnages, poses, expressions, accessoires, décors, ambiances, bruitages) :
+un modèle ne peut demander que ce qui existe. La narration validée dans le storyboard est reprise telle quelle dans
+les scènes. Selon le fournisseur, le JSON est imposé par un outil (Anthropic), un schéma (OpenAI), le mode JSON
+(Gemini, Mistral, OpenRouter) ou la seule consigne (serveurs locaux) ; la validation et les corrections font le reste.
 
 ## Narration et son
 
@@ -134,7 +156,8 @@ pnpm --filter @af/styles still -- --style=watercolor --t=1,4,9   # images fixes 
 | `packages/engine` | horloge des répliques, images clés, caméra, calcul d'une image en primitives, sous-titres |
 | `packages/library` | personnages (`person`, `drone`), accessoires, décors, textes : indépendants du style |
 | `packages/styles` | packs de style `flat` et `watercolor` (Canvas 2D : navigateur et Node, sans GPU) |
-| `packages/providers` | catalogue des fournisseurs, test d'une clé, liste des modèles |
+| `packages/providers` | fournisseurs : catalogue, test d'une clé, modèles de texte (`complete`), synthèse vocale |
+| `packages/ai` | génération : storyboard, scènes, correction guidée par les erreurs, scène de secours, retouche |
 | `packages/audio` | musique et bruitages synthétisés, placement des voix, mixage, sonie (navigateur et Node) |
 | `packages/render` | rendu vidéo : moteur + style dans Node, blocs parallèles, FFmpeg, MP4 avec son et sous-titres |
 | `apps/api` | Fastify : projets versionnés, clés chiffrées, fournisseurs, file et workers de rendu ; sert l'éditeur construit |
@@ -147,7 +170,7 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 1. **Fondations** (fait) : format, moteur, deux styles, éditeur avec aperçu, fournisseurs et clés, Docker.
 2. **Rendu serveur** (fait) : file de tâches dans PostgreSQL, workers qui rendent par blocs en parallèle, MP4 (FFmpeg) avec sous-titres, progression en direct, liens signés.
 3. **Narration et son** (fait) : voix par réplique avec le fournisseur choisi (durées mesurées → l'horloge se recale seule), musique et bruitages synthétisés, mixage −16 LUFS, son dans l'aperçu et dans le MP4.
-4. **Génération par IA** : texte → storyboard → format d'animation validé (réparation automatique des erreurs), puis retouches dans l'éditeur.
+4. **Génération par IA** (fait) : texte → storyboard relu → scènes validées (corrections guidées, scène de secours), retouche d'une scène dans l'éditeur, tokens affichés.
 5. **Ensuite** : comptes et invitations, collaboration, modèles de projets, packs de styles supplémentaires.
 
 ## Crédits

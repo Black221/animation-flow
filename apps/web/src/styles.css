@@ -155,3 +155,33 @@ a.button:hover { border-color: var(--accent); text-decoration: none; }
 .voice-list .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .voice-list button.icon { width: 30px; min-height: 28px; }
 .warn { color: var(--warn); }
+
+/* AI generation */
+.create.ai { display: grid; gap: 10px; }
+.create.ai textarea, .story-lines textarea, .storyboard textarea { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 10px; font: inherit; resize: vertical; }
+.create.ai label, .story-scene label { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; }
+.gen-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 0.9rem; }
+.generate { display: grid; gap: 12px; }
+.stages { list-style: none; display: flex; gap: 6px; padding: 0; margin: 0; flex-wrap: wrap; }
+.stages li { padding: 4px 12px; border-radius: 99px; background: var(--panel-2); color: var(--muted); font-size: 0.88rem; }
+.stages li.current { background: var(--accent); color: var(--accent-ink); }
+.stages li.done { color: var(--ok); }
+.stages li.failed { color: var(--error); }
+.storyboard { display: grid; gap: 12px; }
+.storyboard input.title { font-size: 1.1rem; font-weight: 600; }
+.grow { flex: 1; min-width: 160px; }
+.cast-list { display: grid; gap: 6px; }
+.story-scenes { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.story-scene { display: grid; gap: 8px; }
+.story-scene .sid { font-family: var(--mono); color: var(--muted); }
+.story-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.story-lines li { align-items: flex-start; }
+.story-lines select { flex: none; }
+.story-scene .shots { display: grid; gap: 4px; }
+.gen-log { font-size: 0.85rem; display: grid; gap: 4px; }
+.gen-log li.warn { color: var(--warn); }
+.source p { white-space: pre-wrap; color: var(--muted); }
+.ai-edit { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.ai-edit input { flex: 1; min-width: 200px; }
+button.small { font-size: 0.85rem; justify-self: start; }
+.story-scene > button, .storyboard .form > button { justify-self: start; }

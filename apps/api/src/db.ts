@@ -98,6 +98,25 @@ const MIGRATIONS: string[] = [
   // narration: the voice chosen for a task; what a render could not include (lines without a recording…)
   `ALTER TABLE model_assignments ADD COLUMN voice text NOT NULL DEFAULT '';
    ALTER TABLE renders ADD COLUMN warnings jsonb NOT NULL DEFAULT '[]'`,
+  // AI generation: text → storyboard (reviewed) → scenes → a new project
+  `CREATE TABLE generations (
+     id uuid PRIMARY KEY,
+     status text NOT NULL,
+     input jsonb NOT NULL,
+     storyboard jsonb,
+     project_id uuid REFERENCES projects(id) ON DELETE SET NULL,
+     scenes_done integer NOT NULL DEFAULT 0,
+     scenes_total integer NOT NULL DEFAULT 0,
+     steps jsonb NOT NULL DEFAULT '[]',
+     fallbacks jsonb NOT NULL DEFAULT '[]',
+     models jsonb NOT NULL DEFAULT '{}',
+     input_tokens integer NOT NULL DEFAULT 0,
+     output_tokens integer NOT NULL DEFAULT 0,
+     error text,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     updated_at timestamptz NOT NULL DEFAULT now()
+   );
+   CREATE INDEX generations_recent ON generations (created_at)`,
 ];
 
 export async function migrate(db: Db): Promise<number> {
