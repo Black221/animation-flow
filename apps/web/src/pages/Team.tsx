@@ -16,7 +16,7 @@ export function Team() {
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   const [error, setError] = useState('');
   const [invRole, setInvRole] = useState<Role>('editor'), [invEmail, setInvEmail] = useState('');
-  const [link, setLink] = useState(''), [copied, setCopied] = useState(false);
+  const [link, setLink] = useState(''), [copied, setCopied] = useState(false), [send, setSend] = useState(true), [sentNote, setSentNote] = useState('');
   const [name, setName] = useState(''), [newWs, setNewWs] = useState(''), [confirm, setConfirm] = useState('');
   const load = useCallback(() => Api.workspace().then((w) => { setInfo(w); setName(w.name); }).catch((e) => setError((e as Error).message)), []);
   useEffect(() => { void load(); }, [load, epoch]);
@@ -59,8 +59,14 @@ export function Team() {
           <div className="row wrap">
             <label>Rôle <select value={invRole} onChange={(e) => setInvRole(e.target.value as Role)} aria-label="rôle invité">{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</select></label>
             <input className="grow" type="email" value={invEmail} onChange={(e) => setInvEmail(e.target.value)} placeholder="e-mail (facultatif : réserve le lien à cette adresse)" aria-label="e-mail invité" />
-            <button className="primary" onClick={() => void act(async () => { const r = await Api.invite(invRole, invEmail.trim() || undefined); setLink(location.origin + r.path); setCopied(false); setInvEmail(''); })}>Créer un lien</button>
+            {me?.mail && <label className="small"><input type="checkbox" checked={send && !!invEmail.trim()} disabled={!invEmail.trim()} onChange={(e) => setSend(e.target.checked)} /> envoyer par e-mail</label>}
+            <button className="primary" onClick={() => void act(async () => {
+              const to = invEmail.trim(), r = await Api.invite(invRole, to || undefined, { send: send && !!to && !!me?.mail });
+              setLink(location.origin + r.path); setCopied(false); setInvEmail('');
+              setSentNote(r.sent ? `Invitation envoyée à ${r.email}.` : r.sendError ?? '');
+            })}>{send && invEmail.trim() && me?.mail ? 'Envoyer l\'invitation' : 'Créer un lien'}</button>
           </div>
+          {sentNote && <p className="small" role="status" data-testid="invite-sent">{sentNote}</p>}
           <p className="muted small">{ROLE_LABEL[invRole]} : {DESCRIBE[invRole]}. Le lien est valable 7 jours, pour une seule personne. Il n'est affiché qu'une fois.</p>
           {link && (
             <div className="row invite-link">

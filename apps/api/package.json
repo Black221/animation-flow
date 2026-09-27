@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "API : projets versionn\u00e9s, cl\u00e9s d'API chiffr\u00e9es, fournisseurs de mod\u00e8les, biblioth\u00e8que.",
+  "description": "API : projets versionnés, clés d'API chiffrées, fournisseurs de modèles, bibliothèque.",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "build": "esbuild src/main.ts ../../packages/render/src/chunk-worker.ts --bundle --platform=node --format=esm --target=node22 --outdir=dist --entry-names=[name] --external:fastify --external:@fastify/static --external:@fastify/websocket --external:ws --external:pg --external:@electric-sql/pglite --external:@napi-rs/canvas --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
+    "build": "esbuild src/main.ts ../../packages/render/src/chunk-worker.ts --bundle --platform=node --format=esm --target=node22 --outdir=dist --entry-names=[name] --external:fastify --external:@fastify/static --external:@fastify/websocket --external:ws --external:pg --external:@electric-sql/pglite --external:@napi-rs/canvas --external:nodemailer --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "start": "node dist/main.js"
   },
   "dependencies": {
@@ -23,10 +23,12 @@
     "@fastify/websocket": "^11.3.1",
     "@napi-rs/canvas": "^1.0.9",
     "fastify": "^5.12.5",
+    "nodemailer": "^7.0.13",
     "pg": "^8.23.0",
     "zod": "^4.1.0"
   },
   "devDependencies": {
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.28.2",

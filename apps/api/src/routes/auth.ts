@@ -1,11 +1,16 @@
-// Accounts: sign up (the very first account, an invitation, or open sign-up), sign in, sign out, profile.
+// Accounts: sign up (the very first account, an invitation, or open sign-up), sign in, sign out, profile, and,
+// when e-mail is set up, a forgotten password reset through a single-use link (1 hour).
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { userOf } from '../auth/context';
 import { dummyHash, hashPassword, PASSWORD_RULE, passwordOk, verifyPassword } from '../auth/password';
 import { createSession, endOtherSessions, endSession, hashToken, setSessionCookie } from '../auth/sessions';
 import type { Db, Queryable } from '../db';
+import { resetMail, type MailSetup } from '../mail';
+import type { LiveHub } from '../live/hub';
+
+const RESET_MINUTES = 60;
 
 export type SignupMode = 'invite' | 'open';
 const Email = z.string().trim().toLowerCase().email('adresse e-mail invalide').max(200);
@@ -35,8 +40,8 @@ export async function acceptInvitation(q: Queryable, inv: { id: string; workspac
   await q.query(`UPDATE invitations SET accepted_by = $2, accepted_at = now() WHERE id = $1`, [inv.id, userId]);
 }
 
-export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode) {
-  const logins = new Limiter(10, 15 * 60_000), signups = new Limiter(20, 60 * 60_000);
+export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode, mail: MailSetup | null = null, hub?: LiveHub) {
+  const logins = new Limiter(10, 15 * 60_000), signups = new Limiter(20, 60 * 60_000), resets = new Limiter(5, 60 * 60_000);
   const ip = (req: FastifyRequest) => req.ip;
   const me = async (userId: string) => {
     const { rows } = await db.query<{ id: string; email: string; name: string; created_at: Date }>('SELECT id, email, name, created_at FROM users WHERE id = $1', [userId]);
@@ -46,8 +51,8 @@ export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode) {
 
   app.get('/api/auth/me', { config: { auth: 'public' } }, async (req) => {
     const setup = !(await hasUsers());
-    if (!req.ctx) return { user: null, workspaces: [], signup, setup };
-    return { ...(await me(req.ctx.user.id)), signup, setup };
+    if (!req.ctx) return { user: null, workspaces: [], signup, setup, mail: !!mail };
+    return { ...(await me(req.ctx.user.id)), signup, setup, mail: !!mail };
   });
 
   app.post('/api/auth/signup', { config: { auth: 'public' } }, async (req, reply) => {
@@ -76,7 +81,7 @@ export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode) {
       throw e;
     }
     setSessionCookie(req, reply, await createSession(db, id, String(req.headers['user-agent'] ?? '')));
-    return reply.code(201).send({ ...(await me(id)), signup, setup: false });
+    return reply.code(201).send({ ...(await me(id)), signup, setup: false, mail: !!mail });
   });
 
   app.post('/api/auth/login', { config: { auth: 'public' } }, async (req, reply) => {
@@ -89,7 +94,54 @@ export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode) {
     if (!rows[0] || !ok) return reply.code(401).send({ error: 'e-mail ou mot de passe incorrect' });
     logins.reset(key);
     setSessionCookie(req, reply, await createSession(db, rows[0].id, String(req.headers['user-agent'] ?? '')));
-    return { ...(await me(rows[0].id)), signup, setup: false };
+    return { ...(await me(rows[0].id)), signup, setup: false, mail: !!mail };
+  });
+
+  // forgotten password: the answer is the same whether the address has an account or not, and comes before the
+  // e-mail is sent, so neither its content nor its timing tells who has an account
+  app.post('/api/auth/forgot', { config: { auth: 'public' } }, async (req, reply) => {
+    if (!mail) return reply.code(404).send({ error: "l'envoi d'e-mails n'est pas configuré : demandez à un administrateur" });
+    const b = z.object({ email: Email }).safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: 'adresse e-mail invalide' });
+    if (!resets.hit(`ip|${ip(req)}`) || !resets.hit(b.data.email)) return reply.code(429).send({ error: 'trop de demandes : réessayez plus tard' });
+    void (async () => {
+      const u = (await db.query<{ id: string; name: string; email: string }>('SELECT id, name, email FROM users WHERE email = $1', [b.data.email])).rows[0];
+      if (!u) return;
+      const token = randomBytes(24).toString('base64url');
+      await db.tx(async (q) => {
+        await q.query('DELETE FROM password_resets WHERE user_id = $1', [u.id]); // only the latest link works
+        await q.query(`INSERT INTO password_resets (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, now() + make_interval(mins => $4))`, [randomUUID(), u.id, hashToken(token), RESET_MINUTES]);
+      });
+      await mail.mailer.send(resetMail({ to: u.email, name: u.name, url: `${mail.appUrl}/reset/${token}`, minutes: RESET_MINUTES }));
+    })().catch((e) => req.log.error({ err: (e as Error).message }, 'password reset e-mail not sent'));
+    return { ok: true };
+  });
+
+  const openReset = async (q: Queryable, token: string, lock = false) => (await q.query<{ id: string; user_id: string; email: string }>(
+    `SELECT r.id, r.user_id, u.email FROM password_resets r JOIN users u ON u.id = r.user_id
+      WHERE r.token_hash = $1 AND r.used_at IS NULL AND r.expires_at > now()${lock ? ' FOR UPDATE OF r' : ''}`, [hashToken(token)])).rows[0];
+
+  app.get('/api/auth/reset/:token', { config: { auth: 'public' } }, async (req, reply) => {
+    const r = await openReset(db, (req.params as { token: string }).token);
+    return r ? { email: r.email } : reply.code(404).send({ error: 'lien invalide, expiré ou déjà utilisé' });
+  });
+
+  app.post('/api/auth/reset/:token', { config: { auth: 'public' } }, async (req, reply) => {
+    const b = z.object({ password: z.string().max(200) }).safeParse(req.body);
+    if (!b.success || !passwordOk(b.data.password)) return reply.code(400).send({ error: `mot de passe : ${PASSWORD_RULE}` });
+    const hash = await hashPassword(b.data.password), token = (req.params as { token: string }).token;
+    const userId = await db.tx(async (q) => {
+      const r = await openReset(q, token, true);
+      if (!r) return null;
+      await q.query('UPDATE password_resets SET used_at = now() WHERE id = $1', [r.id]);
+      await q.query('UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1', [r.user_id, hash]);
+      await q.query('DELETE FROM sessions WHERE user_id = $1', [r.user_id]); // signed out everywhere
+      return r.user_id;
+    });
+    if (!userId) return reply.code(404).send({ error: 'lien invalide, expiré ou déjà utilisé' });
+    await hub?.kick(null, userId);
+    setSessionCookie(req, reply, await createSession(db, userId, String(req.headers['user-agent'] ?? '')));
+    return { ...(await me(userId)), signup, setup: false, mail: true };
   });
 
   app.post('/api/auth/logout', { config: { auth: 'public' } }, async (req, reply) => {
@@ -109,6 +161,7 @@ export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode) {
       if (!(await verifyPassword(b.data.password.current, rows[0]!.password_hash))) return reply.code(400).send({ error: 'mot de passe actuel incorrect' });
       await db.query('UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1', [u.id, await hashPassword(b.data.password.next)]);
       await endOtherSessions(db, u.id, u.sessionId); // everywhere else is signed out
+      await hub?.kick(null, u.id); // live connections reconnect, and only those with a valid session get back in
     }
     return me(u.id);
   });

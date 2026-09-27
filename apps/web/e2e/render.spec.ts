@@ -5,7 +5,7 @@ test('render a video from the editor, follow it, watch it', async ({ page }) => 
   await signedIn(page);
   await page.goto('/');
   await page.getByLabel('modèle').selectOption('blank');
-  await page.getByLabel('titre').fill('Rendu court');
+  await page.getByLabel('titre', { exact: true }).fill('Rendu court');
   await page.getByRole('button', { name: 'Créer' }).click();
   await expect(page).toHaveURL(/\/p\//);
 

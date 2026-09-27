@@ -5,6 +5,7 @@ import { startRunner, type Runner } from './render/runner';
 import { signer } from './render/sign';
 import { adoptLegacyVoices } from './routes/voices';
 import { buildServer } from './server';
+import { smtpMailer } from './mail';
 
 const config = loadConfig();
 if (config.role === 'worker' && !config.databaseUrl) throw new Error('ROLE=worker needs DATABASE_URL: the embedded database cannot be shared between processes');
@@ -23,9 +24,10 @@ if (config.role !== 'api') {
 
 let close = async () => { await runner?.stop(); await db.close(); };
 if (config.role !== 'worker') {
-  const app = await buildServer({ db, box: secretBox(config.encryptionKey), signer: signer(config.encryptionKey), signup: config.signup, webDist: config.webDist, voicesDir: config.voicesDir, logger: true });
+  const mail = config.mail ? { mailer: await smtpMailer(config.mail.smtpUrl, config.mail.from), appUrl: config.mail.appUrl } : null;
+  const app = await buildServer({ db, box: secretBox(config.encryptionKey), signer: signer(config.encryptionKey), signup: config.signup, webDist: config.webDist, voicesDir: config.voicesDir, logger: true, mail });
   await app.listen({ port: config.port, host: config.host });
-  app.log.info(`animation-flow on http://${config.host}:${config.port} · database: ${config.databaseUrl ? 'postgres' : 'embedded (PGlite)'} · role: ${config.role}${applied ? ` · ${applied} migration(s) applied` : ''}${config.signup === 'open' ? ' · open sign-up' : ' · sign-up by invitation'}${config.webDist ? '' : ' · web app not built (pnpm build)'}`);
+  app.log.info(`animation-flow on http://${config.host}:${config.port} · database: ${config.databaseUrl ? 'postgres' : 'embedded (PGlite)'} · role: ${config.role}${applied ? ` · ${applied} migration(s) applied` : ''}${config.signup === 'open' ? ' · open sign-up' : ' · sign-up by invitation'}${config.webDist ? '' : ' · web app not built (pnpm build)'}${config.mail ? ` · e-mail via SMTP, links to ${config.mail.appUrl}` : ' · no e-mail (SMTP_URL)'}`);
   const base = close; close = async () => { await app.close(); await base(); };
 }
 

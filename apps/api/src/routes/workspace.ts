@@ -9,11 +9,12 @@ import { RANK, userOf, wsOf, type Role } from '../auth/context';
 import { hashToken } from '../auth/sessions';
 import type { Db } from '../db';
 import type { LiveHub } from '../live/hub';
+import { invitationMail, type MailSetup } from '../mail';
 import { workspacesOf } from './auth';
 
 const Uuid = z.string().uuid();
 
-export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string }, hub?: LiveHub) {
+export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string }, hub?: LiveHub, mail: MailSetup | null = null) {
   app.get('/api/workspaces', { config: { auth: 'user' } }, async (req) => workspacesOf(db, userOf(req).id));
 
   app.post('/api/workspaces', { config: { auth: 'user' } }, async (req, reply) => {
@@ -46,16 +47,28 @@ export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     return { ok: true };
   });
 
-  // the link is shown once: only its hash is stored
+  // the link is shown once (and, if asked and e-mail is set up, sent to the address): only its hash is stored
   app.post('/api/workspace/invitations', { config: { role: 'admin' } }, async (req, reply) => {
-    const b = z.object({ role: z.enum(['admin', 'editor', 'viewer']).default('editor'), email: z.string().trim().toLowerCase().email().optional(), days: z.number().int().min(1).max(30).default(7) }).safeParse(req.body ?? {});
+    const b = z.object({ role: z.enum(['admin', 'editor', 'viewer']).default('editor'), email: z.string().trim().toLowerCase().email().optional(), days: z.number().int().min(1).max(30).default(7), send: z.boolean().default(false) }).safeParse(req.body ?? {});
     if (!b.success) return reply.code(400).send({ error: 'invitation invalide' });
+    if (b.data.send && !b.data.email) return reply.code(400).send({ error: "adresse e-mail manquante pour l'envoi" });
+    if (b.data.send && !mail) return reply.code(400).send({ error: "l'envoi d'e-mails n'est pas configuré (SMTP_URL)" });
     const ws = wsOf(req);
     if (b.data.role === 'admin' && RANK[ws.role] < RANK.admin) return reply.code(403).send({ error: 'réservé aux administrateurs' });
     const token = randomBytes(24).toString('base64url'), id = randomUUID();
     await db.query(`INSERT INTO invitations (id, workspace_id, token_hash, role, email, created_by, expires_at) VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(days => $7))`,
       [id, ws.id, hashToken(token), b.data.role, b.data.email ?? null, userOf(req).id, b.data.days]);
-    return reply.code(201).send({ id, role: b.data.role, email: b.data.email ?? null, path: `/invite/${token}`, days: b.data.days });
+    let sent = false, sendError: string | undefined;
+    if (b.data.send && mail && b.data.email) {
+      try {
+        await mail.mailer.send(invitationMail({ to: b.data.email, by: userOf(req).name, workspace: ws.name, role: b.data.role, url: `${mail.appUrl}/invite/${token}`, days: b.data.days }));
+        sent = true;
+      } catch (e) {
+        req.log.error({ err: (e as Error).message }, 'invitation e-mail not sent');
+        sendError = "l'e-mail n'a pas pu partir : transmettez le lien vous-même";
+      }
+    }
+    return reply.code(201).send({ id, role: b.data.role, email: b.data.email ?? null, path: `/invite/${token}`, days: b.data.days, sent, ...(sendError ? { sendError } : {}) });
   });
 
   app.delete('/api/workspace/invitations/:id', { config: { role: 'admin' } }, async (req, reply) => {

@@ -13,6 +13,10 @@
 //   VOICES_DIR                 recorded lines, one WAV per text and voice (default DATA_DIR/voices)
 //   RENDER_THREADS             threads per render job (default: CPU count − 1)
 //   FONTS_DIR                  fonts for server rendering (default: the editor's fonts)
+//   SMTP_URL                   smtp(s)://user:password@host:port : enables e-mail (invitations, forgotten passwords)
+//   MAIL_FROM                  sender, e.g. "animation-flow <noreply@example.org>" (required with SMTP_URL)
+//   APP_URL                    public address of the app, e.g. https://anim.example.org (required with SMTP_URL:
+//                              links in e-mails are built from it, never from the request)
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
@@ -32,12 +36,23 @@ export interface Config {
   voicesDir: string;
   renderThreads: number;
   fontsDir: string | null;
+  mail: { smtpUrl: string; from: string; appUrl: string } | null;
 }
 
 export function parseKey(raw: string): Buffer {
   const s = raw.trim(), buf = /^[0-9a-fA-F]{64}$/.test(s) ? Buffer.from(s, 'hex') : Buffer.from(s, 'base64');
   if (buf.length !== 32) throw new Error('APP_ENCRYPTION_KEY must be 32 bytes (base64 or hex); e.g. `openssl rand -base64 32`');
   return buf;
+}
+
+function mailConfig(env: NodeJS.ProcessEnv): Config['mail'] {
+  if (!env.SMTP_URL) return null;
+  if (!/^smtps?:\/\//.test(env.SMTP_URL)) throw new Error('SMTP_URL must start with smtp:// or smtps://');
+  if (!env.MAIL_FROM) throw new Error('MAIL_FROM is required with SMTP_URL');
+  let appUrl: URL;
+  try { appUrl = new URL(env.APP_URL ?? ''); } catch { throw new Error('APP_URL (the public address of the app, e.g. https://anim.example.org) is required with SMTP_URL'); }
+  if (!/^https?:$/.test(appUrl.protocol)) throw new Error('APP_URL must be http(s)');
+  return { smtpUrl: env.SMTP_URL, from: env.MAIL_FROM, appUrl: appUrl.origin + appUrl.pathname.replace(/\/+$/, '') };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -69,5 +84,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     voicesDir: resolve(env.VOICES_DIR ?? join(dataDir, 'voices')),
     renderThreads: Math.max(1, Number(env.RENDER_THREADS ?? Math.max(1, availableParallelism() - 1))),
     fontsDir,
+    mail: mailConfig(env),
   };
 }

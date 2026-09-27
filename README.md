@@ -100,6 +100,13 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 - Chaque route déclare le rôle qu'elle exige ; une route qui oublie de le dire est réservée aux membres, jamais ouverte.
 - Inscription : `SIGNUP=invite` (défaut : le premier compte, puis sur invitation) ou `SIGNUP=open` (chacun crée
   son compte et reçoit son propre espace).
+- **E-mail** (facultatif, `SMTP_URL` + `MAIL_FROM` + `APP_URL`) : l'invitation part directement à l'adresse saisie
+  (le lien reste affiché, au cas où l'envoi échoue) ; « Mot de passe oublié ? » envoie un lien à usage unique,
+  valable une heure. La réponse est la même qu'un compte existe ou non (on ne peut pas s'en servir pour deviner qui
+  a un compte) ; demandes limitées (5 par heure, par adresse et par IP) ; seul le dernier lien demandé fonctionne ;
+  changer son mot de passe ainsi ferme toutes les sessions, connexions en direct comprises. Les liens sont construits
+  à partir d'`APP_URL`, jamais de l'en-tête `Host` de la requête (qui pourrait être falsifié). Sans e-mail, on
+  transmet le lien d'invitation soi-même, et le mot de passe se change depuis le profil.
 
 ## Configuration
 
@@ -118,6 +125,9 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 | `RENDER_THREADS` | threads par rendu (défaut : nombre de cœurs − 1) |
 | `FONTS_DIR` | polices du rendu serveur (défaut : celles de l'éditeur) |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | binaires FFmpeg (défaut : ceux du `PATH`) |
+| `SMTP_URL` | `smtp://` ou `smtps://utilisateur:mot-de-passe@serveur:port` : active l'envoi d'e-mails (invitations, mot de passe oublié) |
+| `MAIL_FROM` | expéditeur, par exemple `animation-flow <noreply@example.org>` (obligatoire avec `SMTP_URL`) |
+| `APP_URL` | adresse publique de l'application, par exemple `https://anim.example.org` (obligatoire avec `SMTP_URL` : les liens des e-mails en partent) |
 
 Derrière un proxy inverse (nginx, Caddy, Traefik), laisser passer les WebSocket (`Upgrade`) sur
 `/api/projects/<id>/live` et transmettre `Host` (ou `X-Forwarded-Host`) : le serveur compare l'origine de la page à
@@ -211,8 +221,8 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 3. **Narration et son** (fait) : voix par réplique avec le fournisseur choisi (durées mesurées → l'horloge se recale seule), musique et bruitages synthétisés, mixage −16 LUFS, son dans l'aperçu et dans le MP4.
 4. **Génération par IA** (fait) : texte → storyboard relu → scènes validées (corrections guidées, scène de secours), retouche d'une scène dans l'éditeur, tokens affichés.
 5. **Multi-utilisateur** (fait) : comptes, espaces de travail, rôles, invitations, isolation des données, auteur de chaque version.
-6. **Travail d'équipe** (en cours) : édition à plusieurs en temps réel (fait) ; commentaires sur les scènes (fait) ; envoi des invitations et réinitialisation du mot de passe par e-mail.
-7. **Ensuite** : modèles de projets, packs de styles supplémentaires.
+6. **Travail d'équipe** (fait) : édition à plusieurs en temps réel, commentaires sur les scènes, invitations et mot de passe oublié par e-mail.
+7. **Ensuite** : modèles de projets, packs de styles supplémentaires, relier les salles en direct entre plusieurs instances de l'API.
 
 ## Crédits
 

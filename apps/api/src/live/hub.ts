@@ -167,8 +167,8 @@ export class LiveHub {
   }
 
   /** someone's role changed or they left: their connections close, and reopen (or not) with their new rights */
-  async kick(workspaceId: string, userId?: string) {
-    for (const r of this.rooms.values()) { const room = await r.catch(() => null); if (room?.workspaceId === workspaceId) room.closeAll(4001, 'droits modifiés', userId); }
+  async kick(workspaceId: string | null, userId?: string) {
+    for (const r of this.rooms.values()) { const room = await r.catch(() => null); if (room && (workspaceId === null || room.workspaceId === workspaceId)) room.closeAll(4001, 'droits modifiés', userId); }
   }
   /** the project was deleted */
   async closeProject(projectId: string) { const r = await this.rooms.get(projectId)?.catch(() => null); r?.closeAll(4404, 'projet supprimé', undefined, true); }

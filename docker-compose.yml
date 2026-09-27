@@ -35,6 +35,10 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-}
       # threads per render job (default: CPU count − 1)
       RENDER_THREADS: ${RENDER_THREADS:-}
+      # e-mail, optional (invitations, forgotten passwords): the three together; APP_URL is the public address
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      APP_URL: ${APP_URL:-}
     volumes:
       - data:/data   # rendered videos
     ports:

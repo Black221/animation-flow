@@ -179,6 +179,19 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 - Chaque changement est envoyé aux personnes qui ont le projet ouvert (événement `comments` de la salle en direct).
   Une scène supprimée garde ses commentaires, affichés « (supprimée) ».
 
+## E-mail (`apps/api/src/mail.ts`)
+
+- Facultatif : sans `SMTP_URL`, rien ne part (et `GET /api/auth/me` répond `mail: false`, l'interface cache ce qui
+  en dépend). Avec, un transport nodemailer ; `MAIL_FROM` et `APP_URL` sont exigés au démarrage.
+- Messages : invitation (qui invite, l'espace, le rôle, le lien, sa durée) et mot de passe oublié ; texte et HTML.
+- Réinitialisation : table `password_resets` (empreinte du jeton, 1 heure, usage unique, un seul lien vivant par
+  compte). `POST /api/auth/forgot` répond tout de suite et pareil pour une adresse inconnue, l'envoi se fait ensuite
+  (ni le contenu ni le délai de la réponse ne trahissent l'existence d'un compte). Le changement ferme toutes les
+  sessions et les connexions en direct, puis ouvre une session neuve.
+- Les liens partent d'`APP_URL`, jamais de l'en-tête `Host`. Un échec d'envoi d'invitation est dit à
+  l'administrateur (le lien reste affiché) ; un échec d'envoi de réinitialisation est journalisé, sans l'adresse du
+  serveur ni ses identifiants.
+
 ## API (`apps/api`)
 
 | route | rôle |
@@ -186,9 +199,10 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 | `GET /api/health` | état (sans compte) |
 | `GET /api/auth/me`, `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, `PATCH /api/auth/me` | compte : état, inscription, connexion, déconnexion, nom et mot de passe |
 | `GET /api/invitations/:token`, `POST /api/invitations/:token/accept` | invitation : ce qu'elle donne ; l'accepter une fois connecté |
+| `POST /api/auth/forgot`, `GET/POST /api/auth/reset/:token` | mot de passe oublié (e-mail configuré) : demander un lien ; voir le compte du lien ; choisir le nouveau mot de passe |
 | `GET /api/workspaces`, `POST /api/workspaces` | mes espaces ; en créer un |
 | `GET/PATCH/DELETE /api/workspace` | l'espace courant : membres et invitations, renommer, supprimer (propriétaire, nom à retaper) |
-| `POST /api/workspace/invitations`, `DELETE /api/workspace/invitations/:id` | créer un lien d'invitation (affiché une fois), le révoquer |
+| `POST /api/workspace/invitations`, `DELETE /api/workspace/invitations/:id` | créer un lien d'invitation (affiché une fois ; `send: true` l'envoie aussi à `email`), le révoquer |
 | `PATCH/DELETE /api/workspace/members/:userId` | changer un rôle, transmettre la propriété ; retirer un membre, partir |
 | `GET /api/library`, `GET /api/schema` | bibliothèque, styles, modèles de projet ; schéma JSON du format |
 | `GET/POST /api/projects`, `GET/PUT/DELETE /api/projects/:id` | projets ; `PUT` exige `baseVersion` (sinon 409 avec la version actuelle) et valide (422 avec les erreurs) |

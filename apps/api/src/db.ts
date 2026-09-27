@@ -199,6 +199,16 @@ const MIGRATIONS: string[] = [
      resolved_by uuid REFERENCES users(id) ON DELETE SET NULL
    );
    CREATE INDEX comments_project ON comments (project_id, created_at)`,
+  // forgotten passwords: single-use links sent by e-mail (only the hash of the token is kept)
+  `CREATE TABLE password_resets (
+     id uuid PRIMARY KEY,
+     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     token_hash text NOT NULL UNIQUE,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     expires_at timestamptz NOT NULL,
+     used_at timestamptz
+   );
+   CREATE INDEX password_resets_user ON password_resets (user_id)`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */

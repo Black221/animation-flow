@@ -18,6 +18,7 @@ import { liveRoutes } from './routes/live';
 import { commentRoutes } from './routes/comments';
 import { LiveHub } from './live/hub';
 import { signer, type Signer } from './render/sign';
+import type { MailSetup } from './mail';
 
 export interface ServerDeps {
   db: Db;
@@ -37,6 +38,8 @@ export interface ServerDeps {
   llmFetch?: JsonPost;
   /** live co-editing: delay before a change is saved (ms) */
   liveSaveDelay?: number;
+  /** e-mail (invitations, forgotten passwords); none by default */
+  mail?: MailSetup | null;
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
@@ -58,8 +61,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true }));
-  authRoutes(app, deps.db, deps.signup ?? 'invite');
-  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir }, hub);
+  authRoutes(app, deps.db, deps.signup ?? 'invite', deps.mail ?? null, hub);
+  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir }, hub, deps.mail ?? null);
   projectRoutes(app, deps.db, hub);
   liveRoutes(app, hub);
   commentRoutes(app, deps.db, hub);

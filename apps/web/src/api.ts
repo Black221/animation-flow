@@ -48,7 +48,7 @@ export interface RenderRequest { style?: string; width: number; quality: 'draft'
 export type Role = 'owner' | 'admin' | 'editor' | 'viewer';
 export const RANK: Record<Role, number> = { viewer: 0, editor: 1, admin: 2, owner: 3 };
 export const ROLE_LABEL: Record<Role, string> = { owner: 'propriétaire', admin: 'administrateur', editor: 'éditeur', viewer: 'lecteur' };
-export interface Me { user: { id: string; email: string; name: string } | null; workspaces: { id: string; name: string; role: Role }[]; signup: 'invite' | 'open'; setup: boolean }
+export interface Me { user: { id: string; email: string; name: string } | null; workspaces: { id: string; name: string; role: Role }[]; signup: 'invite' | 'open'; setup: boolean; mail: boolean }
 export interface Member { userId: string; name: string; email: string; role: Role; joinedAt: string }
 export interface PendingInvitation { id: string; role: Role; email: string | null; createdAt: string; expiresAt: string; by: string | null }
 export interface WorkspaceInfo { id: string; name: string; role: Role; members: Member[]; invitations: PendingInvitation[] }
@@ -82,7 +82,10 @@ export const Api = {
   renameWorkspace: (name: string) => api<{ ok: boolean }>('/api/workspace', { method: 'PATCH', body: { name } }),
   createWorkspace: (name: string) => api<{ id: string; name: string; role: Role }>('/api/workspaces', { method: 'POST', body: { name } }),
   deleteWorkspace: (confirm: string) => api<void>('/api/workspace', { method: 'DELETE', body: { confirm } }),
-  invite: (role: Role, email?: string, days?: number) => api<{ id: string; path: string; role: Role; email: string | null; days: number }>('/api/workspace/invitations', { method: 'POST', body: { role, ...(email ? { email } : {}), ...(days ? { days } : {}) } }),
+  invite: (role: Role, email?: string, o: { days?: number; send?: boolean } = {}) => api<{ id: string; path: string; role: Role; email: string | null; days: number; sent: boolean; sendError?: string }>('/api/workspace/invitations', { method: 'POST', body: { role, ...(email ? { email } : {}), ...(o.days ? { days: o.days } : {}), ...(o.send ? { send: true } : {}) } }),
+  forgot: (email: string) => api<{ ok: boolean }>('/api/auth/forgot', { method: 'POST', body: { email } }),
+  resetInfo: (token: string) => api<{ email: string }>(`/api/auth/reset/${token}`),
+  resetPassword: (token: string, password: string) => api<Me>(`/api/auth/reset/${token}`, { method: 'POST', body: { password } }),
   revokeInvitation: (id: string) => api<void>(`/api/workspace/invitations/${id}`, { method: 'DELETE' }),
   setRole: (userId: string, role: Role) => api<{ ok: boolean }>(`/api/workspace/members/${userId}`, { method: 'PATCH', body: { role } }),
   removeMember: (userId: string) => api<void>(`/api/workspace/members/${userId}`, { method: 'DELETE' }),

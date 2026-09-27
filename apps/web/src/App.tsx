@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
 import { ROLE_LABEL } from './api';
-import { Invite, Login, Signup } from './pages/Auth';
+import { Forgot, Invite, Login, Reset, Signup } from './pages/Auth';
 import { Editor } from './pages/Editor';
 import { Generate } from './pages/Generate';
 import { Profile } from './pages/Profile';
@@ -21,6 +21,8 @@ function Shell() {
         <Route path="/invite/:token" element={<Invite />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot" element={<Forgot />} />
+        <Route path="/reset/:token" element={<Reset />} />
         <Route path="*" element={<Navigate to={me?.setup ? '/signup' : '/login'} replace state={{ from: at }} />} />
       </Routes>
       </>
@@ -60,6 +62,7 @@ function Shell() {
             <Route path="/team" element={<Team />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/invite/:token" element={<Invite />} />
+            <Route path="/reset/:token" element={<Reset />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="/signup" element={<Navigate to="/" replace />} />
             <Route path="*" element={<div className="page"><h2>Page introuvable</h2></div>} />
