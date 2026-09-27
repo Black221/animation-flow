@@ -1,0 +1,31 @@
+{
+  "name": "@af/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "L'éditeur : projets, aperçu en direct dans chaque style, scènes, frise, réglages des fournisseurs.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "e2e": "vite build && playwright test"
+  },
+  "dependencies": {
+    "@af/engine": "workspace:*",
+    "@af/library": "workspace:*",
+    "@af/providers": "workspace:*",
+    "@af/schema": "workspace:*",
+    "@af/styles": "workspace:*",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "^7.8.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "tsx": "^4.21.0",
+    "vite": "^8.3.1"
+  }
+}

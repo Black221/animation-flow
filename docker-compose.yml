@@ -1,0 +1,38 @@
+# Local deployment: the application (API + editor) and PostgreSQL.
+#   cp .env.example .env    # then fill in APP_ENCRYPTION_KEY (openssl rand -base64 32)
+#   docker compose up --build
+#   → http://localhost:3000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: af
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-af}
+      POSTGRES_DB: af
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U af -d af"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://af:${POSTGRES_PASSWORD:-af}@db:5432/af
+      # encrypts the API keys stored in the database: keep it safe, changing it makes stored keys unreadable
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?set APP_ENCRYPTION_KEY in .env (openssl rand -base64 32)}
+      # optional: a token shared by the team, asked once by the editor
+      APP_ACCESS_TOKEN: ${APP_ACCESS_TOKEN:-}
+    ports:
+      # local only; put a reverse proxy with HTTPS in front before exposing it
+      - "127.0.0.1:${PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

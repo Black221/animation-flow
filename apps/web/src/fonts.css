@@ -1,0 +1,4 @@
+/* Fonts used by the style packs (SIL Open Font License / Apache 2.0, see public/fonts). */
+@font-face { font-family: 'Fredoka'; src: url('/fonts/Fredoka.ttf') format('truetype'); font-weight: 300 700; font-display: swap; }
+@font-face { font-family: 'Permanent Marker'; src: url('/fonts/PermanentMarker-Regular.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Patrick Hand'; src: url('/fonts/PatrickHand-Regular.ttf') format('truetype'); font-display: swap; }

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: af, POSTGRES_PASSWORD: af, POSTGRES_DB: af }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U af -d af" --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - name: Unit and API tests (embedded PGlite)
+        run: pnpm test
+      - name: API tests against PostgreSQL
+        run: pnpm vitest run apps/api
+        env: { TEST_DATABASE_URL: "postgres://af:af@127.0.0.1:5432/af" }
+      - run: pnpm build
+      - name: End-to-end (editor in Chromium)
+        run: |
+          pnpm --filter @af/web exec playwright install --with-deps chromium
+          pnpm --filter @af/web exec playwright test
+        env: { CHROMIUM_PATH: "" }
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t animation-flow .
