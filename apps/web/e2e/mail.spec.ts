@@ -18,7 +18,8 @@ async function mailTo(address: string, kind: 'invite' | 'reset') {
 test('invite by e-mail, then reset a forgotten password from the e-mailed link', async ({ page, browser }) => {
   await signedIn(page);
   await page.goto('/team');
-  const invite = page.getByRole('region', { name: 'inviter' });
+  await page.getByRole('button', { name: 'Inviter', exact: true }).click();
+  const invite = page.getByRole('dialog', { name: /Inviter/ });
   await invite.getByLabel('rôle invité').selectOption('editor');
   await invite.getByLabel('e-mail invité').fill('mailed@example.org');
   await expect(invite.getByLabel('envoyer par e-mail')).toBeChecked();

@@ -6,6 +6,8 @@ import { parseProject, type Project } from '@af/schema';
 import { useState } from 'react';
 import { Api } from '../api';
 import { JsonEditor, type JsonIssue } from './JsonEditor';
+import { Icon } from './Icon';
+import { Dialog, useUI } from './ui';
 
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
 const issuesOf = (candidate: unknown): JsonIssue[] => { const r = parseProject(candidate); return r.ok ? [] : r.issues; };
@@ -27,11 +29,14 @@ export function MusicPanel({ project, onChange, readOnly, resetKey, remoteKey }:
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
   const [newSound, setNewSound] = useState({ id: '', name: '', description: '' });
+  const [adding, setAdding] = useState(false);
+  const ui = useUI();
   const pieces = Object.entries(project.score);
   const usedBy = (mood: string) => project.scenes.filter((s) => s.music.mood === mood).map((s) => s.id);
-  const run = async (what: string, f: () => Promise<string>) => {
+  /** runs an AI call; says whether it worked (its outcome goes to the note, a failure to a toast too) */
+  const run = async (what: string, f: () => Promise<string>): Promise<boolean> => {
     setBusy(what); setNote('');
-    try { setNote(await f()); } catch (e) { setNote((e as Error).message); } finally { setBusy(''); }
+    try { setNote(await f()); return true; } catch (e) { setNote((e as Error).message); ui.toast((e as Error).message, 'error'); return false; } finally { setBusy(''); }
   };
   const listen = (mood: string) => { const p = pieceFor(mood, project.score); if (p) play(renderMusic([{ start: 0, duration: 12, piece: p, gainDb: 0 }], 12)); };
   const design = (id: string, name: string, description: string) => run(`sound:${id}`, async () => {
@@ -87,16 +92,20 @@ export function MusicPanel({ project, onChange, readOnly, resetKey, remoteKey }:
         ))}
         {!Object.keys(project.sounds).length && <li className="muted small">Aucun bruitage conçu pour ce film.</li>}
       </ul>
-      {!readOnly && (
-        <form className="form" onSubmit={(e) => { e.preventDefault(); void design(newSound.id, newSound.name.trim(), newSound.description.trim()).then(() => setNewSound({ id: '', name: '', description: '' })); }}>
-          <div className="row">
-            <input value={newSound.id} onChange={(e) => setNewSound({ ...newSound, id: e.target.value.trim() })} placeholder="identifiant" aria-label="identifiant du bruitage" />
-            <input value={newSound.name} onChange={(e) => setNewSound({ ...newSound, name: e.target.value })} placeholder="nom" aria-label="nom du bruitage" />
-          </div>
-          <input value={newSound.description} onChange={(e) => setNewSound({ ...newSound, description: e.target.value })} placeholder="ce qui fait le son, comment il sonne : « un double bip joyeux de robot »" aria-label="description du bruitage" />
-          {soundTaken && <p className="error small">ce bruitage existe déjà</p>}
-          <button type="submit" disabled={!!busy || soundTaken || !ID_RE.test(newSound.id) || !newSound.name.trim() || newSound.description.trim().length < 3}>Concevoir un bruitage</button>
-        </form>
+      {!readOnly && <button onClick={() => { setNewSound({ id: '', name: '', description: '' }); setAdding(true); }}><Icon name="plus" size={16} /> Nouveau bruitage</button>}
+      {adding && (
+        <Dialog open onClose={() => setAdding(false)} title="Nouveau bruitage" icon="music" size="sm" description="Décrivez ce qui fait le son et comment il sonne : l'IA le conçoit (synthétisé, sans fichier ni licence)."
+          footer={<>
+            <button type="button" className="ghost" onClick={() => setAdding(false)}>Annuler</button>
+            <button type="submit" form="new-sound" className="primary" disabled={!!busy || soundTaken || !ID_RE.test(newSound.id) || !newSound.name.trim() || newSound.description.trim().length < 3}><Icon name="sparkles" size={16} /> {busy ? 'Conception…' : 'Concevoir'}</button>
+          </>}>
+          <form id="new-sound" className="form" onSubmit={(e) => { e.preventDefault(); void design(newSound.id, newSound.name.trim(), newSound.description.trim()).then((ok) => { if (ok) { setAdding(false); ui.toast(`Bruitage « ${newSound.name.trim()} » conçu`); } }); }}>
+            <label className="field">Identifiant (utilisé dans les scènes) <input value={newSound.id} onChange={(e) => setNewSound({ ...newSound, id: e.target.value.trim() })} placeholder="porte" aria-label="identifiant du bruitage" autoFocus /></label>
+            <label className="field">Nom <input value={newSound.name} onChange={(e) => setNewSound({ ...newSound, name: e.target.value })} placeholder="Porte qui grince" aria-label="nom du bruitage" /></label>
+            <label className="field">Description <textarea rows={2} value={newSound.description} onChange={(e) => setNewSound({ ...newSound, description: e.target.value })} placeholder="« une vieille porte en bois qui grince lentement »" aria-label="description du bruitage" /></label>
+            {soundTaken && <div className="alert warn"><Icon name="alert" size={16} /><span>Ce bruitage existe déjà.</span></div>}
+          </form>
+        </Dialog>
       )}
       {note && <p className="muted small" data-testid="music-note">{note}</p>}
 

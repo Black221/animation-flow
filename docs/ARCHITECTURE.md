@@ -127,6 +127,33 @@ le reste de la génération.
 - Retouche (`editScene`) : ce que le modèle omet (narration, décor…) reste tel quel ; une réplique inchangée garde
   son enregistrement et sa durée mesurée.
 
+## Communauté (`apps/api/src/routes/community.ts`)
+
+```
+projet (espace A) ──publier──► publication : copie figée du projet enregistré + ses médias (COMMUNITY_DIR/<id>/)
+                                  │  galerie, page, médias et miniature : publics (sans compte)
+                                  │  j'aime (1 par personne), vues (1 par visiteur et par heure)
+                                  ▼
+                   remixer ──► nouveau projet (espace B), médias copiés dans l'espace B, projects.remix_of
+                                  │  publié à son tour : publications.remix_of ; l'original compte ses remix
+```
+
+- La publication est une copie : l'auteur continue de modifier son projet, et republie quand il veut (même
+  publication, copie remplacée). La retirer ne touche ni le projet ni les remix déjà faits.
+- Licences : CC BY, CC BY-SA, CC0 (toutes permettent le remix) ; le remix d'une œuvre BY-SA reste BY-SA.
+- Seuls les noms des personnes sont montrés, jamais leur e-mail ; les clés, commentaires et générations ne sont
+  jamais publiés. Supprimer un espace supprime ses publications et leurs médias.
+
+## Interface (`apps/web`)
+
+- Trois mises en page : l'application (barre latérale : recherche dans la communauté, créer, mon espace, compte ;
+  un tiroir sur téléphone), le plein écran (éditeur, génération : leur propre barre, pas de navigation globale),
+  la connexion.
+- `components/ui.tsx` : dialogues (`<dialog>` modaux), confirmations et questions attendues (`useUI().confirm`,
+  `prompt`, `info`), notifications (`toast`), menus. Sur téléphone, les dialogues montent du bas.
+- `components/Motion.tsx` : un film des modèles joué en direct par le moteur (accueil, connexion), les cartes qui
+  jouent leur film au survol, les squelettes de chargement ; tout s'arrête avec `prefers-reduced-motion`.
+
 ## Rendu vidéo (`packages/render`, `apps/api/src/render`)
 
 ```

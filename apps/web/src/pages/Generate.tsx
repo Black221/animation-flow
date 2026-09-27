@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { Api, type Generation, type StoryboardT, type StorySceneT, type StoryThing } from '../api';
 import { useSession } from '../session';
 import { Icon } from '../components/Icon';
+import { useUI } from '../components/ui';
 
 const STAGES: { id: Generation['status'][]; label: string }[] = [
   { id: ['storyboard'], label: 'Storyboard' },
@@ -81,7 +82,7 @@ export function Generate() {
   const [dirty, setDirty] = useState(false);
   const [redo, setRedo] = useState('');
   const [error, setError] = useState('');
-  const [showLog, setShowLog] = useState(false);
+  const ui = useUI();
   const nav = useNavigate();
   const editable = useSession().can('editor');
 
@@ -96,12 +97,28 @@ export function Generate() {
   const edit = (next: StoryboardT) => { setSb(next); setDirty(true); };
   const act = async (f: () => Promise<Generation>) => { setError(''); try { const x = await f(); setG(x); if (!dirty) setSb(x.storyboard); } catch (e) { const b = (e as { body?: { issues?: { path: string; message: string }[] } }).body; setError(`${(e as Error).message}${b?.issues?.length ? ` : ${b.issues.slice(0, 3).map((i) => `${i.path} ${i.message}`).join(' ; ')}` : ''}`); } };
   const writeScenes = () => act(async () => { if (dirty && sb) { await Api.saveStoryboard(g.id, { ...sb, scenes: sb.scenes.map((s) => ({ ...s, shots: s.shots.filter((x) => x.trim()), narration: s.narration.filter((l) => l.text.trim()) })) }); setDirty(false); } return Api.writeScenes(g.id); });
+  const showLog = () => ui.info({ title: `Journal de la génération (${g.steps.length} appel(s) au modèle)`, icon: 'code', size: 'xl', body: (
+    <ol className="gen-log">
+      {g.steps.map((st, i) => (
+        <li key={i} className={st.ok ? 'ok' : 'warn'}>
+          <strong>{st.stage}</strong> {st.target !== st.stage ? st.target : ''} · essai {st.attempt + 1} · {st.ok ? 'valide' : 'à corriger'} · {(st.ms / 1000).toFixed(1)} s · {st.usage.inputTokens}+{st.usage.outputTokens} tokens
+          {st.issues.length > 0 && <ul>{st.issues.map((x, j) => <li key={j}><code>{x.path}</code> {x.message}</li>)}</ul>}
+        </li>
+      ))}
+    </ol>) });
   const k = order(g), total = sb?.scenes.reduce((a, s) => a + s.duration, 0) ?? 0;
 
   return (
+    <>
+    <header className="focus-bar">
+      <Link to="/" className="back" title="Accueil"><span className="logo small" aria-hidden><Icon name="play" /></span><Icon name="back" size={16} /> Accueil</Link>
+      <h1><Icon name="sparkles" size={18} className="inline-icon" /> {sb?.title ?? 'Génération en cours'}</h1>
+      <span className="spacer" />
+      <button className="ghost" onClick={() => ui.info({ title: 'Texte d’origine', icon: 'edit', size: 'lg', body: <p className="source-text">{g.input.text}</p> })}><Icon name="edit" size={16} /> Texte d'origine</button>
+      <button className="ghost" onClick={showLog}><Icon name="code" size={16} /> Journal ({g.steps.length})</button>
+      {busy && editable && <button onClick={() => void ui.confirm({ title: 'Annuler la génération ?', message: 'Ce qui a déjà été fait (storyboard, dessins) reste sur la génération ; vous pourrez relancer.', confirm: 'Annuler la génération', cancel: 'Continuer', danger: true }).then((ok) => { if (ok) void act(() => Api.cancelGeneration(g.id)); })}>Annuler</button>}
+    </header>
     <div className="page generate">
-      <Link to="/" className="muted row" style={{ gap: 6 }}><Icon name="back" size={16} /> Projets</Link>
-      <div className="page-head"><h2><Icon name="sparkles" size={22} className="inline-icon" /> {sb?.title ?? 'Génération en cours'}</h2></div>
       <ol className="stages" aria-label="étapes">
         {STAGES.map((s, i) => <li key={s.label} className={i < k || g.status === 'done' ? 'done' : i === k ? (g.status === 'failed' || g.status === 'canceled' ? 'failed' : 'current') : ''}>{s.label}{i === 2 && g.assetsTotal ? ` ${g.assetsDone}/${g.assetsTotal}` : ''}{i === 4 && g.scenesTotal ? ` ${g.scenesDone}/${g.scenesTotal}` : ''}</li>)}
       </ol>
@@ -118,7 +135,6 @@ export function Generate() {
       {g.status === 'failed' && <p className="error" role="alert">Échec : {g.error}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="row wrap">
-        {busy && editable && <button onClick={() => void act(() => Api.cancelGeneration(g.id))}>Annuler</button>}
         {editable && g.status === 'review' && <button className="cta" onClick={() => void writeScenes()}><Icon name="sparkles" /> Dessiner, composer et écrire les scènes</button>}
         {editable && g.status === 'failed' && g.storyboard && !g.projectId && <button className="primary" onClick={() => void writeScenes()}>{g.drawings.length ? 'Réessayer les scènes' : 'Réessayer'}</button>}
         {g.status === 'done' && g.projectId && <button className="cta" onClick={() => nav(`/p/${g.projectId}`)}><Icon name="play" /> Ouvrir le projet</button>}
@@ -148,18 +164,8 @@ export function Generate() {
         </section>
       )}
 
-      <button className="ghost small" onClick={() => setShowLog((x) => !x)}>{showLog ? 'Masquer' : 'Voir'} le journal ({g.steps.length} appel(s) au modèle)</button>
-      {showLog && (
-        <ol className="gen-log">
-          {g.steps.map((s, i) => (
-            <li key={i} className={s.ok ? 'ok' : 'warn'}>
-              {s.stage} {s.target !== s.stage ? s.target : ''} · essai {s.attempt + 1} · {s.ok ? 'valide' : 'à corriger'} · {(s.ms / 1000).toFixed(1)} s · {s.usage.inputTokens}+{s.usage.outputTokens} tokens
-              {s.issues.length > 0 && <ul>{s.issues.map((x, j) => <li key={j}><code>{x.path}</code> {x.message}</li>)}</ul>}
-            </li>
-          ))}
-        </ol>
-      )}
-      <details className="source"><summary>Texte d'origine</summary><p>{g.input.text}</p></details>
+
     </div>
+    </>
   );
 }

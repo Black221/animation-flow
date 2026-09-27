@@ -30,7 +30,23 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
 }
 
 export interface Warning { path: string; message: string }
-export interface ProjectSummary { id: string; title: string; version: number; createdAt: string; updatedAt: string; updatedBy: string | null; createdBy: string | null }
+export interface ProjectSummary { id: string; title: string; version: number; createdAt: string; updatedAt: string; updatedBy: string | null; createdBy: string | null; remixOf?: { id: string; title: string } | null; publicationId?: string | null }
+export type License = 'cc-by' | 'cc-by-sa' | 'cc0';
+export const LICENSE_LABEL: Record<License, string> = { 'cc-by': 'CC BY — citer l’auteur', 'cc-by-sa': 'CC BY-SA — citer l’auteur, même licence', cc0: 'CC0 — domaine public' };
+export interface Publication {
+  id: string; title: string; description: string; tags: string[]; license: License; duration: number; version: number;
+  author: { id: string; name: string } | null; remixOf: { id: string; title: string; author: string | null; authorId: string | null } | null;
+  remixes: number; likes: number; views: number; liked: boolean; createdAt: string; updatedAt: string;
+}
+export interface PublicationDetail extends Publication { project: Project; remixList: Publication[]; canManage: boolean; licenseLabel: string; media: { voices: string[]; images: string[] } }
+export interface CommunityPage { items: Publication[]; total: number; tags: { tag: string; count: number }[] }
+export interface AuthorInfo { id: string; name: string; since: string; publications: number; likes: number; remixes: number }
+export interface PublishMeta { title: string; description: string; tags: string[]; license: License }
+/** where a publication's media are served (no link to sign: they are public) */
+export const communityMedia = (id: string) => ({
+  voices: async (assets: string[]) => Object.fromEntries(assets.map((a) => [a, `/api/community/${id}/voices/${a}.wav`])),
+  images: async (assets: string[]) => Object.fromEntries(assets.map((a) => [a, `/api/community/${id}/images/${a}.jpg`])),
+});
 export interface ProjectDoc extends ProjectSummary { project: Project; warnings: Warning[] }
 export interface StyleInfo { id: string; label: string; description: string }
 export interface Library { catalog: Catalog; styles: StyleInfo[]; templates: string[] }
@@ -98,6 +114,8 @@ export const Api = {
   projects: () => api<ProjectSummary[]>('/api/projects'),
   project: (id: string) => api<ProjectDoc>(`/api/projects/${id}`),
   createProject: (template: string, title?: string) => api<ProjectDoc>('/api/projects', { method: 'POST', body: { template, title } }),
+  /** a new project from a whole project (a copy) */
+  createProjectFrom: (project: unknown) => api<ProjectDoc>('/api/projects', { method: 'POST', body: { project } }),
   saveProject: (id: string, project: unknown, baseVersion: number) => api<ProjectDoc>(`/api/projects/${id}`, { method: 'PUT', body: { project, baseVersion } }),
   deleteProject: (id: string) => api<void>(`/api/projects/${id}`, { method: 'DELETE' }),
   providers: () => api<{ providers: ProviderInfo[]; tasks: TaskInfo[] }>('/api/providers'),
@@ -133,6 +151,15 @@ export const Api = {
   updateComment: (id: string, c: { body?: string; resolved?: boolean }) => api<Comment>(`/api/comments/${id}`, { method: 'PATCH', body: c }),
   deleteComment: (id: string) => api<void>(`/api/comments/${id}`, { method: 'DELETE' }),
   voiceLinks: (assets: string[]) => api<Record<string, string>>('/api/voices/links', { method: 'POST', body: { assets } }),
+  community: (q: { sort?: string; q?: string; tag?: string; author?: string; limit?: number; offset?: number } = {}) => api<CommunityPage>(`/api/community?${new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)]))}`),
+  publication: (id: string) => api<PublicationDetail>(`/api/community/${id}`),
+  viewPublication: (id: string) => api<{ counted: boolean; views?: number }>(`/api/community/${id}/view`, { method: 'POST' }),
+  like: (id: string, on: boolean) => api<{ liked: boolean; likes: number }>(`/api/community/${id}/like`, { method: on ? 'POST' : 'DELETE' }),
+  remix: (id: string, title?: string) => api<{ id: string; title: string }>(`/api/community/${id}/remix`, { method: 'POST', body: title ? { title } : {} }),
+  unpublish: (id: string) => api<void>(`/api/community/${id}`, { method: 'DELETE' }),
+  author: (id: string) => api<AuthorInfo>(`/api/community/authors/${id}`),
+  projectPublication: (projectId: string) => api<{ publication: Publication | null }>(`/api/projects/${projectId}/publication`),
+  publish: (projectId: string, meta: PublishMeta) => api<Publication>(`/api/projects/${projectId}/publish`, { method: 'POST', body: meta }),
   imageLinks: (assets: string[]) => api<Record<string, string>>('/api/images/links', { method: 'POST', body: { assets } }),
   /** paint a decor as a picture with the image model (Réglages → Fournisseurs → Décors en images) */
   paintDecor: (b: { name: string; description: string; instruction?: string; style?: string; palette?: string[] }) => api<{ image: NonNullable<Asset['image']>; url: string; model: string }>('/api/ai/decor-image', { method: 'POST', body: b }),

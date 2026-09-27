@@ -1,10 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { signedIn } from './auth';
+import { signedIn, newProject } from './auth';
 
 test('two people edit the same project at once: changes, presence and autosave', async ({ page, browser }) => {
   await signedIn(page);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await newProject(page);
   await expect(page).toHaveURL(/\/p\/[0-9a-f-]{36}$/);
   const url = page.url();
 
@@ -51,8 +50,7 @@ test('two people edit the same project at once: changes, presence and autosave',
 test('without the live connection, the editor falls back to saving by hand', async ({ page }) => {
   await page.routeWebSocket(/\/live/, (ws) => ws.close({ code: 1011 })); // e.g. a proxy that does not pass WebSocket
   await signedIn(page);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await newProject(page);
   await expect(page.getByTestId('live-state')).toHaveText('hors direct', { timeout: 15_000 });
   await page.getByRole('tab', { name: 'Projet' }).click();
   await page.getByLabel('Titre', { exact: true }).fill('Enregistré à la main');

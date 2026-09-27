@@ -1,12 +1,9 @@
-import { signedIn } from './auth';
+import { signedIn, newProject } from './auth';
 import { expect, test } from '@playwright/test';
 
 test('render a video from the editor, follow it, watch it', async ({ page }) => {
   await signedIn(page);
-  await page.goto('/');
-  await page.getByRole('button', { name: /Projet vide/ }).click();
-  await page.getByLabel('titre', { exact: true }).fill('Rendu court');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await newProject(page, 'Projet vide', 'Rendu court');
   await expect(page).toHaveURL(/\/p\//);
 
   const panel = page.getByRole('region', { name: 'rendu vidéo' });

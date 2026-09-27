@@ -1,25 +1,15 @@
-// Home: what do you want to animate? (the AI prompt first), then start from a template, then the team's projects,
-// each with a frame of it.
+// My projects: every project of the workspace, as cards with a frame of each; search, and a menu per card
+// (open, rename, duplicate, delete — each with a dialog).
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { stylePacks } from '@af/styles';
-import { Api, getWorkspace, type Generation, type ProjectSummary } from '../api';
-import { Icon, type IconName } from '../components/Icon';
+import { Api, getWorkspace, type ProjectSummary } from '../api';
+import { useCreate } from '../components/Create';
+import { Icon } from '../components/Icon';
+import { Menu, useUI } from '../components/ui';
+import { HoverPlay, SkeletonGrid, useHover } from '../components/Motion';
 import { useSession } from '../session';
 
-const TEMPLATES: Record<string, { label: string; hint: string; icon: IconName }> = {
-  example: { label: 'Awa et Jumo', hint: "Un court film d'exemple : personnages, décors, caméra, voix.", icon: 'film' },
-  pizza: { label: 'Pub « Pizza Time »', hint: 'Tout y est dessiné pour elle : 15 dessins, une musique, 8 bruitages.', icon: 'sparkles' },
-  blank: { label: 'Projet vide', hint: 'Une scène à remplir, à la main ou avec l’IA.', icon: 'plus' },
-};
-const IDEAS = [
-  'Une pub de 30 secondes pour une pizzeria qui s’appelle Pizza Time, fun et colorée.',
-  'Expliquer en une minute comment une graine devient un arbre, pour des enfants de 8 ans.',
-  'Présenter notre application de covoiturage : le problème, la solution, trois avantages.',
-  'Une fable : le renard et le corbeau, racontée avec humour, trois scènes.',
-];
-const GEN_STATUS = { storyboard: 'storyboard en cours', review: 'à relire', assets: 'dessins en cours', music: 'musique en cours', scenes: 'scènes en cours', done: 'terminée', failed: 'échec', canceled: 'annulée' } as const;
-const ago = (d: string | Date) => {
+export const ago = (d: string | Date) => {
   const s = (Date.now() - new Date(d).getTime()) / 1000;
   if (s < 60) return 'à l’instant';
   if (s < 3600) return `il y a ${Math.round(s / 60)} min`;
@@ -27,112 +17,77 @@ const ago = (d: string | Date) => {
   return new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
+export function ProjectCard({ p, onChange }: { p: ProjectSummary; onChange: () => void }) {
+  const ui = useUI(), nav = useNavigate(), editable = useSession().can('editor');
+  const ws = encodeURIComponent(getWorkspace()), hover = useHover();
+  const rename = async () => {
+    const title = await ui.prompt({ title: 'Renommer le projet', label: 'Titre', value: p.title, confirm: 'Renommer', required: true });
+    if (!title || title.trim() === p.title) return;
+    try { const d = await Api.project(p.id); await Api.saveProject(p.id, { ...d.project, title: title.trim() }, d.version); ui.toast('Projet renommé'); onChange(); }
+    catch (e) { ui.toast((e as Error).message, 'error'); }
+  };
+  const duplicate = async () => {
+    try { const d = await Api.project(p.id); const c = await Api.createProjectFrom({ ...d.project, title: `${d.project.title} (copie)` }); ui.toast('Copie créée', 'success', { label: 'Ouvrir', run: () => nav(`/p/${c.id}`) }); onChange(); }
+    catch (e) { ui.toast((e as Error).message, 'error'); }
+  };
+  const remove = async () => {
+    const ok = await ui.confirm({ title: `Supprimer « ${p.title} » ?`, message: <>Le projet et toutes ses versions seront supprimés.{p.publicationId && <> Sa publication dans la communauté reste en ligne (retirez-la depuis sa page).</>}</>, confirm: 'Supprimer', danger: true });
+    if (!ok) return;
+    try { await Api.deleteProject(p.id); ui.toast(`« ${p.title} » supprimé`); onChange(); } catch (e) { ui.toast((e as Error).message, 'error'); }
+  };
+  return (
+    <li className="project-card" {...hover.bind}>
+      <HoverPlay active={hover.on} still={`/api/projects/${p.id}/thumbnail.png?v=${p.version}&ws=${ws}`} load={() => Api.project(p.id).then((d) => d.project)} />
+      <div className="body">
+        <Link to={`/p/${p.id}`} className="title">{p.title}</Link>
+        <span className="meta">
+          v{p.version}{p.updatedBy ? ` · ${p.updatedBy}` : ''} · {ago(p.updatedAt)}
+        </span>
+        {(p.publicationId || p.remixOf) && (
+          <span className="badges">
+            {p.publicationId && <span className="badge ok"><Icon name="globe" size={12} /> publié</span>}
+            {p.remixOf && <span className="badge accent" title={`remix de « ${p.remixOf.title} »`}><Icon name="remix" size={12} /> remix</span>}
+          </span>
+        )}
+      </div>
+      <div className="card-menu">
+        <Menu label={`actions sur ${p.title}`}>{(close) => <>
+          <Link to={`/p/${p.id}`} role="menuitem" onClick={close}><Icon name="edit" /> Ouvrir</Link>
+          {editable && <button role="menuitem" onClick={() => { close(); void rename(); }}><Icon name="sliders" /> Renommer</button>}
+          {editable && <button role="menuitem" onClick={() => { close(); void duplicate(); }}><Icon name="copy" /> Dupliquer</button>}
+          {p.publicationId && <Link to={`/c/${p.publicationId}`} role="menuitem" onClick={close}><Icon name="globe" /> Voir dans la communauté</Link>}
+          {editable && <button role="menuitem" className="danger-item" onClick={() => { close(); void remove(); }}><Icon name="trash" /> Supprimer</button>}
+        </>}</Menu>
+      </div>
+    </li>
+  );
+}
+
 export function Projects() {
   const [list, setList] = useState<ProjectSummary[] | null>(null);
-  const [templates, setTemplates] = useState<string[]>(['example', 'blank']);
-  const [template, setTemplate] = useState('example');
-  const [title, setTitle] = useState('');
+  const [q, setQ] = useState('');
   const [error, setError] = useState('');
-  const nav = useNavigate();
-  const editable = useSession().can('editor');
-  const [text, setText] = useState('');
-  const [language, setLanguage] = useState('fr');
-  const [style, setStyle] = useState('watercolor');
-  const [seconds, setSeconds] = useState('');
-  const [review, setReview] = useState(true);
-  const [gens, setGens] = useState<Generation[]>([]);
-  const [genError, setGenError] = useState('');
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { Api.generations().then(setGens).catch(() => undefined); }, []);
-  const generate = async () => {
-    setGenError(''); setBusy(true);
-    try { const g = await Api.generate({ text: text.trim(), language, style, review, ...(+seconds > 0 ? { targetSeconds: Math.round(+seconds) } : {}) }); nav(`/g/${g.id}`); }
-    catch (e) { setGenError((e as Error).message); setBusy(false); }
-  };
-
+  const editable = useSession().can('editor'), create = useCreate();
   const refresh = () => Api.projects().then(setList).catch((e) => setError(e.message));
-  useEffect(() => { void refresh(); Api.library().then((l) => setTemplates(l.templates)).catch(() => undefined); }, []);
-
-  const create = async () => {
-    try { const d = await Api.createProject(template, title.trim() || undefined); nav(`/p/${d.id}`); }
-    catch (e) { setError((e as Error).message); }
-  };
-  const remove = async (p: ProjectSummary) => {
-    if (!confirm(`Supprimer « ${p.title} » et toutes ses versions ?`)) return;
-    await Api.deleteProject(p.id).catch((e) => setError(e.message));
-    void refresh();
-  };
-  const ws = encodeURIComponent(getWorkspace());
+  useEffect(() => { void refresh(); }, []);
+  const shown = list?.filter((p) => !q.trim() || p.title.toLowerCase().includes(q.trim().toLowerCase())) ?? null;
 
   return (
     <div className="page">
-      {editable && (
-        <section className="hero" aria-label="créer avec l'IA">
-          <h2>Que voulez-vous <span className="grad">animer</span> ?</h2>
-          <p className="lead">Décrivez votre idée, collez un script ou un texte. L'IA écrit le storyboard, dessine tout ce qu'il faut, compose la musique et anime chaque scène.</p>
-          <div className="prompt">
-            <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Ex. : une pub de 30 secondes pour une boulangerie de quartier, chaleureuse et drôle…" aria-label="texte source"
-              onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && text.trim().length >= 10) void generate(); }} />
-            <div className="bar">
-              <span className="opt">Langue <select value={language} onChange={(e) => setLanguage(e.target.value)} aria-label="langue">{[['fr', 'français'], ['en', 'anglais'], ['es', 'espagnol'], ['de', 'allemand'], ['pt', 'portugais'], ['wo', 'wolof']].map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></span>
-              <span className="opt">Style <select value={style} onChange={(e) => setStyle(e.target.value)} aria-label="style du film">{Object.values(stylePacks).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></span>
-              <span className="opt">Durée <input type="number" min={10} max={1800} value={seconds} onChange={(e) => setSeconds(e.target.value)} placeholder="auto" style={{ width: 76 }} aria-label="durée visée" /> s</span>
-              <label className="switch opt"><input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} /> Relire le storyboard</label>
-              <span className="spacer" />
-              <button className="cta" onClick={() => void generate()} disabled={busy || text.trim().length < 10} title="Ctrl + Entrée"><Icon name="sparkles" /> Générer</button>
-            </div>
-          </div>
-          {!text && <div className="chips" aria-label="idées">{IDEAS.map((i) => <button key={i} className="chip" onClick={() => setText(i)}>{i.length > 58 ? `${i.slice(0, 56)}…` : i}</button>)}</div>}
-          {genError && <p className="error small" role="alert">{genError} {/Fournisseurs/.test(genError) && <Link to="/settings">Ouvrir les réglages</Link>}</p>}
-          {gens.length > 0 && (
-            <ul className="gen-list" aria-label="générations récentes">
-              {gens.slice(0, 5).map((g) => (
-                <li key={g.id}><Link to={`/g/${g.id}`}><Icon name="sparkles" size={14} /> {g.storyboard?.title ?? `${g.input.text.slice(0, 40)}…`} <span className={`badge ${g.status === 'done' ? 'ok' : g.status === 'failed' ? 'warn' : g.status === 'canceled' ? '' : 'accent'}`}>{GEN_STATUS[g.status]}</span></Link></li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
-      {editable && (
-        <section aria-label="nouveau projet">
-          <div className="section-title"><h2>Partir d'un modèle</h2></div>
-          <div className="templates">
-            {templates.map((t) => {
-              const info = TEMPLATES[t] ?? { label: t, hint: '', icon: 'film' as IconName };
-              return (
-                <button key={t} className="template" aria-pressed={template === t} onClick={() => setTemplate(t)}>
-                  <span className="tthumb"><img src={`/api/templates/${t}/thumbnail.png`} alt="" loading="lazy" /></span>
-                  <strong><span className="ico"><Icon name={info.icon} size={16} /></span> {info.label}</strong>
-                  <span className="muted">{info.hint}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="create-row">
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`Titre (facultatif) — ${TEMPLATES[template]?.label ?? template}`} aria-label="titre" onKeyDown={(e) => { if (e.key === 'Enter') void create(); }} />
-            <button className="primary" onClick={create}><Icon name="plus" /> Créer</button>
-          </div>
-        </section>
-      )}
-      {!editable && <p className="readonly-note">Rôle lecteur : vous consultez les projets de l'équipe sans les modifier.</p>}
-      {error && <p className="error" role="alert">{error}</p>}
-
-      <div className="section-title"><h2>Projets</h2>{list && <span className="badge">{list.length}</span>}</div>
-      {list === null ? <p className="muted">Chargement…</p> : list.length === 0 ? <p className="empty">Aucun projet pour l'instant. Décrivez une idée plus haut, ou partez d'un modèle.</p> : (
-        <ul className="project-grid">
-          {list.map((p) => (
-            <li key={p.id} className="project-card">
-              <span className="thumb"><img src={`/api/projects/${p.id}/thumbnail.png?v=${p.version}&ws=${ws}`} alt="" loading="lazy" /></span>
-              <div className="body">
-                <Link to={`/p/${p.id}`} className="title">{p.title}</Link>
-                <span className="meta">v{p.version}{p.updatedBy ? ` · ${p.updatedBy}` : ''} · {ago(p.updatedAt)}</span>
-              </div>
-              {editable && <button className="icon del" onClick={() => void remove(p)} aria-label={`supprimer ${p.title}`} title="Supprimer"><Icon name="trash" size={16} /></button>}
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="page-head">
+        <div><h2>Mes projets</h2><p className="muted">Les films de votre espace, à plusieurs si vous voulez.</p></div>
+        <span className="spacer" />
+        {list && list.length > 3 && <label className="search small-search"><Icon name="search" size={16} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrer…" aria-label="filtrer les projets" /></label>}
+        {editable && <>
+          <button onClick={create.withAI}><Icon name="sparkles" size={16} /> Avec l'IA</button>
+          <button className="primary" onClick={create.newProject}><Icon name="plus" size={16} /> Nouveau projet</button>
+        </>}
+      </div>
+      {!editable && <div className="alert info"><Icon name="info" size={16} /><span>Rôle lecteur : vous consultez les projets de l'équipe sans les modifier.</span></div>}
+      {error && <div className="alert error" role="alert"><Icon name="alert" size={16} /><span>{error}</span></div>}
+      {shown === null ? <SkeletonGrid n={6} /> : shown.length === 0
+        ? <div className="empty"><p>{q ? 'Aucun projet ne correspond.' : "Aucun projet pour l'instant."}</p>{editable && !q && <button className="primary" onClick={create.newProject}><Icon name="plus" size={16} /> Nouveau projet</button>}</div>
+        : <ul className="project-grid" aria-label="projets">{shown.map((p) => <ProjectCard key={p.id} p={p} onChange={refresh} />)}</ul>}
     </div>
   );
 }

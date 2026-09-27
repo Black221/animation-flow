@@ -19,14 +19,16 @@ export function addPicture(asset: string, url: string) {
 /** the picture of an asset, once it has loaded */
 export const pictureOf = (asset: string) => { const img = images.get(asset); return img?.complete && img.naturalWidth ? img : null; };
 
-/** loads the project's pictures; `onReady` asks for a repaint when one arrives. Without them, decors show their drawing. */
-export function usePictures(project: Pick<Project, 'assets'>, onReady: () => void) {
+export type LinksFn = (assets: string[]) => Promise<Record<string, string>>;
+/** loads the project's pictures; `onReady` asks for a repaint when one arrives. Without them, decors show their drawing.
+ *  `links`: where to get them (the workspace's signed links by default; a publication's public ones) */
+export function usePictures(project: Pick<Project, 'assets'>, onReady: () => void, links?: LinksFn) {
   const wanted = useMemo(() => [...new Set(Object.values(project.assets ?? {}).flatMap((a) => (a.image ? [a.image.asset] : [])))].sort().join(','), [project.assets]);
   useEffect(() => { listeners.add(onReady); return () => { listeners.delete(onReady); }; }, [onReady]);
   useEffect(() => {
     const need = wanted ? wanted.split(',').filter((a) => !images.has(a)) : [];
     if (!need.length) return;
-    Api.imageLinks(need).then((links) => { for (const [asset, url] of Object.entries(links)) addPicture(asset, url); }).catch(() => undefined);
+    (links ?? Api.imageLinks)(need).then((links) => { for (const [asset, url] of Object.entries(links)) addPicture(asset, url); }).catch(() => undefined);
   }, [wanted]);
   return pictureOf;
 }

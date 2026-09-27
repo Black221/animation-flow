@@ -81,7 +81,16 @@ part avec un lien construit sur `APP_URL`.
 - **Dessins** (onglet « Dessins ») : tout ce que le film montre a été dessiné pour lui (personnages, accessoires,
   décors). Chaque dessin s'anime dans l'onglet ; on peut le renommer, le faire redessiner par l'IA avec un changement
   (« une écharpe rouge »), en demander un nouveau, le modifier en JSON, ou, avec un modèle d'images, peindre un décor.
-- **Interface** : thème clair, sombre ou automatique (menu du compte, en haut à droite ; le choix est gardé dans le
+- **Communauté** : un projet se publie (bouton « Publier » de l'éditeur : titre, description, étiquettes, licence
+  Creative Commons) ; tout le monde, même sans compte, parcourt la galerie (recherche, tri, étiquettes), regarde le
+  film dans la page et voit ses remix. Connecté, on aime et on **remixe** : une copie complète (dessins, musique,
+  voix) arrive dans son espace, avec le lien vers l'original, qui compte ses remix. Pour une plateforme publique,
+  ouvrez les inscriptions (`SIGNUP=open`).
+- **Interface** : une barre latérale (recherche, communauté, créer, mon espace, compte) ; l'éditeur et les
+  générations en plein écran ; création par l'IA sur sa propre page avec toutes ses options (ton, public, voix,
+  musique, rythme, consignes) ; dialogues pour créer, confirmer et voir le détail, notifications ; miniatures qui
+  s'animent au survol et film joué en direct sur l'accueil ; adapté du téléphone au grand écran.
+- **Thème** : thème clair, sombre ou automatique (menu du compte, en haut à droite ; le choix est gardé dans le
   navigateur), miniature de chaque projet et de chaque scène, scène modifiable sans JSON (titre, durée, décor,
   transition, répliques ; le code reste accessible en mode avancé).
 - **Musique** (onglet « Musique ») : la partition composée pour le film et ses bruitages, à écouter, à recomposer
@@ -145,6 +154,7 @@ part avec un lien construit sur `APP_URL`.
 | `TRUST_PROXY` | derrière un proxy inverse ou un répartiteur : `true`, un nombre de relais, ou leurs adresses (`10.0.0.0/8,…`). L'API voit alors la vraie adresse du client (limites de connexion par personne) et le protocole d'origine. À laisser vide si l'application est jointe directement : un client pourrait sinon choisir l'adresse sous laquelle il est vu |
 | `RENDERS_DIR` | dossier des vidéos (défaut `DATA_DIR/renders`) |
 | `VOICES_DIR` | répliques enregistrées, une par texte et par voix (défaut `DATA_DIR/voices`) |
+| `COMMUNITY_DIR` | médias des projets publiés (voix, décors peints), un dossier par publication (défaut `DATA_DIR/community` ; partagé entre répliques) |
 | `IMAGES_DIR` | décors peints par un modèle d'images, un dossier par espace (défaut `DATA_DIR/images` ; partagé entre répliques) |
 | `RENDER_THREADS` | threads par rendu (défaut : nombre de cœurs − 1) |
 | `FONTS_DIR` | polices du rendu serveur (défaut : celles de l'éditeur) |

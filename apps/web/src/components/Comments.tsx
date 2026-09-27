@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { Project } from '@af/schema';
 import { Api, type Comment, type NewComment } from '../api';
 import { fmtTime, usePlayback, type Playback } from '../playback';
+import { useUI } from './ui';
 
 /** `reload`: a change too big to be carried between server processes; the list is fetched again */
 export type CommentEvent = { kind: 'upsert'; comment: Comment } | { kind: 'delete'; id: string } | { kind: 'reload' };
@@ -53,6 +54,7 @@ export function CommentsPanel({ state, project, sceneId, sceneStart, sceneDurati
   me: string | null; canResolve: boolean; canModerate: boolean; onSeek: (sceneId: string, t: number) => void;
 }) {
   const [all, setAll] = useState(false);
+  const ui = useUI();
   const [showResolved, setShowResolved] = useState(false);
   const [body, setBody] = useState('');
   const [atTime, setAtTime] = useState(true);
@@ -109,7 +111,7 @@ export function CommentsPanel({ state, project, sceneId, sceneStart, sceneDurati
               <div className="row small">
                 <button type="button" onClick={() => { setReplyTo(replyTo === c.id ? null : c.id); setReply(''); }}>Répondre</button>
                 {(canResolve || mine) && <button type="button" onClick={() => void state.edit(c.id, { resolved: !c.resolvedAt })}>{c.resolvedAt ? 'Rouvrir' : 'Résoudre'}</button>}
-                {(mine || canModerate) && <button type="button" onClick={() => { if (confirm('Supprimer ce fil et ses réponses ?')) void state.remove(c.id); }}>Supprimer</button>}
+                {(mine || canModerate) && <button type="button" onClick={() => void ui.confirm({ title: 'Supprimer ce fil ?', message: 'Le commentaire et toutes ses réponses seront supprimés pour tout le monde.', confirm: 'Supprimer', danger: true }).then((ok) => { if (ok) void state.remove(c.id); })}>Supprimer</button>}
               </div>
               {replyTo === c.id && (
                 <form aria-label="réponse" onSubmit={(e) => { e.preventDefault(); void state.add({ body: reply, parentId: c.id }).then((ok) => { if (ok) { setReply(''); setReplyTo(null); } }); }}>

@@ -7,6 +7,8 @@ import { Api } from '../api';
 import { addPicture } from '../pictures';
 import { AssetView } from './AssetView';
 import { JsonEditor, type JsonIssue } from './JsonEditor';
+import { Icon } from './Icon';
+import { Dialog, useUI } from './ui';
 
 const KIND_LABEL: Record<Asset['kind'], string> = { character: 'personnage', prop: 'accessoire', decor: 'décor' };
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
@@ -25,6 +27,7 @@ export function DrawingsPanel({ project, onChange, readOnly, resetKey, remoteKey
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
   const [adding, setAdding] = useState(false);
+  const ui = useUI();
   const cur = sel && project.assets[sel] ? sel : ids[0] ?? null;
   const asset = cur ? project.assets[cur]! : null;
   useEffect(() => { setInstruction(''); setNote(''); }, [cur]);
@@ -67,13 +70,12 @@ export function DrawingsPanel({ project, onChange, readOnly, resetKey, remoteKey
         })}
         {!ids.length && <li className="muted small">Aucun dessin : les générations en font pour chaque film.</li>}
       </ul>
-      {!readOnly && (adding
-        ? <NewDrawing project={project} onCancel={() => setAdding(false)} onMade={(id, a, note) => {
-            // a new character joins the cast under its own id
-            setAsset(id, a, a.kind === 'character' && !project.cast[id] ? { cast: { ...project.cast, [id]: { kind: id, name: a.name, params: {} } } } : {});
-            setSel(id); setAdding(false); setNote(note);
-          }} />
-        : <button onClick={() => setAdding(true)}>+ nouveau dessin</button>)}
+      {!readOnly && <button onClick={() => setAdding(true)}><Icon name="plus" size={16} /> nouveau dessin</button>}
+      {adding && <NewDrawing project={project} onCancel={() => setAdding(false)} onMade={(id, a, note) => {
+        // a new character joins the cast under its own id
+        setAsset(id, a, a.kind === 'character' && !project.cast[id] ? { cast: { ...project.cast, [id]: { kind: id, name: a.name, params: {} } } } : {});
+        setSel(id); setAdding(false); setNote(note); ui.toast(`« ${a.name} » dessiné`);
+      }} />}
 
       {cur && asset && (
         <div className="drawing">
@@ -94,7 +96,7 @@ export function DrawingsPanel({ project, onChange, readOnly, resetKey, remoteKey
                 <button onClick={() => void redraw(cur, asset)} disabled={!!busy || asset.description.trim().length < 3}>{busy === 'draw' ? 'L\'IA dessine…' : 'Redessiner avec l\'IA'}</button>
                 {asset.kind === 'decor' && <button onClick={() => void paint(cur, asset)} disabled={!!busy || asset.description.trim().length < 3}>{busy === 'paint' ? 'Peinture…' : asset.image ? 'Repeindre l\'image' : 'Peindre en image'}</button>}
                 {asset.image && <button onClick={() => { const { image: _drop, ...rest } = asset; setAsset(cur, rest as Asset); }}>Retirer l'image</button>}
-                <button className="danger" disabled={!!busy || uses.length > 0} title={uses.length ? 'utilisé dans des scènes' : ''} onClick={() => { if (confirm(`Supprimer le dessin « ${asset.name} » ?`)) setAsset(cur, null); }}>Supprimer</button>
+                <button className="danger" disabled={!!busy || uses.length > 0} title={uses.length ? 'utilisé dans des scènes' : ''} onClick={() => void ui.confirm({ title: `Supprimer le dessin « ${asset.name} » ?`, message: 'Il ne sert dans aucune scène. Vous pourrez le redemander à l’IA.', confirm: 'Supprimer', danger: true }).then((ok) => { if (ok) { setAsset(cur, null); ui.toast(`« ${asset.name} » supprimé`); } })}>Supprimer</button>
               </div>
               {note && <p className="muted small" data-testid="drawing-note">{note}</p>}
             </div>
@@ -120,7 +122,12 @@ function NewDrawing({ project, onMade, onCancel }: { project: Project; onMade: (
   const taken = !!project.assets[id] || (kind === 'character' && !!project.cast[id]);
   const ok = ID_RE.test(id) && !taken && name.trim() && description.trim().length >= 3;
   return (
-    <form className="card form" onSubmit={(e) => { e.preventDefault(); void (async () => {
+    <Dialog open onClose={onCancel} title="Nouveau dessin" icon="brush" size="md" description="Décrivez-le : l'IA le dessine pour ce film (avec ses poses et expressions si c'est un personnage), puis le relit en le regardant."
+      footer={<>
+        <button type="button" className="ghost" onClick={onCancel}>Annuler</button>
+        <button type="submit" form="new-drawing" className="primary" disabled={!ok || busy}><Icon name="sparkles" size={16} /> {busy ? 'L\'IA dessine…' : 'Dessiner'}</button>
+      </>}>
+    <form id="new-drawing" className="form" onSubmit={(e) => { e.preventDefault(); void (async () => {
       setBusy(true); setError('');
       try {
         const r = await Api.draw({ project, id, kind, name: name.trim(), description: description.trim() });
@@ -132,11 +139,8 @@ function NewDrawing({ project, onMade, onCancel }: { project: Project; onMade: (
       {taken && <p className="error small">cet identifiant est déjà pris</p>}
       <label>Nom <input value={name} onChange={(e) => setName(e.target.value)} aria-label="nom du dessin" /></label>
       <label>Description <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="forme, couleurs, taille par rapport à une personne, ce qui bouge" aria-label="description du dessin" /></label>
-      <div className="row">
-        <button type="submit" disabled={!ok || busy}>{busy ? 'L\'IA dessine…' : 'Dessiner'}</button>
-        <button type="button" onClick={onCancel}>Annuler</button>
-      </div>
-      {error && <p className="error small">{error}</p>}
+      {error && <div className="alert error" role="alert"><Icon name="alert" size={16} /><span>{error}</span></div>}
     </form>
+    </Dialog>
   );
 }

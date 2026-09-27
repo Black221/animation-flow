@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Api, type Assignment, type Credential, type ProviderInfo, type TaskInfo, type TestResult } from '../api';
 import { useSession } from '../session';
+import { Icon } from '../components/Icon';
+import { Dialog, useUI } from '../components/ui';
 
-function AddKey({ providers, onAdded }: { providers: ProviderInfo[]; onAdded: () => void }) {
+function AddKey({ providers, onAdded, onClose }: { providers: ProviderInfo[]; onAdded: () => void; onClose: () => void }) {
   const [provider, setProvider] = useState(providers[0]?.id ?? '');
   const [label, setLabel] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -16,22 +18,26 @@ function AddKey({ providers, onAdded }: { providers: ProviderInfo[]; onAdded: ()
     e.preventDefault();
     try {
       await Api.addCredential({ provider, label: label.trim() || p?.label || provider, ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}) });
-      setApiKey(''); setLabel(''); setError(''); onAdded();
+      setApiKey(''); setLabel(''); setError(''); onAdded(); onClose();
     } catch (err) { setError((err as Error).message); }
   };
   return (
-    <form className="card form" onSubmit={submit} aria-label="ajouter une clé">
-      <h3>Ajouter une clé</h3>
+    <Dialog open onClose={onClose} title="Ajouter une clé" icon="key" size="md" description="Une clé d'API de votre compte chez le fournisseur : l'application l'utilise pour vous, sans jamais l'afficher de nouveau."
+      footer={<>
+        <button type="button" className="ghost" onClick={onClose}>Annuler</button>
+        <button className="primary" type="submit" form="add-key" disabled={!p || (!apiKey && !p.keyOptional)}><Icon name="plus" size={16} /> Ajouter</button>
+      </>}>
+    <form id="add-key" className="form" onSubmit={submit} aria-label="ajouter une clé">
       <label>Fournisseur <select value={provider} onChange={(e) => setProvider(e.target.value)}>{providers.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></label>
       <label>Nom <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="perso, labo…" /></label>
       <label>Clé d'API {p?.keyOptional && <span className="muted small">(facultative)</span>}
         <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={p?.keyHint} />
       </label>
       {p?.needsBaseUrl && <label>Adresse du serveur <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={p.defaultBaseUrl} /></label>}
-      <p className="muted small">La clé est chiffrée sur le serveur et ne sera plus jamais affichée. {p && <a href={p.keyUrl} target="_blank" rel="noreferrer">Où obtenir une clé ?</a>}</p>
-      {error && <p className="error" role="alert">{error}</p>}
-      <button className="primary" type="submit" disabled={!p || (!apiKey && !p.keyOptional)}>Ajouter</button>
+      <div className="alert info"><Icon name="info" size={16} /><span>La clé est chiffrée sur le serveur et ne sera plus jamais affichée. {p && <a href={p.keyUrl} target="_blank" rel="noreferrer">Où obtenir une clé ?</a>}</span></div>
+      {error && <div className="alert error" role="alert"><Icon name="alert" size={16} /><span>{error}</span></div>}
     </form>
+    </Dialog>
   );
 }
 
@@ -43,6 +49,8 @@ export function Settings() {
   const [assign, setAssign] = useState<Assignment[]>([]);
   const [tests, setTests] = useState<Record<string, TestResult | 'pending'>>({});
   const [error, setError] = useState('');
+  const [adding, setAdding] = useState(false);
+  const ui = useUI();
   const refresh = () => Promise.all([Api.credentials().then(setCreds), Api.assignments().then(setAssign)]).catch((e) => setError(e.message));
   useEffect(() => { Api.providers().then((r) => { setProviders(r.providers); setTasks(r.tasks); }).catch((e) => setError(e.message)); void refresh(); }, []);
   const byId = useMemo(() => Object.fromEntries(providers.map((p) => [p.id, p])), [providers]);
@@ -53,12 +61,13 @@ export function Settings() {
     setTests((t) => ({ ...t, [c.id]: r })); void refresh();
   };
   const replace = async (c: Credential) => {
-    const k = prompt(`Nouvelle clé pour « ${c.label} » :`);
-    if (k?.trim()) { await Api.updateCredential(c.id, { apiKey: k.trim() }).catch((e) => setError(e.message)); void refresh(); }
+    const k = await ui.prompt({ title: `Remplacer la clé « ${c.label} »`, message: "L'ancienne clé est effacée ; les tâches qui l'utilisent passent à la nouvelle.", label: 'Nouvelle clé', type: 'password', placeholder: byId[c.provider]?.keyHint, confirm: 'Remplacer', required: true });
+    if (k?.trim()) { await Api.updateCredential(c.id, { apiKey: k.trim() }).then(() => ui.toast('Clé remplacée')).catch((e) => ui.toast(e.message, 'error')); void refresh(); }
   };
   const remove = async (c: Credential) => {
-    if (!confirm(`Supprimer la clé « ${c.label} » ? Les tâches qui l'utilisent n'auront plus de modèle.`)) return;
-    await Api.deleteCredential(c.id).catch((e) => setError(e.message)); void refresh();
+    const ok = await ui.confirm({ title: `Supprimer la clé « ${c.label} » ?`, message: "Les tâches qui l'utilisent n'auront plus de modèle, jusqu'à ce que vous en choisissiez un autre.", confirm: 'Supprimer', danger: true });
+    if (!ok) return;
+    await Api.deleteCredential(c.id).then(() => ui.toast('Clé supprimée')).catch((e) => ui.toast(e.message, 'error')); void refresh();
   };
   const setTask = async (task: string, credentialId: string | null, model: string, voice = '') => {
     try { const a = await Api.assign(task, credentialId, model, voice); setAssign((all) => all.map((x) => (x.task === task ? a : x))); }
@@ -75,7 +84,7 @@ export function Settings() {
       <div className="grid2">
         <section>
           <h3>Vos clés</h3>
-          {creds.length === 0 && <p className="muted">Aucune clé enregistrée.</p>}
+          {creds.length === 0 && <div className="empty small-empty"><p>Aucune clé enregistrée. Ajoutez celle d'un fournisseur pour que l'IA écrive, dessine, compose et parle.</p></div>}
           <ul className="cred-list">
             {creds.map((c) => {
               const t = tests[c.id];
@@ -97,7 +106,8 @@ export function Settings() {
               );
             })}
           </ul>
-          {providers.length > 0 && admin && <AddKey providers={providers} onAdded={() => void refresh()} />}
+          {providers.length > 0 && admin && <button className="primary" onClick={() => setAdding(true)}><Icon name="plus" size={16} /> Ajouter une clé</button>}
+          {adding && <AddKey providers={providers} onClose={() => setAdding(false)} onAdded={() => { void refresh(); ui.toast('Clé ajoutée : testez-la pour voir ses modèles'); }} />}
         </section>
         <section>
           <h3>Un modèle par tâche</h3>

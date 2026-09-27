@@ -1,4 +1,4 @@
-import { signedIn } from './auth';
+import { signedIn, newProject } from './auth';
 import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -38,8 +38,7 @@ test('record the narration, hear it in the preview, render it into the video', a
   const cred = await (await page.request.post('/api/credentials', { data: { provider: 'openai', label: 'voix locale', apiKey: 'sk-local-test-000000', baseUrl: base } })).json();
   expect((await page.request.put('/api/assignments/narration', { data: { credentialId: cred.id, model: 'tts-1', voice: 'nova' } })).ok()).toBe(true);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await newProject(page);
   await expect(page).toHaveURL(/\/p\//);
   await expect(page.locator('.tl-line.estimated').first()).toBeVisible(); // durations are estimates before any voice
 

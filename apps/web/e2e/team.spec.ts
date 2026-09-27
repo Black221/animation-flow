@@ -1,16 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { signedIn } from './auth';
+import { signedIn, newProject } from './auth';
 
 test('invite a teammate from the Team page; roles change what they can do', async ({ page, browser }) => {
   await signedIn(page);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await newProject(page);
   await expect(page).toHaveURL(/\/p\//);
   await expect(page.getByTestId('author')).toHaveText('par Olga');
 
   // the owner makes an invitation link for an editor
+  // from the editor (no navigation there), back to the projects, then the team
+  await page.getByRole('link', { name: 'Projets' }).click();
   await page.getByRole('link', { name: 'Équipe' }).click();
-  const invite = page.getByRole('region', { name: 'inviter' });
+  await page.getByRole('button', { name: 'Inviter', exact: true }).click();
+  const invite = page.getByRole('dialog', { name: /Inviter/ });
   await invite.getByLabel('rôle invité').selectOption('editor');
   await invite.getByRole('button', { name: 'Créer un lien' }).click();
   const link = await invite.getByLabel("lien d'invitation").inputValue();
@@ -36,7 +38,7 @@ test('invite a teammate from the Team page; roles change what they can do', asyn
 
   // now read-only for the teammate: no save, no creation, keys page locked
   await mate.goto('/');
-  await expect(mate.locator('.readonly-note')).toContainText('Rôle lecteur');
+  await expect(mate.getByText(/Rôle lecteur : vous consultez/)).toBeVisible();
   await expect(mate.getByRole('button', { name: 'Créer' })).toHaveCount(0);
   await mate.locator('.project-grid .title').first().click();
   await expect(mate.getByTestId('read-only')).toBeVisible();

@@ -3,7 +3,7 @@ import { catalog, registry } from '@af/library';
 import { parseProject, type Project, type Scene } from '@af/schema';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { Api, ApiError, getWorkspace, RANK, type ProjectDoc } from '../api';
+import { Api, ApiError, getWorkspace, RANK, type ProjectDoc, type Publication } from '../api';
 import { JsonEditor, type JsonIssue } from '../components/JsonEditor';
 import { Player } from '../components/Player';
 import { RenderPanel } from '../components/RenderPanel';
@@ -13,6 +13,8 @@ import { MusicPanel } from '../components/MusicPanel';
 import { Icon, type IconName } from '../components/Icon';
 import { SceneForm } from '../components/SceneForm';
 import { SceneThumb } from '../components/SceneThumb';
+import { PublishDialog } from '../components/PublishDialog';
+import { useUI } from '../components/ui';
 import { useSoundtrack } from '../audio/useSoundtrack';
 import { Timeline } from '../components/Timeline';
 import { Playback } from '../playback';
@@ -54,6 +56,18 @@ export function Editor() {
   const session = useSession();
   const [sound, setSound] = useState(true);
   const [liveSaving, setLiveSaving] = useState(false);
+  const ui = useUI();
+  const showKeys = useCallback(() => ui.info({ title: 'Raccourcis clavier', icon: 'keyboard', size: 'sm', body: (
+    <dl className="keys">
+      <dt><kbd>Espace</kbd></dt><dd>lecture / pause</dd>
+      <dt><kbd>Ctrl</kbd> + <kbd>S</kbd></dt><dd>enregistrer une version</dd>
+      <dt><kbd>?</kbd></dt><dd>cette aide</dd>
+      <dt>clic sur l'aperçu</dt><dd>lecture / pause</dd>
+      <dt>clic sur la frise</dt><dd>aller à ce moment ; sur un titre : choisir la scène</dd>
+    </dl>) }), [ui]);
+  const [publication, setPublication] = useState<Publication | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  useEffect(() => { Api.projectPublication(id).then((r) => setPublication(r.publication)).catch(() => undefined); }, [id]);
 
   // live co-editing when the WebSocket is there; otherwise (fallback) the project is saved by hand below
   const comments = useComments(id, session.epoch);
@@ -88,12 +102,12 @@ export function Editor() {
   };
 
   const save = useCallback(async (baseVersion?: number): Promise<boolean> => {
-    if (liveOn) { setLiveSaving(true); try { return await live.save(); } finally { setLiveSaving(false); } }
+    if (liveOn) { setLiveSaving(true); try { const ok = await live.save(); if (ok) ui.toast('Version enregistrée'); return ok; } finally { setLiveSaving(false); } }
     if (!doc || !restDraft) return false;
     setSaving(true);
     try {
       const d = await Api.saveProject(doc.id, restDraft, baseVersion ?? doc.version);
-      setDoc(d); setDirty(false); setConflict(null); setError('');
+      setDoc(d); setDirty(false); setConflict(null); setError(''); ui.toast(`Version ${d.version} enregistrée`);
       return true;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) setConflict(e.body.current);
@@ -109,6 +123,7 @@ export function Editor() {
       const typing = (e.target as HTMLElement)?.closest('textarea, input, select');
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); void saveRef.current(); }
       else if (e.key === ' ' && !typing) { e.preventDefault(); pb.toggle(); }
+      else if (e.key === '?' && !typing) { e.preventDefault(); showKeys(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -147,7 +162,7 @@ export function Editor() {
     const s: Scene = { id: sid, title: 'Nouvelle scène', duration: 5, decor: { kind: 'plain', params: {} }, narration: [], elements: [], camera: [], transition: 'cut', music: { mood: 'none', gain: 0 }, sfx: [] };
     update({ ...draft, scenes: [...draft.scenes.slice(0, i + 1), s, ...draft.scenes.slice(i + 1)] }); setSelId(sid); lastIndex.current = i + 1; setResetN((x) => x + 1);
   };
-  const removeScene = () => { if (draft.scenes.length < 2 || !confirm(`Supprimer la scène « ${scene.title || scene.id} » ?`)) return; update({ ...draft, scenes: draft.scenes.filter((_, k) => k !== i) }); setSelId(draft.scenes[i > 0 ? i - 1 : 1]!.id); setResetN((x) => x + 1); };
+  const removeScene = async () => { if (draft.scenes.length < 2 || !(await ui.confirm({ title: `Supprimer la scène « ${scene.title || scene.id} » ?`, message: 'Ses répliques, ses éléments et ses mouvements de caméra seront supprimés. Vous pouvez encore revenir en arrière en rechargeant la version enregistrée.', confirm: 'Supprimer', danger: true }))) return; update({ ...draft, scenes: draft.scenes.filter((_, k) => k !== i) }); setSelId(draft.scenes[i > 0 ? i - 1 : 1]!.id); setResetN((x) => x + 1); };
   const moveScene = (d: -1 | 1) => { const j = i + d; if (j < 0 || j >= draft.scenes.length) return; const s = draft.scenes.slice(); [s[i], s[j]] = [s[j]!, s[i]!]; update({ ...draft, scenes: s }); setResetN((x) => x + 1); };
   const downloadSrt = async () => {
     const r = await fetch(`/api/projects/${doc.id}/subtitles.srt`, { headers: { 'x-workspace-id': getWorkspace() } });
@@ -158,8 +173,8 @@ export function Editor() {
   return (
     <div className="editor">
       <div className="editor-bar">
-        <Link to="/" className="back" title="Projets"><Icon name="back" size={16} /> Projets</Link>
-        <h1 title={draft.title}>{draft.title}</h1>
+        <Link to="/projects" className="back" title="Mes projets"><span className="logo small" aria-hidden><Icon name="play" /></span><Icon name="back" size={16} /> Projets</Link>
+        <h1 title={draft.title}>{draft.title}{doc.remixOf && <Link to={`/c/${doc.remixOf.id}`} className="origin" title="le film d'origine, dans la communauté"><Icon name="remix" size={13} /> remix de « {doc.remixOf.title} »</Link>}</h1>
         <span className={`badge${unsaved ? ' warn' : ''}`} data-testid="save-state" title={liveOn ? 'enregistrement automatique' : undefined}>{unsaved ? 'modifié' : `version ${version}`}</span>
         {!unsaved && (liveOn ? live.savedBy ?? doc.updatedBy : doc.updatedBy) && <span className="muted small" data-testid="author">par {liveOn ? live.savedBy ?? doc.updatedBy : doc.updatedBy}</span>}
         {live.status === 'reconnecting' && <span className="badge warn" data-testid="live-state">reconnexion…</span>}
@@ -169,12 +184,16 @@ export function Editor() {
             {others.map((p) => <li key={p.userId} style={{ background: p.color }} title={`${p.name}${where(p) ? ` · ${where(p)}` : ''}`}>{p.name.slice(0, 1).toUpperCase()}<span className="sr-only"> {p.name}</span></li>)}
           </ul>
         )}
+        {editable ? <button onClick={() => setPublishing(true)} className={publication ? 'published' : ''} title={publication ? 'publié dans la communauté : republier, voir ou retirer' : 'partager ce film avec la communauté'}><Icon name="globe" size={16} /> {publication ? 'Publié' : 'Publier'}</button>
+          : publication && <Link to={`/c/${publication.id}`} className="button"><Icon name="globe" size={16} /> Voir dans la communauté</Link>}
+        <button className="icon ghost" onClick={showKeys} aria-label="raccourcis clavier" title="raccourcis clavier (?)"><Icon name="keyboard" size={17} /></button>
         <button onClick={downloadSrt} title="télécharger les sous-titres"><Icon name="subtitles" size={16} /> Sous-titres .srt</button>
         {editable ? (liveOn
           ? <button className="primary" onClick={() => void save()} disabled={liveSaving} title="enregistré automatiquement ; ceci clôt la version en cours (Ctrl+S)"><Icon name="save" size={16} />{liveSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
           : <button className="primary" onClick={() => void save()} disabled={!dirty || saving}><Icon name="save" size={16} />{saving ? 'Enregistrement…' : 'Enregistrer'}</button>)
           : <span className="readonly-note" data-testid="read-only">Lecture seule (rôle lecteur)</span>}
       </div>
+      {publishing && <PublishDialog projectId={doc.id} title={draft.title} unsaved={unsaved} save={() => save()} publication={publication} onClose={() => setPublishing(false)} onDone={(p) => { setPublication(p); setPublishing(false); }} />}
       {live.note && (
         <div className={`banner ${live.note.kind === 'error' ? 'error' : 'warn'}`} role="status" data-testid="live-note">
           {live.note.text} <button onClick={live.clearNote} aria-label="fermer">✕</button>

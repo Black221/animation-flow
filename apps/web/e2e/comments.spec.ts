@@ -1,10 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { signedIn } from './auth';
+import { signedIn, newProject } from './auth';
 
 test('comment a scene at a moment; a reader replies live; the thread is resolved', async ({ page, browser }) => {
   await signedIn(page);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await newProject(page);
   await expect(page).toHaveURL(/\/p\/[0-9a-f-]{36}$/);
   const url = page.url();
 

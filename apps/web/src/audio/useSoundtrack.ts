@@ -16,11 +16,13 @@ function soundKey(p: Project): string {
 
 export interface Soundtrack { buffer: AudioBuffer | null; mixing: boolean; missing: string[]; lufs: number | null; error: string }
 
-export function useSoundtrack(project: Project, enabled: boolean): Soundtrack {
+/** `links`: where the recordings are fetched from (the workspace's signed links by default; a publication's public ones) */
+export function useSoundtrack(project: Project, enabled: boolean, links?: (assets: string[]) => Promise<Record<string, string>>): Soundtrack {
   const key = useMemo(() => soundKey(project), [project]);
   const [state, setState] = useState<Soundtrack>({ buffer: null, mixing: false, missing: [], lufs: null, error: '' });
   const worker = useRef<Worker | null>(null), seq = useRef(0), latest = useRef(project);
   latest.current = project;
+  const linksRef = useRef(links); linksRef.current = links;
 
   useEffect(() => () => worker.current?.terminate(), []);
   useEffect(() => {
@@ -32,8 +34,8 @@ export function useSoundtrack(project: Project, enabled: boolean): Soundtrack {
       try {
         const need = [...new Set(p.scenes.flatMap((s) => s.narration.filter(voiceIsCurrent).map((l) => l.audio!.asset)))].filter((a) => !decoded.has(a));
         if (need.length) {
-          const links = await Api.voiceLinks(need);
-          await Promise.all(Object.entries(links).map(async ([asset, url]) => {
+          const found = await (linksRef.current ?? Api.voiceLinks)(need);
+          await Promise.all(Object.entries(found).map(async ([asset, url]) => {
             const r = await fetch(url);
             if (r.ok) decoded.set(asset, decodeWav(new Uint8Array(await r.arrayBuffer())).channels[0]!);
           }));

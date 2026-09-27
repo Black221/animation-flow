@@ -5,7 +5,7 @@ import { registry } from '@af/library';
 import type { Project } from '@af/schema';
 import { getStyle, stylePacks, type Renderer } from '@af/styles';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { usePictures } from '../pictures';
+import { usePictures, type LinksFn } from '../pictures';
 import { Icon } from './Icon';
 import { fmtTime, usePlayback, type Playback } from '../playback';
 
@@ -37,9 +37,11 @@ function useAudioSync(pb: Playback, buffer: AudioBuffer | null, on: boolean) {
   }, [pb, buffer, on]);
 }
 
-export function Player({ project, pb, style, onStyle, audio, sound, onSound, soundInfo }: {
+export function Player({ project, pb, style, onStyle, audio, sound, onSound, soundInfo, imageLinks }: {
   project: Project; pb: Playback; style: string; onStyle: (s: string) => void;
   audio?: AudioBuffer | null; sound?: boolean; onSound?: (on: boolean) => void; soundInfo?: string;
+  /** where the project's pictures come from (default: the workspace) */
+  imageLinks?: LinksFn;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [quality, setQuality] = useState(960);
@@ -49,7 +51,7 @@ export function Player({ project, pb, style, onStyle, audio, sound, onSound, sou
   const snap = usePlayback(pb);
   const renderer = useRef<Renderer | null>(null);
   const dirty = useRef(true);
-  const images = usePictures(project, useMemo(() => () => { dirty.current = true; }, []));
+  const images = usePictures(project, useMemo(() => () => { dirty.current = true; }, []), imageLinks);
   useAudioSync(pb, audio ?? null, !!sound);
 
   useEffect(() => { pb.setDuration(ev.timeline.duration); dirty.current = true; }, [ev, pb]);

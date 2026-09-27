@@ -1,4 +1,4 @@
-import { signedIn } from './auth';
+import { signedIn, newProject } from './auth';
 import { expect, test, type Page } from '@playwright/test';
 
 /** how many distinct colours the preview shows (sampled): a blank or failed canvas has one or two */
@@ -11,8 +11,7 @@ const snapshot = (page: Page) => page.getByTestId('preview').evaluate((c: HTMLCa
 
 test('create a project, preview it in both styles, edit a scene, save', async ({ page }) => {
   await signedIn(page);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Créer' }).click();
+  await newProject(page);
   await expect(page).toHaveURL(/\/p\/[0-9a-f-]{36}$/);
   await expect(page.getByTestId('save-state')).toHaveText('version 1');
 
@@ -49,11 +48,12 @@ test('create a project, preview it in both styles, edit a scene, save', async ({
 test('add a model provider key: it is shown masked, never in full', async ({ page }) => {
   await signedIn(page);
   await page.goto('/settings');
+  await page.getByRole('button', { name: 'Ajouter une clé' }).click();
   const form = page.getByRole('form', { name: 'ajouter une clé' });
   await form.getByLabel('Fournisseur').selectOption('openai');
   await form.getByLabel('Nom').fill('labo');
   await form.getByLabel(/Clé d'API/).fill('sk-test-THIS-IS-SECRET-4242');
-  await form.getByRole('button', { name: 'Ajouter' }).click();
+  await page.getByRole('dialog', { name: 'Ajouter une clé' }).getByRole('button', { name: 'Ajouter', exact: true }).click();
   const card = page.getByTestId('credential').filter({ hasText: 'labo' });
   await expect(card).toContainText('…4242');
   await expect(page.locator('body')).not.toContainText('THIS-IS-SECRET');
