@@ -161,6 +161,10 @@ export const assetDecor = (a: Asset): DecorFn => ({ width: W, height: H, id }) =
   const moving = new Set(a.parts.filter((p) => { const mo = idle[p.id]; return !!mo && (((mo.swing > 0 || mo.bounce > 0) && mo.speed > 0) || mo.spin !== 0); }).map((p) => p.id));
   // what hangs from a moving part moves too
   for (let changed = true; changed;) { changed = false; for (const p of a.parts) if (p.parent && moving.has(p.parent) && !moving.has(p.id)) { moving.add(p.id); changed = true; } }
+  // the plate is painted behind what moves: parts drawn after the first moving one are redrawn with it, every
+  // frame, so the drawing order holds (a tablecloth stays in front of turning rays)
+  const first = a.parts.findIndex((p) => moving.has(p.id));
+  if (first >= 0) for (const p of a.parts.slice(first)) moving.add(p.id);
   const bounds = { x: -M * sx, y: -M * sy, w: (DECOR_FRAME.w + 2 * M) * sx, h: (DECOR_FRAME.h + 2 * M) * sy };
   const ground: Prim[] = a.background ? [{ kind: 'path', id: `${id}:bg`, points: [[bounds.x, bounds.y], [bounds.x + bounds.w, bounds.y], [bounds.x + bounds.w, bounds.y + bounds.h], [bounds.x, bounds.y + bounds.h]], closed: true, fill: a.background, role: 'shade' }] : [];
   // a decor painted by an image model: the picture over everything (the drawing stays under it, for when it is missing)

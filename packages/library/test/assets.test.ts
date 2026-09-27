@@ -107,6 +107,18 @@ describe('drawings in a project', () => {
     expect(bad({ kind: 'prop', name: 'x', parts: [{ id: 'a', group: 'mouth', variant: 'o' }], expressions: { happy: { mouth: 'smile' } } })).toContain('expression « happy » : pas de variante « smile » dans le groupe « mouth »');
   });
 
+  it('keeps a decor\'s drawing order when some of its parts move', () => {
+    const d = parseAsset({ kind: 'decor', name: 'x', parts: [
+      { id: 'sky', shapes: [{ type: 'rect', x: -300, y: -300, w: 2520, h: 1680, fill: '#88AAFF' }] },
+      { id: 'rays', pivot: [960, 540], shapes: [{ type: 'path', d: 'M 960 540 L 2000 0 L 2000 400 Z', fill: '#FFEE88' }] },
+      { id: 'cloth', shapes: [{ type: 'rect', x: -300, y: 900, w: 2520, h: 480, fill: '#D7263D' }] },
+    ], poses: { idle: { rays: { spin: 10 } } } });
+    const out = assetDecor(d)({ params: {}, width: 1920, height: 1080, id: 'd' });
+    const ids = (ps: { id: string }[]) => ps.map((p) => p.id.split(':').slice(0, 2).join(':'));
+    expect(ids(out.still).some((i) => i.includes('cloth'))).toBe(false);
+    expect(ids(out.live!(1)).map((i) => i.split(':')[1])).toEqual(['rays', 'cloth']);
+  });
+
   it('draws a decor to the size of the project', () => {
     const out = assetDecor(parseAsset(town))({ params: {}, width: 960, height: 540, id: 'd' });
     expect(out.bounds).toEqual({ x: -150, y: -150, w: 1260, h: 840 });
