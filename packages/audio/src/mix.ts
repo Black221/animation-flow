@@ -5,8 +5,8 @@ import { refResolver, timeProject, type Timeline } from '@af/engine';
 import { voiceIsCurrent, type Project } from '@af/schema';
 import { addInto, dbToGain, SR } from './dsp';
 import { integratedLoudness, limit, normalize, truePeak } from './loudness';
-import { renderMusic } from './music';
-import { sound } from './sfx';
+import { pieceFor, renderMusic } from './music';
+import { soundFor } from './sfx';
 
 /** Voices are stored at VOICE_LUFS (normalizeVoice, when a line is recorded). The music bus is measured and set
  * to MUSIC_LUFS whatever the mood, then `musicDb` adjusts it; sound effects keep their synthesized level + `sfxDb`. */
@@ -87,9 +87,10 @@ export function mixSoundtrack(input: MixInput): MixResult {
 
   // music under the voice: its gain drops by duckDb while the voice sounds
   if (inc.music) {
-    const sections = tl.scenes.map((ts, si) => ({ start: ts.start - from, duration: ts.duration, mood: project.scenes[si]!.music.mood, gainDb: project.scenes[si]!.music.gain }))
+    // each scene plays its piece of the project's score (or a built-in mood)
+    const sections = tl.scenes.map((ts, si) => ({ start: ts.start - from, duration: ts.duration, piece: pieceFor(project.scenes[si]!.music.mood, project.score), gainDb: project.scenes[si]!.music.gain }))
       .filter((s) => s.start + s.duration > 0 && s.start < to - from);
-    if (sections.some((s) => s.mood !== 'none')) {
+    if (sections.some((s) => s.piece)) {
       const [ml, mr] = renderMusic(sections, to - from, 7), act = activity(voice), duck = dbToGain(lv.duckDb);
       const measured = integratedLoudness([ml, mr]), base = dbToGain((Number.isFinite(measured) ? MUSIC_LUFS - measured : 0) + lv.musicDb);
       for (let i = 0; i < n; i++) {
@@ -105,7 +106,7 @@ export function mixSoundtrack(input: MixInput): MixResult {
     scene.sfx.forEach((fx, k) => {
       const t = ts.start + res(fx.t, 0);
       if (t >= to) return;
-      const buf = sound(fx.kind, k);
+      const buf = soundFor(fx.kind, project.sounds, k);
       if (!buf) { unknownSounds.add(fx.kind); return; }
       if (t + buf.length / SR <= from) return;
       addInto(L, R, buf, at(t), dbToGain(lv.sfxDb + fx.gain), fx.pan);

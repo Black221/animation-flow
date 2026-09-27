@@ -2,24 +2,25 @@
 // once the user has reviewed it (or at once with review: false), a drawing of every character, prop and decor it
 // needs (each looked at by the model and corrected), then every scene, and a new project at the end.
 // Progress, token counts and every model call (with the problems found in its answer) are kept on the job.
-import { briefsOf, drawOne, editScene, generateDrawings, generateScenes, generateStoryboard, InvalidAnswer, ModelError, PREVIEW_TIME, Storyboard, type DrawOptions, type Drawings, type Step } from '@af/ai';
+import { briefsOf, composeScore, designSounds, drawOne, editScene, generateDrawings, generateScenes, generateSound, generateStoryboard, InvalidAnswer, ModelError, PREVIEW_TIME, Storyboard, type DrawOptions, type Drawings, type FilmSound, type Step } from '@af/ai';
 import { renderStill } from '@af/render';
+import { timeProject } from '@af/engine';
 import type { JsonPost } from '@af/providers';
 import { Asset, parseProject, type ProjectInput } from '@af/schema';
 import { stylePacks } from '@af/styles';
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { drawingModel, modelFor, NotConfigured } from '../ai/models';
+import { drawingModel, modelFor, musicModel, NotConfigured } from '../ai/models';
 import type { SecretBox } from '../crypto';
 import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
 
-type Status = 'storyboard' | 'review' | 'assets' | 'scenes' | 'done' | 'failed' | 'canceled';
+type Status = 'storyboard' | 'review' | 'assets' | 'music' | 'scenes' | 'done' | 'failed' | 'canceled';
 interface Row {
   id: string; workspace_id: string; created_by: string | null; status: Status; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean };
   storyboard: unknown; project_id: string | null; scenes_done: number; scenes_total: number; steps: unknown[]; fallbacks: string[];
-  assets: Drawings | null; assets_done: number; assets_total: number;
+  assets: Drawings | null; assets_done: number; assets_total: number; audio: (FilmSound & { fallbacks: string[] }) | null;
   models: Record<string, string>; input_tokens: number; output_tokens: number; error: string | null; created_at: Date; updated_at: Date;
 }
 const Uuid = z.object({ id: z.string().uuid() });
@@ -39,6 +40,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
   const view = (r: Row) => ({
     id: r.id, status: r.status, input: r.input, storyboard: r.storyboard, projectId: r.project_id, scenesDone: r.scenes_done, scenesTotal: r.scenes_total,
     assetsDone: r.assets_done, assetsTotal: r.assets_total, drawings: r.assets ? Object.keys(r.assets) : [],
+    composed: r.audio ? { pieces: Object.keys(r.audio.score), sounds: Object.keys(r.audio.sounds) } : null,
     steps: r.steps, fallbacks: r.fallbacks, models: r.models, usage: { inputTokens: r.input_tokens, outputTokens: r.output_tokens }, error: r.error, createdAt: r.created_at, updatedAt: r.updated_at,
   });
   const load = async (id: string, ws?: string) => (await db.query<Row>(`SELECT * FROM generations WHERE id = $1${ws ? ' AND workspace_id = $2' : ''}`, ws ? [id, ws] : [id])).rows[0];
@@ -52,7 +54,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
   const failure = (e: unknown) => e instanceof InvalidAnswer ? `${e.message} : ${e.issues.slice(0, 3).map((i) => `${i.path} ${i.message}`).join(' ; ')}` : (e as Error).message;
 
   // a job cut off by a restart cannot resume: say so
-  void db.query(`UPDATE generations SET status = 'failed', error = 'interrompue par un redémarrage du serveur', updated_at = now() WHERE status IN ('storyboard', 'assets', 'scenes')`).catch(() => undefined);
+  void db.query(`UPDATE generations SET status = 'failed', error = 'interrompue par un redémarrage du serveur', updated_at = now() WHERE status IN ('storyboard', 'assets', 'music', 'scenes')`).catch(() => undefined);
 
   const runStoryboard = (id: string, ws: string, input: Row['input']) => {
     const ctrl = new AbortController(); running.set(id, ctrl);
@@ -90,14 +92,25 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
           assets = r.assets;
           await set(id, { assets, assets_done: briefs.length });
         }
-        // 2. the scenes, with them
+        // 2. the music and the sounds (kept on the job too)
+        let audio = (await load(id))?.audio ?? null;
+        if (!audio) {
+          await set(id, { status: 'music', fallbacks: drawnFallbacks });
+          const composer = await musicModel(db, box, ws, fetchImpl);
+          await set(id, { models: { ...((await load(id))?.models ?? {}), music: composer.label } });
+          audio = await generateSound(composer, sb, logStep(id));
+          if (ctrl.signal.aborted) return;
+          await set(id, { audio });
+        }
+        drawnFallbacks.push(...audio.fallbacks);
+        // 3. the scenes, with them
         await set(id, { status: 'scenes', scenes_done: 0, scenes_total: sb.scenes.length, fallbacks: drawnFallbacks });
         const model = await modelFor(db, box, ws, 'scenes', fetchImpl);
         const models = (await load(id))?.models ?? {};
         await set(id, { models: { ...models, scenes: model.label } });
         // progress writes go one after the other: on a pool, two in flight could land in the wrong order
         let done = 0, progress: Promise<unknown> = Promise.resolve(); const fallbacks: string[] = [...drawnFallbacks];
-        const { project } = await generateScenes(model, sb, assets!, {
+        const { project } = await generateScenes(model, sb, assets!, { audio,
           concurrency: 2, signal: ctrl.signal, onStep: logStep(id),
           onScene: (_i, r) => {
             done++; if (r.fallback) fallbacks.push(r.scene.id);
@@ -144,7 +157,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (r.status !== 'review') return reply.code(409).send({ error: 'le storyboard ne se modifie qu\'en relecture' });
     const sb = Storyboard.safeParse((req.body as { storyboard?: unknown })?.storyboard);
     if (!sb.success) return reply.code(422).send({ error: 'storyboard invalide', issues: sb.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) });
-    await set(r.id, { storyboard: sb.data, scenes_total: sb.data.scenes.length, assets: null, assets_total: briefsOf(sb.data).length }); // changed: draw again
+    await set(r.id, { storyboard: sb.data, scenes_total: sb.data.scenes.length, assets: null, audio: null, assets_total: briefsOf(sb.data).length }); // changed: draw and compose again
     return view((await load(r.id))!);
   });
 
@@ -173,7 +186,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     const p = Uuid.safeParse(req.params), r = p.success ? await load(p.data.id, wsOf(req).id) : undefined;
     if (!r) return reply.code(404).send({ error: 'génération introuvable' });
     running.get(r.id)?.abort(); running.delete(r.id);
-    if (r.status === 'storyboard' || r.status === 'assets' || r.status === 'scenes') await set(r.id, { status: 'canceled' });
+    if (['storyboard', 'assets', 'music', 'scenes'].includes(r.status)) await set(r.id, { status: 'canceled' });
     return view((await load(r.id))!);
   });
 
@@ -190,7 +203,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     try {
       // what the change needs and the film does not have is drawn first
       const r = await editScene(model, parsed.project, b.data.sceneIndex, b.data.instruction, { onStep, drawModel: painter, draw });
-      return { scene: r.scene, assets: r.assets, cast: r.cast, drawn: r.drawn.map((d) => ({ id: d.id, fallback: d.fallback, rounds: d.rounds, review: d.review })), usage, model: model.label };
+      return { scene: r.scene, assets: r.assets, cast: r.cast, sounds: r.sounds, drawn: r.drawn.map((d) => ({ id: d.id, fallback: d.fallback, rounds: d.rounds, review: d.review })), usage, model: model.label };
     } catch (e) {
       if (e instanceof InvalidAnswer) return reply.code(422).send({ error: e.message, issues: e.issues, usage });
       if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage });
@@ -221,5 +234,40 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
       if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage });
       throw e;
     }
+  });
+
+  // compose the music of a project again (the editor's « Musique » tab): every scene, or with a direction
+  app.post('/api/ai/compose', { config: { role: 'editor' } }, async (req, reply) => {
+    const b = z.object({ project: z.unknown(), instruction: z.string().trim().max(2000).optional() }).safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: 'requête invalide' });
+    const parsed = parseProject(b.data.project);
+    if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
+    let composer;
+    try { composer = await musicModel(db, box, wsOf(req).id, fetchImpl); } catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
+    const p = parsed.project, tl = timeProject(p), usage = { inputTokens: 0, outputTokens: 0 };
+    // what each scene wants: its current piece's description, the direction given, its title
+    const sb = { title: p.title, language: p.language, scenes: p.scenes.map((s, i) => {
+      const cur = p.score[s.music.mood];
+      return { id: s.id, title: s.title, duration: Math.round(tl.scenes[i]!.duration), music: [cur ? `${cur.name}: ${cur.description}` : s.music.mood, b.data.instruction].filter(Boolean).join(' — ') };
+    }) } as unknown as Storyboard;
+    try {
+      const r = await composeScore(composer, sb, (st) => { usage.inputTokens += st.usage.inputTokens; usage.outputTokens += st.usage.outputTokens; });
+      return { score: r.score, music: r.music, fallback: r.fallback, issues: r.issues, usage, model: composer.label };
+    } catch (e) { if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage }); throw e; }
+  });
+
+  // design one sound effect for a project
+  app.post('/api/ai/sound', { config: { role: 'editor' } }, async (req, reply) => {
+    const b = z.object({ project: z.unknown(), id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/), name: z.string().trim().min(1).max(80), description: z.string().trim().min(3).max(800) }).safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: b.error.issues[0]?.message ?? 'requête invalide' });
+    const parsed = parseProject(b.data.project);
+    if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
+    let composer;
+    try { composer = await musicModel(db, box, wsOf(req).id, fetchImpl); } catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
+    const usage = { inputTokens: 0, outputTokens: 0 };
+    try {
+      const r = await designSounds(composer, [{ id: b.data.id, name: b.data.name, description: b.data.description }], parsed.project.title, (st) => { usage.inputTokens += st.usage.inputTokens; usage.outputTokens += st.usage.outputTokens; });
+      return { sound: r.sounds[b.data.id], fallback: r.fallbacks.length > 0, issues: r.issues, usage, model: composer.label };
+    } catch (e) { if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage }); throw e; }
   });
 }

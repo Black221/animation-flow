@@ -17,12 +17,15 @@ const storyboard = {
   cast: [{ id: 'awa', name: 'Awa', description: 'Une jeune fille, pull corail.' }],
   props: [{ id: 'bag', name: 'Sac', description: 'Un sac à dos vert.' }],
   decors: [{ id: 'field', name: 'Champ', description: "Un champ à l'aube." }, { id: 'room', name: 'Salle', description: 'Une salle de classe.' }],
+  sounds: [{ id: 'zip', name: 'Fermeture éclair', description: 'le sac qui se ferme' }],
   scenes: [
-    { id: 's1', title: 'Départ', duration: 8, decor: 'field', props: ['bag'], narration: [{ id: 'l1', text: 'Awa part.' }], shots: ['Awa marche'] },
-    { id: 's2', title: 'Arrivée', duration: 6, decor: 'room', narration: [{ id: 'l1', text: 'Elle arrive.' }], shots: ['Awa salue'] },
+    { id: 's1', title: 'Départ', duration: 8, decor: 'field', props: ['bag'], music: "matin, flûte, plein d'espoir", narration: [{ id: 'l1', text: 'Awa part.' }], shots: ['Awa marche'] },
+    { id: 's2', title: 'Arrivée', duration: 6, decor: 'room', music: 'none', narration: [{ id: 'l1', text: 'Elle arrive.' }], shots: ['Awa salue'] },
   ],
 };
-const scene = (id: string) => ({ id, duration: 6, decor: { kind: id === 's1' ? 'field' : 'room' }, elements: [{ id: 'awa', type: 'character', ref: 'awa', keys: [{ t: 0, x: 300, y: 900, pose: 'walk' }, { t: { line: 'l1', edge: 'end' }, x: 900, pose: 'wave' }] }] });
+const piece = { name: 'Matin', description: 'espoir', bpm: 88, key: 'D', mode: 'major', chords: ['I', 'IV', 'vi', 'V'], parts: [{ instrument: 'pad', play: 'chords' }, { instrument: 'flute', play: 'melody', notes: ['1 - 3 - 5 - - - . . . . . . . .'] }] };
+const zip = { layers: [{ wave: 'noise', duration: 0.3, decay: 0.2, filter: { type: 'bandpass', freq: [2000, 5000], q: 3 }, repeat: { count: 4, every: 0.05 } }] };
+const scene = (id: string) => ({ id, duration: 6, decor: { kind: id === 's1' ? 'field' : 'room' }, ...(id === 's1' ? { sfx: [{ t: 1, kind: 'zip' }] } : {}), elements: [{ id: 'awa', type: 'character', ref: 'awa', keys: [{ t: 0, x: 300, y: 900, pose: 'walk' }, { t: { line: 'l1', edge: 'end' }, x: 900, pose: 'wave' }] }] });
 
 // a text model speaking the OpenAI chat API, answering by what it is asked: storyboard, drawing, review (it gets
 // the image of its drawing), plan of an edit, scene
@@ -36,6 +39,8 @@ const llm = vi.fn<JsonPost>(async (_url, init) => {
   else if (system.includes('A PROP')) content = JSON.stringify(exampleProp);
   else if (system.includes('A DECOR')) content = JSON.stringify(exampleDecor);
   else if (system.startsWith('You review')) { reviewed++; const img = (lastMsg.content as { type: string; image_url?: { url: string } }[]).find((x) => x.type === 'image_url'); content = img?.image_url?.url.startsWith('data:image/png;base64,iVBOR') ? '{"ok": true}' : '{"ok": false, "problems": ["pas d\'image"]}'; }
+  else if (system.startsWith('You compose')) content = JSON.stringify({ pieces: { matin: piece }, music: { s1: 'matin', s2: 'none' } });
+  else if (system.startsWith('You design')) content = JSON.stringify(Object.fromEntries([...last.matchAll(/- "([^"]+)"/g)].map((m) => [m[1], zip])));
   else if (system.startsWith('You prepare')) content = JSON.stringify({ new: last.includes('lanterne') ? [{ id: 'lamp', kind: 'prop', name: 'Lanterne', description: 'Une lanterne qui éclaire.' }] : [] });
   else if (last.includes('Change it as follows')) content = last.includes('lanterne')
     ? JSON.stringify({ ...JSON.parse(last.slice(last.indexOf('{'), last.lastIndexOf('}\n') + 1)), elements: [{ id: 'lamp1', type: 'prop', ref: 'lamp', keys: [{ t: 0, x: 900, y: 900 }] }] })
@@ -87,7 +92,9 @@ describe('generation', () => {
     // everything the storyboard needs was drawn (by the scenes model: no « Dessins » model chosen), looked at, then the scenes written
     expect(done).toMatchObject({ status: 'done', scenesDone: 2, assetsDone: 4, assetsTotal: 4, fallbacks: [], models: { scenes: 'OpenAI · gpt-b', assets: 'OpenAI · gpt-b' } });
     expect(done.drawings.sort()).toEqual(['awa', 'bag', 'field', 'room']);
-    expect(done.steps.map((s: { stage: string; target: string }) => `${s.stage}:${s.target}`).sort()).toEqual(['asset:awa', 'asset:bag', 'asset:field', 'asset:room', 'review:awa', 'review:bag', 'review:field', 'review:room', 'scene:s1', 'scene:s2', 'storyboard:storyboard']);
+    expect(done.steps.map((s: { stage: string; target: string }) => `${s.stage}:${s.target}`).sort()).toEqual(['asset:awa', 'asset:bag', 'asset:field', 'asset:room', 'music:score', 'review:awa', 'review:bag', 'review:field', 'review:room', 'scene:s1', 'scene:s2', 'sound:sounds', 'storyboard:storyboard']);
+    expect(done.composed).toEqual({ pieces: ['matin'], sounds: ['zip'] });
+    expect(done.models.music).toBe('OpenAI · gpt-b');
     expect(reviewed).toBe(4); // each one shown to the model as a real PNG
     const project = (await c.inject({ url: `/api/projects/${done.projectId}` })).json();
     expect(project.title).toBe('La quête');
@@ -96,6 +103,11 @@ describe('generation', () => {
     expect(Object.keys(project.project.assets).sort()).toEqual(['awa', 'bag', 'field', 'room']);
     expect(project.project.cast.awa).toMatchObject({ kind: 'awa', name: 'Awa' });
     expect(project.project.assets.awa.made).toMatchObject({ by: 'OpenAI · gpt-b', rounds: 1 });
+    // composed for the film: its score, what each scene plays, its sounds
+    expect(project.project.scenes.map((x: { music: { mood: string } }) => x.music.mood)).toEqual(['matin', 'none']);
+    expect(project.project.score.matin.name).toBe('Matin');
+    expect(project.project.sounds.zip.name).toBe('Fermeture éclair');
+    expect(project.project.scenes[0].sfx[0].kind).toBe('zip');
     // the scene model was asked with the format and the film's own drawings
     const sceneCall = llm.mock.calls.find((c) => JSON.parse(c[1].body).messages[0].content.startsWith('You animate'))!;
     expect(JSON.parse(sceneCall[1].body).messages[0].content).toContain('THE ANIMATION FORMAT');
@@ -158,5 +170,18 @@ describe('draw one thing', () => {
     expect(text(asked.messages[1].content)).toContain('Change requested: plus grand');
     expect(text(asked.messages[1].content)).toContain('The current drawing, to change');
     expect((await c.inject({ method: 'POST', url: '/api/ai/draw', payload: { project: p.project, id: 'x y', kind: 'prop', name: 'x', description: 'abc' } })).statusCode).toBe(400);
+  });
+});
+
+describe('compose again, design a sound', () => {
+  it('recomposes the music of a project, and designs one sound', async () => {
+    const p = (await c.inject({ method: 'POST', url: '/api/projects', payload: { template: 'example' } })).json();
+    const r = await c.inject({ method: 'POST', url: '/api/ai/compose', payload: { project: p.project, instruction: 'plus joyeux' } });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ fallback: false, score: { matin: { name: 'Matin' } }, music: { s1: 'matin', s2: 'none' } });
+    const asked = llm.mock.calls.map((x) => JSON.parse(x[1].body)).filter((b) => b.messages[0].content.startsWith('You compose')).at(-1)!;
+    expect(text(asked.messages[1].content)).toContain('plus joyeux');
+    const snd = await c.inject({ method: 'POST', url: '/api/ai/sound', payload: { project: p.project, id: 'zip', name: 'Zip', description: 'un zip' } });
+    expect(snd.json()).toMatchObject({ fallback: false, sound: { name: 'Zip' } });
   });
 });

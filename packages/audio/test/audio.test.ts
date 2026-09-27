@@ -5,7 +5,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { decodeWav, encodeWav, integratedLoudness, mixSoundtrack, renderMusic, SOUND_KINDS, sound, SR, trimSilence, MOOD_NAMES } from '../src';
+import { chordNotes, decodeWav, encodeWav, integratedLoudness, mixSoundtrack, MOODS, pieceNotes, recipeSound, renderMusic, SOUND_KINDS, sound, soundFor, SR, trimSilence, MOOD_NAMES } from '../src';
+import { Piece, SoundRecipe } from '@af/schema';
 
 const dir = mkdtempSync(join(tmpdir(), 'af-audio-'));
 /** ffmpeg's own EBU R128 measurement of a WAV file (integrated loudness) */
@@ -60,11 +61,64 @@ describe('synthesis', () => {
   });
   it('every mood plays, stays finite and repeats identically', () => {
     for (const mood of MOOD_NAMES) {
-      const [l] = renderMusic([{ start: 0, duration: 3, mood, gainDb: 0 }], 3);
-      const [l2] = renderMusic([{ start: 0, duration: 3, mood, gainDb: 0 }], 3);
+      const [l] = renderMusic([{ start: 0, duration: 3, piece: MOODS[mood]!, gainDb: 0 }], 3);
+      const [l2] = renderMusic([{ start: 0, duration: 3, piece: MOODS[mood]!, gainDb: 0 }], 3);
       expect(Buffer.from(l.buffer).equals(Buffer.from(l2.buffer)), mood).toBe(true);
       expect(Number.isFinite(integratedLoudness([l])), mood).toBe(true);
     }
+  });
+});
+
+describe('composed music and designed sounds', () => {
+  const piece = Piece.parse({
+    name: 'Marche', bpm: 120, key: 'D', mode: 'major', chords: ['I', 'V7', 'vi', 'IV'], swing: 0.1,
+    parts: [
+      { instrument: 'piano', play: 'chords', pattern: 'x...x...x...x...' }, { instrument: 'strings', play: 'chords', pattern: 'x---------------', gain: -6 },
+      { instrument: 'flute', play: 'melody', notes: ['1 - 3 - 5 - 8 - 7 - 5 - 3 - 2 -'], octave: 1 }, { instrument: 'lead', play: 'arp', pattern: 'x.x.x.x.x.x.x.x.', arp: 'random', gain: -10 },
+      { instrument: 'synthbass', play: 'bass', pattern: ['x.x.x.x.x.x.x.x.', 'x-------x-------'] }, { instrument: 'organ', play: 'chords', pattern: '....x-------....', gain: -12 },
+      { instrument: 'snare', play: 'drum', pattern: '....X.......X...' }, { instrument: 'clap', play: 'drum', pattern: '............x...' }, { instrument: 'openhat', play: 'drum', pattern: '..x...x...x...x.' },
+    ],
+  });
+  it('reads chords in roman numerals', () => {
+    expect(chordNotes('I', 60)).toEqual([60, 64, 67]);
+    expect(chordNotes('vi', 60)).toEqual([69, 72, 76]);
+    expect(chordNotes('V7', 60)).toEqual([67, 71, 74, 77]);
+    expect(chordNotes('bVII', 60)).toEqual([70, 74, 77]);
+    expect(chordNotes('ii°', 60)).toEqual([62, 65, 68]);
+  });
+  it('plays every part of a piece on its grid, in time', () => {
+    const notes = pieceNotes(piece, 0, 8); // 4 bars at 120 bpm
+    const flute = notes.filter((n) => n.kind === 'flute');
+    expect(flute.map((n) => n.midi).slice(0, 4)).toEqual([62, 66, 69, 74]); // D major from D4 (tonic D3, an octave up)
+    expect(flute[0]!.dur).toBeCloseTo(0.25); // a step held once: two 16ths at 120 bpm
+    expect(notes.filter((n) => n.kind === 'snare').map((n) => n.t).slice(0, 2)).toEqual([0.5, 1.5]);
+    expect(notes.filter((n) => n.kind === 'synthbass').length).toBe(8 + 2 + 8 + 2); // alternating bar patterns
+    const [l] = renderMusic([{ start: 0, duration: 8, piece, gainDb: 0 }], 8);
+    expect(Number.isFinite(integratedLoudness([l]))).toBe(true);
+    let peak = 0; for (const v of l) { expect(Number.isFinite(v)).toBe(true); peak = Math.max(peak, Math.abs(v)); }
+    expect(peak).toBeGreaterThan(0.05);
+  });
+  it('refuses a piece written wrong', () => {
+    const bad = (p: object) => { const r = Piece.safeParse({ name: 'x', bpm: 100, chords: ['I'], parts: [{ instrument: 'pad', play: 'chords' }], ...p }); return r.success ? [] : r.error.issues.map((i) => i.message); };
+    expect(bad({ chords: ['H7'] }).join()).toContain('chiffres romains');
+    expect(bad({ parts: [{ instrument: 'kick', play: 'chords' }] }).join()).toContain('play "drum"');
+    expect(bad({ parts: [{ instrument: 'hat', play: 'drum', pattern: 'x.x' }] }).join()).toContain('16 pas');
+    expect(bad({ parts: [{ instrument: 'flute', play: 'melody', notes: ['1 2 3'] }] }).join()).toContain('16 jetons');
+  });
+  it('synthesises a designed sound: layers, glides, filters, repeats', () => {
+    const r = SoundRecipe.parse({ name: 'porte', layers: [
+      { wave: 'noise', duration: 0.3, decay: 0.08, filter: { type: 'bandpass', freq: [400, 2000], q: 2 } },
+      { wave: 'sine', freq: [300, 80], duration: 0.4, decay: 0.15, gain: -3 },
+      { wave: 'square', freq: [1200], duration: 0.05, start: 0.1, repeat: { count: 3, every: 0.12 }, gain: -12, vibrato: { rate: 30, depth: 1 } },
+    ] });
+    const a = recipeSound(r), b = recipeSound(r);
+    expect(a.length).toBe(Math.round(0.4 * SR));
+    expect(Buffer.from(a.buffer).equals(Buffer.from(b.buffer))).toBe(true);
+    let peak = 0; for (const v of a) { expect(Number.isFinite(v)).toBe(true); peak = Math.max(peak, Math.abs(v)); }
+    expect(peak).toBeGreaterThan(0.05);
+    expect(soundFor('porte', { porte: r })).toEqual(a);
+    expect(soundFor('pop', {})).toEqual(sound('pop')); // a built-in one, for older projects
+    expect(soundFor('nope', { porte: r })).toBeNull();
   });
 });
 

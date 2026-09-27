@@ -249,6 +249,8 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE generations ADD COLUMN assets jsonb;
    ALTER TABLE generations ADD COLUMN assets_done integer NOT NULL DEFAULT 0;
    ALTER TABLE generations ADD COLUMN assets_total integer NOT NULL DEFAULT 0`,
+  // and composes its music and sounds: kept on the job too
+  `ALTER TABLE generations ADD COLUMN audio jsonb`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */

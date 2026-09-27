@@ -228,7 +228,7 @@ export function Editor() {
             try {
               const r = await Api.editScene(draft, i, ask.trim());
               // the scene, with what it needed drawn for it (new props, characters, decors)
-              setUndo({ id: scene.id, scene }); update({ ...withScene(draft, i, r.scene), assets: { ...draft.assets, ...r.assets }, cast: { ...draft.cast, ...r.cast } } as Project); setResetN((x) => x + 1); setAsk('');
+              setUndo({ id: scene.id, scene }); update({ ...withScene(draft, i, r.scene), assets: { ...draft.assets, ...r.assets }, cast: { ...draft.cast, ...r.cast }, sounds: { ...draft.sounds, ...r.sounds } } as Project); setResetN((x) => x + 1); setAsk('');
               const made = r.drawn.map((d) => `${r.assets[d.id]?.name ?? d.id}${d.fallback ? ' (simplifié)' : ''}`);
               setAiNote(`${r.model} · ${r.usage.inputTokens}+${r.usage.outputTokens} tokens${made.length ? ` · dessiné pour l'occasion : ${made.join(', ')}` : ''}`);
             } catch (err) {

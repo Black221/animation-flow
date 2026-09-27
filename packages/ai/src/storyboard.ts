@@ -1,7 +1,7 @@
 // The storyboard: the film cut into scenes with their narration and shot intentions, and the list of everything that
 // must be drawn for it (characters, props, places), described in words. A model writes it from the user's text; the
 // user reviews it; then every drawing is made, then each scene is written in the animation format.
-import { Color, Id, Music } from '@af/schema';
+import { Color, Id } from '@af/schema';
 import { z } from 'zod';
 
 /** something to draw, described well enough to draw it */
@@ -22,7 +22,8 @@ export const StoryScene = z.object({
   decor: Id,
   /** ids of the storyboard's props seen in this scene */
   props: z.array(Id).max(20).default([]),
-  music: Music.default({ mood: 'none', gain: 0 }),
+  /** the music this scene wants, in words (mood, energy, instruments), or "none": the film's score is composed from it */
+  music: z.string().max(300).default('none'),
   narration: z.array(z.object({ id: Id, speaker: z.string().default('narrator'), text: z.string().min(1).max(600) })).max(30).default([]),
   /** what we see, shot by shot, in plain words: the brief the scene is animated from */
   shots: z.array(z.string().min(1).max(400)).max(16).default([]),
@@ -37,6 +38,8 @@ const Base = z.object({
   cast: z.array(StoryCast).max(12).default([]),
   props: z.array(Thing).max(40).default([]),
   decors: z.array(Thing).min(1).max(20),
+  /** sound effects the film needs, described: each is designed for it */
+  sounds: z.array(Thing).max(30).default([]),
   scenes: z.array(StoryScene).min(1).max(40),
 });
 
@@ -55,6 +58,8 @@ function upgrade(v: unknown): unknown {
     });
     sb.decors = [...decors.values()];
   }
+  // music written as a built-in mood ({ mood, gain })
+  sb.scenes = (Array.isArray(sb.scenes) ? (sb.scenes as Record<string, unknown>[]) : []).map((s) => (s && typeof s.music === 'object' && s.music ? { ...s, music: String((s.music as { mood?: unknown }).mood ?? 'none') } : s));
   if (Array.isArray(sb.cast)) sb.cast = (sb.cast as Record<string, unknown>[]).map((c) => (c && typeof c === 'object' && !c.description ? { ...c, description: [c.kind, c.name].filter(Boolean).join(' ') } : c));
   return sb;
 }
@@ -66,6 +71,7 @@ export const Storyboard = z.preprocess(upgrade, Base.superRefine((s, ctx) => {
   s.cast.forEach((c, i) => claim(c.id, 'un personnage', ['cast', i, 'id']));
   s.props.forEach((p, i) => claim(p.id, 'un accessoire', ['props', i, 'id']));
   s.decors.forEach((d, i) => claim(d.id, 'un décor', ['decors', i, 'id']));
+  s.sounds.forEach((d, i) => claim(d.id, 'un son', ['sounds', i, 'id']));
   const castIds = new Set(s.cast.map((c) => c.id)), propIds = new Set(s.props.map((p) => p.id)), decorIds = new Set(s.decors.map((d) => d.id)), seen = new Set<string>();
   s.scenes.forEach((sc, i) => {
     if (seen.has(sc.id)) ctx.addIssue({ code: 'custom', path: ['scenes', i, 'id'], message: `scène « ${sc.id} » en double` });

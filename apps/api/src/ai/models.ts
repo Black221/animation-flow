@@ -6,14 +6,18 @@ import type { Db } from '../db';
 
 export class NotConfigured extends Error {}
 
-const LABEL = { storyboard: 'Texte → storyboard', scenes: 'Storyboard → scènes', assets: 'Dessins' } as const;
+const LABEL = { storyboard: 'Texte → storyboard', scenes: 'Storyboard → scènes', assets: 'Dessins', music: 'Musique et bruitages' } as const;
 
-/** the drawing model: the one chosen for « Dessins », else the scenes model */
-export async function drawingModel(db: Db, box: SecretBox, ws: string, fetchImpl?: JsonPost): Promise<Model> {
-  try { return await modelFor(db, box, ws, 'assets', fetchImpl); } catch (e) { if (e instanceof NotConfigured) return modelFor(db, box, ws, 'scenes', fetchImpl); throw e; }
+/** the model of a task that may be left unset: then the scenes model does it */
+async function orScenes(db: Db, box: SecretBox, ws: string, task: 'assets' | 'music', fetchImpl?: JsonPost): Promise<Model> {
+  try { return await modelFor(db, box, ws, task, fetchImpl); } catch (e) { if (e instanceof NotConfigured) return modelFor(db, box, ws, 'scenes', fetchImpl); throw e; }
 }
+/** the drawing model: the one chosen for « Dessins », else the scenes model */
+export const drawingModel = (db: Db, box: SecretBox, ws: string, fetchImpl?: JsonPost) => orScenes(db, box, ws, 'assets', fetchImpl);
+/** the composing model: the one chosen for « Musique et bruitages », else the scenes model */
+export const musicModel = (db: Db, box: SecretBox, ws: string, fetchImpl?: JsonPost) => orScenes(db, box, ws, 'music', fetchImpl);
 
-export async function modelFor(db: Db, box: SecretBox, ws: string, task: 'storyboard' | 'scenes' | 'assets', fetchImpl?: JsonPost): Promise<Model> {
+export async function modelFor(db: Db, box: SecretBox, ws: string, task: keyof typeof LABEL, fetchImpl?: JsonPost): Promise<Model> {
   const { rows } = await db.query<{ model: string; provider: string | null; secret: string | null; base_url: string | null }>(
     `SELECT a.model, c.provider, c.secret, c.base_url FROM model_assignments a LEFT JOIN credentials c ON c.id = a.credential_id WHERE a.task = $1 AND a.workspace_id = $2`, [task, ws]);
   const a = rows[0], label = LABEL[task];

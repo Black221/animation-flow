@@ -52,18 +52,18 @@ export interface Me { user: { id: string; email: string; name: string } | null; 
 export interface Member { userId: string; name: string; email: string; role: Role; joinedAt: string }
 export interface PendingInvitation { id: string; role: Role; email: string | null; createdAt: string; expiresAt: string; by: string | null }
 export interface WorkspaceInfo { id: string; name: string; role: Role; members: Member[]; invitations: PendingInvitation[] }
-export type GenerationStatus = 'storyboard' | 'review' | 'assets' | 'scenes' | 'done' | 'failed' | 'canceled';
+export type GenerationStatus = 'storyboard' | 'review' | 'assets' | 'music' | 'scenes' | 'done' | 'failed' | 'canceled';
 export interface StoryLine { id: string; speaker: string; text: string }
-export interface StorySceneT { id: string; title: string; duration: number; decor: string; props: string[]; music: { mood: string; gain: number }; narration: StoryLine[]; shots: string[] }
+export interface StorySceneT { id: string; title: string; duration: number; decor: string; props: string[]; music: string; narration: StoryLine[]; shots: string[] }
 /** something the film needs drawn, described in words */
 export interface StoryThing { id: string; name: string; description: string }
-export interface StoryboardT { title: string; language: string; style: string; palette: string[]; cast: (StoryThing & { voice?: string })[]; props: StoryThing[]; decors: StoryThing[]; scenes: StorySceneT[] }
+export interface StoryboardT { title: string; language: string; style: string; palette: string[]; cast: (StoryThing & { voice?: string })[]; props: StoryThing[]; decors: StoryThing[]; sounds: StoryThing[]; scenes: StorySceneT[] }
 export interface GenStep { stage: string; target: string; attempt: number; ok: boolean; issues: Issue[]; usage: { inputTokens: number; outputTokens: number }; ms: number }
 export interface Generation {
   id: string; status: GenerationStatus; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean };
   storyboard: StoryboardT | null; projectId: string | null; scenesDone: number; scenesTotal: number; steps: GenStep[]; fallbacks: string[];
-  assetsDone: number; assetsTotal: number; drawings: string[];
-  models: { storyboard?: string; scenes?: string; assets?: string }; usage: { inputTokens: number; outputTokens: number }; error: string | null; createdAt: string; updatedAt: string;
+  assetsDone: number; assetsTotal: number; drawings: string[]; composed: { pieces: string[]; sounds: string[] } | null;
+  models: { storyboard?: string; scenes?: string; assets?: string; music?: string }; usage: { inputTokens: number; outputTokens: number }; error: string | null; createdAt: string; updatedAt: string;
 }
 export interface DrawnInfo { id: string; fallback: boolean; rounds: number; review: string[] }
 export interface GenerationRequest { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean }
@@ -120,7 +120,11 @@ export const Api = {
   writeScenes: (id: string) => api<Generation>(`/api/generations/${id}/scenes`, { method: 'POST' }),
   cancelGeneration: (id: string) => api<Generation>(`/api/generations/${id}/cancel`, { method: 'POST' }),
   /** the scene changed as asked, and what it needed that the film did not have: new drawings (and cast members) */
-  editScene: (project: unknown, sceneIndex: number, instruction: string) => api<{ scene: unknown; assets: Record<string, Asset>; cast: Project['cast']; drawn: DrawnInfo[]; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/edit-scene', { method: 'POST', body: { project, sceneIndex, instruction } }),
+  editScene: (project: unknown, sceneIndex: number, instruction: string) => api<{ scene: unknown; assets: Record<string, Asset>; cast: Project['cast']; sounds: Project['sounds']; drawn: DrawnInfo[]; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/edit-scene', { method: 'POST', body: { project, sceneIndex, instruction } }),
+  /** compose the project's music again (optionally with a direction) */
+  compose: (project: unknown, instruction?: string) => api<{ score: Project['score']; music: Record<string, string>; fallback: boolean; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/compose', { method: 'POST', body: { project, ...(instruction ? { instruction } : {}) } }),
+  /** design one sound effect */
+  designSound: (project: unknown, id: string, name: string, description: string) => api<{ sound: Project['sounds'][string]; fallback: boolean; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/sound', { method: 'POST', body: { project, id, name, description } }),
   /** draw one thing for the project, or draw it again with a change */
   draw: (b: { project: unknown; id: string; kind: Asset['kind']; name: string; description: string; instruction?: string; current?: Asset }) => api<{ asset: Asset; fallback: boolean; rounds: number; review: string[]; usage: { inputTokens: number; outputTokens: number }; model: string }>('/api/ai/draw', { method: 'POST', body: b }),
   record: (text: string, voice?: string, language?: string) => api<Recording>('/api/voices', { method: 'POST', body: { text, ...(voice ? { voice } : {}), ...(language ? { language } : {}) } }),

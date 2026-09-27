@@ -44,6 +44,7 @@ export const TASKS: TaskInfo[] = [
   { id: 'storyboard', kind: 'llm', label: 'Texte → storyboard', description: 'Découpe un script ou une idée en scènes, répliques et intentions de plan.' },
   { id: 'scenes', kind: 'llm', label: 'Storyboard → scènes', description: "Écrit le format d'animation (JSON validé) de chaque scène." },
   { id: 'assets', kind: 'llm', label: 'Dessins', description: "Dessine les personnages, accessoires et décors de l'histoire, puis relit chaque dessin en le regardant (un modèle qui voit les images : Claude, GPT, Gemini…). Sans choix, le modèle des scènes." },
+  { id: 'music', kind: 'llm', label: 'Musique et bruitages', description: "Compose la musique du film (une partition jouée par le synthétiseur) et conçoit chaque bruitage. Sans choix, le modèle des scènes." },
   { id: 'narration', kind: 'tts', label: 'Narration (voix)', description: "Synthétise la voix off, une réplique à la fois. Chaque personnage peut avoir sa propre voix (champ « voice » de la distribution)." },
 ];
 export const taskById = (id: string) => TASKS.find((t) => t.id === id);

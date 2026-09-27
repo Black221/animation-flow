@@ -1,25 +1,21 @@
 // What the models are told. The instructions are in English (models follow them best); the narration is written
 // in the project's language. Nothing is taken from a fixed catalogue: the storyboard says what the film needs, each
 // thing is drawn for it, and scenes are written with those drawings (their poses, expressions and sizes).
-import { MOOD_NAMES, soundCatalog } from '@af/audio';
 import { assetBounds } from '@af/engine';
 import { assetExpressions, assetPoses, type Asset, type Project } from '@af/schema';
 import type { Storyboard, StoryScene } from './storyboard';
 
 export const LANGUAGE_NAMES: Record<string, string> = { fr: 'French', en: 'English', es: 'Spanish', de: 'German', it: 'Italian', pt: 'Portuguese', wo: 'Wolof', ar: 'Arabic' };
 
-/** sounds and music moods the film can use (until they are composed too) */
-export const soundBrief = () => ({ musicMoods: ['none', ...MOOD_NAMES], sounds: soundCatalog.map((s) => s.kind) });
-
-/** the drawings of a project, as a model writing scenes needs them */
-export function drawingsBrief(p: Pick<Project, 'assets' | 'cast'>): string {
+/** the drawings and sounds of a project, as a model writing scenes needs them */
+export function drawingsBrief(p: Pick<Project, 'assets' | 'cast'> & Partial<Pick<Project, 'sounds'>>): string {
   const assets = Object.entries(p.assets ?? {}) as [string, Asset][];
   const size = (a: Asset) => { const b = assetBounds(a); return { width: Math.round(b.w), height: Math.round(b.h), ...(a.kind === 'prop' && Math.abs(b.y) < 40 && Math.abs(b.y + b.h) > 40 ? { hangs: true } : {}) }; };
   return JSON.stringify({
     characters: Object.entries(p.cast).map(([ref, c]) => { const a = p.assets?.[c.kind]; return a ? { ref, name: c.name, poses: assetPoses(a), expressions: assetExpressions(a), ...size(a) } : { ref, name: c.name }; }),
     props: assets.filter(([, a]) => a.kind === 'prop').map(([ref, a]) => ({ ref, name: a.name, poses: assetPoses(a), ...size(a) })),
     decors: assets.filter(([, a]) => a.kind === 'decor').map(([kind, a]) => ({ kind, name: a.name, description: a.description.slice(0, 200) })),
-    ...soundBrief(),
+    sounds: Object.entries(p.sounds ?? {}).map(([kind, s]) => ({ kind, name: s.name, description: s.description.slice(0, 160) })),
   });
 }
 
@@ -27,33 +23,33 @@ export interface StoryboardOptions { language: string; style: string; targetSeco
 
 export function storyboardPrompt(o: StoryboardOptions): string {
   const lang = LANGUAGE_NAMES[o.language] ?? o.language;
-  return `You are the director of a short animated explainer film. You turn the user's text into a STORYBOARD (JSON). Everything in the film is drawn for it from your descriptions: there is no stock library.
+  return `You are the director of a short animated explainer film. You turn the user's text into a STORYBOARD (JSON). Everything in the film is made for it from your descriptions (drawn, composed, sound-designed): there is no stock library.
 
 Rules:
-- Cut the film into scenes of 5 to 40 seconds${o.targetSeconds ? `, about ${o.targetSeconds} seconds in total` : ''}. Each scene: id ("s1", "s2"…), title, duration (seconds), decor (the id of one of your "decors"), props (ids of your "props" seen in it), music mood, narration lines, shots.
+- Cut the film into scenes of 5 to 40 seconds${o.targetSeconds ? `, about ${o.targetSeconds} seconds in total` : ''}. Each scene: id ("s1", "s2"…), title, duration (seconds), decor (the id of one of your "decors"), props (ids of your "props" seen in it), music (a few words: mood, energy, instruments — the score is composed from them; "none" for silence), narration lines, shots.
 - Narration is spoken by "narrator" or by a cast member (their id). Write it in ${lang}, for the ear: short sentences, one idea per line, faithful to the user's text (keep its facts and numbers exactly; do not invent any).
 - About 14 characters of narration per second of scene: a 20 s scene holds about 280 characters.
 - "shots": what we see, in plain English, one entry per shot: who is where, what they do, which prop appears, when (tie actions to narration lines: "on l2, the padlock snaps shut").
 - "cast": 1 to 5 characters the story needs (people, animals, robots, talking objects): id, name, and a "description" precise enough for an illustrator: what they are, age and build, face and hair, clothes and their colours, one distinctive detail; plus how they move if it matters (flies, rolls…). Optionally "voice".
 - "props": every object that must be seen (id, name, description: shape, colours, size compared to a person, what moves on it). Reuse a prop across scenes rather than inventing near-duplicates.
 - "decors": every place (id, name, description: what is seen, from where, time of day, colours, the ground where characters stand). Scenes may share a decor.
-- ids are short (letters, digits, - and _) and unique across cast, props and decors.
+- "sounds": every sound effect the shots need (id, name, description: what makes the sound, how it feels: "a soft paper whoosh", "a robot's happy double beep"); each is designed for the film.
+- ids are short (letters, digits, - and _) and unique across cast, props, decors and sounds.
 - "palette": 5 to 8 colours ("#rrggbb") shared by the whole film, harmonious and readable.
-- Music moods and sounds come from this list (they are synthesised): ${JSON.stringify(soundBrief())}
 - The film's style is "${o.style}".
 ${o.instructions ? `\nThe user adds: ${o.instructions}\n` : ''}
-Answer with the storyboard JSON only: { "title", "language": "${o.language}", "style": "${o.style}", "palette": [...], "cast": [...], "props": [...], "decors": [...], "scenes": [...] }.`;
+Answer with the storyboard JSON only: { "title", "language": "${o.language}", "style": "${o.style}", "palette": [...], "cast": [...], "props": [...], "decors": [...], "sounds": [...], "scenes": [...] }.`;
 }
 
 export const FORMAT_GUIDE = `THE ANIMATION FORMAT (one scene)
 {
   "id": "s1", "title": "…", "duration": 20,
   "decor": { "kind": "<decor id>" },
-  "music": { "mood": "<mood>", "gain": 0 },
+  "music": { "mood": "<already chosen: keep it>", "gain": 0 },
   "narration": [ { "id": "l1", "speaker": "narrator", "text": "…" } ],
   "camera": [ { "t": 0, "x": 960, "y": 540, "zoom": 1 } ],
   "elements": [ … ],
-  "sfx": [ { "t": { "line": "l2", "edge": "start", "offset": 0.3 }, "kind": "<sound>", "gain": 0, "pan": 0 } ],
+  "sfx": [ { "t": { "line": "l2", "edge": "start", "offset": 0.3 }, "kind": "<sound kind>", "gain": 0, "pan": 0 } ],
   "transition": "cut" | "fade"
 }
 Screen: 1920 × 1080 world pixels; x grows to the right, y downwards. The ground line is around y = 900.
@@ -77,7 +73,8 @@ export function scenePrompt(lang: string, drawings: string): string {
 
 ${FORMAT_GUIDE}
 
-The film's drawings (the only characters, props and decors there are; use their refs, poses and expressions exactly): ${drawings}
+The film's drawings and sounds (the only characters, props, decors and sound effects there are; use their refs, kinds, poses and expressions exactly): ${drawings}
+The scene's music is already composed and chosen: keep "music" as given.
 
 The narration is already written (in ${LANGUAGE_NAMES[lang] ?? lang}) and must be kept exactly: same line ids, speakers and texts, in the same order. Every element id is unique within the scene.`;
 }
@@ -99,7 +96,7 @@ Change it as follows, keeping everything else as it is (same narration lines, sa
 Answer with the complete modified scene JSON only.`;
 }
 
-export const PLAN_PROMPT = `You prepare a change to one scene of an animated film. Everything on screen is drawn for the film. Given the drawings that exist and the change asked, list the NEW drawings the change needs: characters, props or decors that do not exist yet (not ones that can be reused). Describe each well enough for an illustrator (what it is, shape, colours, size compared to a person, what moves). Answer JSON only: { "new": [ { "id", "kind": "character" | "prop" | "decor", "name", "description" } ] } — an empty list when nothing new is needed. ids: short, letters, digits, - and _, different from the existing ones.`;
+export const PLAN_PROMPT = `You prepare a change to one scene of an animated film. Everything in it is made for the film. Given the drawings and sounds that exist and the change asked, list what NEW things the change needs: characters, props or decors to draw, or sound effects to design, that do not exist yet (not ones that can be reused). Describe each well enough for an illustrator or a sound designer (what it is, shape, colours, size compared to a person, what moves; for a sound, what makes it and how it feels). Answer JSON only: { "new": [ { "id", "kind": "character" | "prop" | "decor" | "sound", "name", "description" } ] } — an empty list when nothing new is needed. ids: short, letters, digits, - and _, different from the existing ones.`;
 
 export function planRequest(drawings: string, sceneJson: string, instruction: string): string {
   return `Existing drawings: ${drawings}\n\nThe scene: ${sceneJson}\n\nThe change asked: ${instruction}`;

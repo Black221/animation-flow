@@ -1,6 +1,5 @@
 // An AI generation, step by step: storyboard → review (edit it here, including what will be drawn) → drawings →
 // scenes → the new project.
-import { MOOD_NAMES } from '@af/audio';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { Api, type Generation, type StoryboardT, type StorySceneT, type StoryThing } from '../api';
@@ -10,11 +9,11 @@ const STAGES: { id: Generation['status'][]; label: string }[] = [
   { id: ['storyboard'], label: 'Storyboard' },
   { id: ['review'], label: 'Relecture' },
   { id: ['assets'], label: 'Dessins' },
+  { id: ['music'], label: 'Musique' },
   { id: ['scenes'], label: 'Scènes' },
   { id: ['done'], label: 'Projet' },
 ];
-const order = (g: Generation) => ({ storyboard: 0, review: 1, assets: 2, scenes: 3, done: 4 } as Record<string, number>)[g.status] ?? (g.storyboard ? 1 : 0);
-const MOODS: Record<string, string> = { none: 'aucune', calm: 'calme', curious: 'curieuse', playful: 'enjouée', epic: 'épique', night: 'nuit', tense: 'tendue' };
+const order = (g: Generation) => ({ storyboard: 0, review: 1, assets: 2, music: 3, scenes: 4, done: 5 } as Record<string, number>)[g.status] ?? (g.storyboard ? 1 : 0);
 const tokens = (u: { inputTokens: number; outputTokens: number }) => `${(u.inputTokens / 1000).toFixed(1)} k tokens envoyés · ${(u.outputTokens / 1000).toFixed(1)} k reçus`;
 
 /** the things to draw, editable: their description is what the drawing model gets */
@@ -46,7 +45,7 @@ function SceneCard({ s, speakers, decors, props, onChange, onRemove }: { s: Stor
         <input className="grow" value={s.title} onChange={(e) => set('title', e.target.value)} aria-label={`titre ${s.id}`} />
         <label>Durée <input type="number" min={2} max={180} value={s.duration} onChange={(e) => set('duration', Math.max(2, +e.target.value || 2))} style={{ width: 70 }} /> s</label>
         <label>Décor <select value={s.decor} onChange={(e) => set('decor', e.target.value)}>{decors.map((d) => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}</select></label>
-        <label>Musique <select value={s.music.mood} onChange={(e) => set('music', { ...s.music, mood: e.target.value })}>{['none', ...MOOD_NAMES].map((m) => <option key={m} value={m}>{MOODS[m] ?? m}</option>)}</select></label>
+        <label className="grow">Musique <input value={s.music} onChange={(e) => set('music', e.target.value)} placeholder="ambiance, énergie, instruments… (none : silence)" aria-label={`musique de ${s.id}`} /></label>
         <button className="ghost" onClick={onRemove} aria-label={`supprimer ${s.id}`}>✕</button>
       </div>
       {props.length > 0 && (
@@ -89,7 +88,7 @@ export function Generate() {
     try { const x = await Api.generation(id); setG(x); setSb((cur) => (dirty && cur ? cur : x.storyboard)); } catch (e) { setError((e as Error).message); }
   }, [id, dirty]);
   useEffect(() => { void refresh(); }, [refresh]);
-  const busy = g?.status === 'storyboard' || g?.status === 'assets' || g?.status === 'scenes';
+  const busy = g?.status === 'storyboard' || g?.status === 'assets' || g?.status === 'music' || g?.status === 'scenes';
   useEffect(() => { if (!busy) return; const t = setInterval(() => void refresh(), 1000); return () => clearInterval(t); }, [busy, refresh]);
 
   if (!g) return <div className="page muted">{error || 'Chargement…'}</div>;
@@ -103,12 +102,13 @@ export function Generate() {
       <Link to="/" className="muted">← Projets</Link>
       <h2>Génération : {sb?.title ?? 'en cours'}</h2>
       <ol className="stages" aria-label="étapes">
-        {STAGES.map((s, i) => <li key={s.label} className={i < k || g.status === 'done' ? 'done' : i === k ? (g.status === 'failed' || g.status === 'canceled' ? 'failed' : 'current') : ''}>{s.label}{i === 2 && g.assetsTotal ? ` ${g.assetsDone}/${g.assetsTotal}` : ''}{i === 3 && g.scenesTotal ? ` ${g.scenesDone}/${g.scenesTotal}` : ''}</li>)}
+        {STAGES.map((s, i) => <li key={s.label} className={i < k || g.status === 'done' ? 'done' : i === k ? (g.status === 'failed' || g.status === 'canceled' ? 'failed' : 'current') : ''}>{s.label}{i === 2 && g.assetsTotal ? ` ${g.assetsDone}/${g.assetsTotal}` : ''}{i === 4 && g.scenesTotal ? ` ${g.scenesDone}/${g.scenesTotal}` : ''}</li>)}
       </ol>
       <p className="muted small" data-testid="gen-status">
         {g.status === 'storyboard' && 'Le modèle écrit le storyboard…'}
         {g.status === 'review' && 'Relisez et corrigez le storyboard, puis faites écrire les scènes.'}
         {g.status === 'assets' && `Le modèle dessine les personnages, accessoires et décors, et relit chaque dessin (${g.assetsDone}/${g.assetsTotal})…`}
+        {g.status === 'music' && 'Le modèle compose la musique du film et conçoit les bruitages…'}
         {g.status === 'scenes' && `Le modèle écrit les scènes (${g.scenesDone}/${g.scenesTotal})…`}
         {g.status === 'done' && 'Terminé.'}
         {g.status === 'canceled' && 'Annulée.'}
@@ -118,7 +118,7 @@ export function Generate() {
       {error && <p className="error" role="alert">{error}</p>}
       <div className="row wrap">
         {busy && editable && <button onClick={() => void act(() => Api.cancelGeneration(g.id))}>Annuler</button>}
-        {editable && g.status === 'review' && <button className="primary" onClick={() => void writeScenes()}>Dessiner et écrire les scènes</button>}
+        {editable && g.status === 'review' && <button className="primary" onClick={() => void writeScenes()}>Dessiner, composer et écrire les scènes</button>}
         {editable && g.status === 'failed' && g.storyboard && !g.projectId && <button className="primary" onClick={() => void writeScenes()}>{g.drawings.length ? 'Réessayer les scènes' : 'Réessayer'}</button>}
         {g.status === 'done' && g.projectId && <button className="primary" onClick={() => nav(`/p/${g.projectId}`)}>Ouvrir le projet</button>}
       </div>
@@ -133,6 +133,7 @@ export function Generate() {
           {sb.palette.length > 0 && <div className="palette row" aria-label="palette du film">{sb.palette.map((c, i) => <span key={i} className="swatch" style={{ background: c }} title={c} />)}<span className="muted small">palette du film</span></div>}
           <Things label="Personnages" what="un personnage" idPrefix="c" withVoice items={sb.cast} onChange={(cast) => edit({ ...sb, cast })} />
           <Things label="Accessoires" what="un accessoire" idPrefix="p" items={sb.props} onChange={(props) => edit({ ...sb, props, scenes: sb.scenes.map((s) => ({ ...s, props: s.props.filter((x) => props.some((p) => p.id === x)) })) })} />
+          <Things label="Bruitages" what="un bruitage" idPrefix="snd" items={sb.sounds ?? []} onChange={(sounds) => edit({ ...sb, sounds })} />
           <Things label="Décors" what="un décor" idPrefix="d" items={sb.decors} onChange={(decors) => decors.length && edit({ ...sb, decors, scenes: sb.scenes.map((s) => (decors.some((d) => d.id === s.decor) ? s : { ...s, decor: decors[0]!.id })) })} />
           <ol className="story-scenes">
             {sb.scenes.map((s, i) => <SceneCard key={s.id} s={s} speakers={sb.cast} decors={sb.decors} props={sb.props} onChange={(n) => edit({ ...sb, scenes: sb.scenes.map((x, j) => (j === i ? n : x)) })} onRemove={() => sb.scenes.length > 1 && edit({ ...sb, scenes: sb.scenes.filter((_, j) => j !== i) })} />)}

@@ -81,8 +81,74 @@ export const Line = z.object({
 
 /** Background music of a scene: a mood the score generator knows, and a level in dB relative to the default. */
 export const Music = z.object({
-  mood: z.enum(['none', 'calm', 'curious', 'playful', 'epic', 'night', 'tense']).default('none'),
+  /** a piece of the project's score (composed for the film), one of the built-in moods (calm, curious, playful,
+   *  epic, night, tense: older projects and fallbacks), or none */
+  mood: Id.default('none'),
   gain: z.number().min(-40).max(12).default(0),
+});
+
+// ---------- music and sounds composed for the project ----------
+// A piece is a loop of bars: a chord progression (roman numerals over the key's major scale: I ii iii IV V vi
+// vii°, lower case = minor, b/# before, 7 maj7 m7 sus2 sus4 6 9 dim aug after) and parts that play it, each on a
+// grid of 16 steps per bar ("x" a hit, "X" an accent, "-" hold, "." rest). A melody writes scale degrees of the
+// mode per step (1 = the tonic, 8 = an octave up, "#"/"b" before, "'" up or "," down an octave after).
+export const CHORD_RE = /^(b|#)?(VII|VI|V|IV|III|II|I|vii|vi|v|iv|iii|ii|i)(°|dim|\+|aug|maj7|m7|7|sus2|sus4|6|9)?$/;
+export const STEPS_RE = /^[xX.-]{16}$/;
+export const MELODY_RE = /^((\.|-|[#b]?\d{1,2}[',]*)\s+){15}(\.|-|[#b]?\d{1,2}[',]*)$/;
+export const INSTRUMENTS = ['pad', 'strings', 'piano', 'organ', 'pluck', 'marimba', 'bells', 'lead', 'flute', 'bass', 'synthbass'] as const;
+export const DRUMS = ['kick', 'snare', 'clap', 'hat', 'openhat', 'shaker', 'tom'] as const;
+const Steps = z.string().regex(STEPS_RE, '16 pas par mesure : x (coup), X (accent), - (tenue), . (silence)');
+export const Part = z.object({
+  instrument: z.enum([...INSTRUMENTS, ...DRUMS]),
+  /** chords: the chord of the bar · bass: its root · arp: its notes one at a time · melody: `notes` · drum: a hit */
+  play: z.enum(['chords', 'bass', 'arp', 'melody', 'drum']),
+  /** rhythm, one bar or one per bar (looped) */
+  pattern: z.union([Steps, z.array(Steps).min(1).max(16)]).optional(),
+  /** melody: one string of 16 tokens per bar (looped) */
+  notes: z.array(z.string().regex(MELODY_RE, 'mélodie : 16 jetons par mesure (degré, - ou .), séparés par des espaces')).min(1).max(16).optional(),
+  arp: z.enum(['up', 'down', 'updown', 'random']).default('up'),
+  octave: z.number().int().min(-3).max(3).default(0),
+  gain: z.number().min(-30).max(6).default(0),
+  pan: z.number().min(-1).max(1).default(0),
+}).superRefine((p, ctx) => {
+  const drum = (DRUMS as readonly string[]).includes(p.instrument);
+  if (drum !== (p.play === 'drum')) ctx.addIssue({ code: 'custom', path: ['play'], message: drum ? `« ${p.instrument} » est une percussion : play "drum"` : `play "drum" demande une percussion (${DRUMS.join(', ')})` });
+  if (p.play === 'melody' && !p.notes) ctx.addIssue({ code: 'custom', path: ['notes'], message: 'une mélodie a des notes' });
+  if ((p.play === 'drum' || p.play === 'arp') && !p.pattern) ctx.addIssue({ code: 'custom', path: ['pattern'], message: 'un rythme est attendu' });
+});
+export const Piece = z.object({
+  name: z.string().min(1).max(80),
+  description: z.string().max(400).default(''),
+  bpm: z.number().min(40).max(200),
+  key: z.string().regex(/^[A-G](#|b)?$/, 'tonalité : C, C#, Db… B').default('A'),
+  mode: z.enum(['major', 'minor', 'dorian', 'mixolydian', 'lydian', 'phrygian', 'pentatonic', 'blues']).default('major'),
+  /** one chord per bar, looped */
+  chords: z.array(z.string().regex(CHORD_RE, 'accord en chiffres romains : I, vi, IV, V7, bVII, ii7…')).min(1).max(16),
+  parts: z.array(Part).min(1).max(10),
+  /** late off-beats (0 = straight) */
+  swing: z.number().min(0).max(0.5).default(0),
+  reverb: z.number().min(0).max(1).default(0.35),
+});
+/** a sound effect as synthesis: layers of a wave or noise, gliding in pitch, filtered, shaped by an envelope */
+export const SoundLayer = z.object({
+  wave: z.enum(['sine', 'triangle', 'square', 'saw', 'noise']),
+  /** Hz, from → to (exponential glide); for noise, the filter does the pitch */
+  freq: z.tuple([z.number().min(20).max(16000), z.number().min(20).max(16000)]).or(z.tuple([z.number().min(20).max(16000)])).default([440]),
+  start: z.number().min(0).max(4).default(0),
+  duration: z.number().min(0.005).max(4),
+  attack: z.number().min(0).max(2).default(0.005),
+  /** how fast it fades after the attack: time for the level to fall to about a third (s) */
+  decay: z.number().min(0.005).max(10).default(0.3),
+  filter: z.object({ type: z.enum(['lowpass', 'highpass', 'bandpass']), freq: z.tuple([z.number().min(20).max(18000), z.number().min(20).max(18000)]).or(z.tuple([z.number().min(20).max(18000)])), q: z.number().min(0.2).max(30).default(0.8) }).optional(),
+  vibrato: z.object({ rate: z.number().min(0.1).max(40), depth: z.number().min(0).max(12) }).optional(),
+  /** play it again: count times, every s seconds */
+  repeat: z.object({ count: z.number().int().min(1).max(16), every: z.number().min(0.01).max(2) }).optional(),
+  gain: z.number().min(-40).max(6).default(0),
+});
+export const SoundRecipe = z.object({
+  name: z.string().min(1).max(80),
+  description: z.string().max(400).default(''),
+  layers: z.array(SoundLayer).min(1).max(8),
 });
 
 /** A sound effect at a moment of the scene (kinds: see the sound catalog of @af/audio). */
@@ -214,6 +280,10 @@ export const ProjectBase = z.object({
   scenes: z.array(Scene).min(1),
   /** drawings made for this project: a cast member's `kind`, a prop's `ref` or a decor's `kind` may name one */
   assets: z.record(Id, Asset).default({}),
+  /** music composed for this project: a scene's music.mood may name one of its pieces */
+  score: z.record(Id, Piece).default({}),
+  /** sound effects designed for this project: a sfx kind may name one */
+  sounds: z.record(Id, SoundRecipe).default({}),
 });
 
 /** Cross-references a single object schema cannot express: unique ids, lines and cast members that exist. */
@@ -264,6 +334,10 @@ export type Scene = z.output<typeof Scene>;
 export type CastMember = z.output<typeof CastMember>;
 export type Project = z.output<typeof Project>;
 export type Asset = z.output<typeof Asset>;
+export type Piece = z.output<typeof Piece>;
+export type Part = z.output<typeof Part>;
+export type SoundRecipe = z.output<typeof SoundRecipe>;
+export type SoundLayer = z.output<typeof SoundLayer>;
 export type AssetPart = z.output<typeof AssetPart>;
 export type AssetShape = z.output<typeof AssetShape>;
 export type AssetMotion = z.output<typeof AssetMotion>;

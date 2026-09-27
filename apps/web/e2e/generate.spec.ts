@@ -12,9 +12,10 @@ const storyboard = {
   cast: [{ id: 'awa', name: 'Awa', description: 'Une agricultrice, casquette bleue.' }, { id: 'jumo', name: 'Jumo', description: 'Un petit drone jaune.' }],
   props: [{ id: 'sensor', name: 'Capteur', description: 'Un piquet vert qui clignote.' }],
   decors: [{ id: 'field', name: 'Le champ', description: "Un champ à l'aube." }, { id: 'night', name: 'La nuit', description: 'Le champ sous les étoiles.' }],
+  sounds: [{ id: 'beep', name: 'Bip', description: 'le double bip joyeux de Jumo' }],
   scenes: [
-    { id: 's1', title: 'Le matin', duration: 8, decor: 'field', props: ['sensor'], music: { mood: 'calm' }, narration: [{ id: 'l1', text: 'Awa observe ses champs.' }, { id: 'l2', speaker: 'jumo', text: 'Bip bip !' }], shots: ['Awa arrive', 'Jumo descend'] },
-    { id: 's2', title: 'La nuit', duration: 6, decor: 'night', music: { mood: 'night' }, narration: [{ id: 'l1', text: 'La nuit, Jumo veille.' }], shots: ['Jumo flotte'] },
+    { id: 's1', title: 'Le matin', duration: 8, decor: 'field', props: ['sensor'], music: 'matin calme, flûte', narration: [{ id: 'l1', text: 'Awa observe ses champs.' }, { id: 'l2', speaker: 'jumo', text: 'Bip bip !' }], shots: ['Awa arrive', 'Jumo descend'] },
+    { id: 's2', title: 'La nuit', duration: 6, decor: 'night', music: 'nuit, clochettes', narration: [{ id: 'l1', text: 'La nuit, Jumo veille.' }], shots: ['Jumo flotte'] },
   ],
 };
 const text = (c: unknown) => (typeof c === 'string' ? c : (c as { type: string; text?: string }[]).find((x) => x.type === 'text')?.text ?? '');
@@ -33,11 +34,13 @@ test.beforeAll(async () => {
       else if (system.startsWith('You draw')) { asked.push(`draw ${drawn}`); out = system.includes('A CHARACTER.') ? exampleCharacter : system.includes('A PROP') ? exampleProp : exampleDecor; }
       else if (system.startsWith('You review')) { const seen = Array.isArray(lastMsg.content) && lastMsg.content.some((x: { type: string }) => x.type === 'image_url'); asked.push(`look ${drawn}${seen ? '' : ' (no image)'}`); out = { ok: true }; }
       else if (system.startsWith('You prepare')) { out = { new: [] }; }
+      else if (system.startsWith('You compose')) { asked.push('compose'); out = { pieces: { aube: { name: 'Aube', bpm: 80, key: 'D', chords: ['I', 'vi', 'IV', 'V'], parts: [{ instrument: 'pad', play: 'chords' }, { instrument: 'flute', play: 'melody', notes: ['1 - 3 - 5 - - - . . . . . . . .'] }] } }, music: { s1: 'aube', s2: 'aube' } }; }
+      else if (system.startsWith('You design')) { asked.push('design sounds'); out = { beep: { layers: [{ wave: 'square', freq: [900], duration: 0.08, decay: 0.04 }, { wave: 'square', freq: [1300], start: 0.12, duration: 0.08, decay: 0.04 }] } }; }
       else if (last.includes('Change it as follows')) { asked.push('edit'); const scene = JSON.parse(last.slice(last.indexOf('{'), last.indexOf('\n\nChange it'))); out = { ...scene, music: { mood: 'epic', gain: 0 } }; }
       else {
         const entry = JSON.parse(last.slice(last.indexOf('{', last.indexOf('storyboard entry'))));
         asked.push(`scene ${entry.id}`);
-        out = { id: entry.id, title: entry.title, duration: entry.duration, decor: { kind: entry.decor }, music: entry.music, narration: entry.narration,
+        out = { id: entry.id, title: entry.title, duration: entry.duration, decor: { kind: entry.decor }, narration: entry.narration, sfx: [{ t: 1, kind: 'beep' }],
           elements: [{ id: 'awa', type: 'character', ref: 'awa', layer: 5, keys: [{ t: 0, x: 300, y: 900, pose: 'walk' }, { t: { line: 'l1', edge: 'end' }, x: 800, pose: 'wave', expression: 'happy' }] }] };
       }
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(out) } }], usage: { prompt_tokens: 1200, completion_tokens: 300 } }));
@@ -66,19 +69,26 @@ test('text → storyboard (reviewed and edited) → scenes → project, then an 
   // correct a line of the script before the scenes are written
   await page.getByLabel('réplique s2/l1').fill('La nuit tombe, et Jumo veille sur les capteurs.');
   // and what one of the characters looks like, before it is drawn
-  await expect(page.getByTestId('thing')).toHaveCount(5);
+  await expect(page.getByTestId('thing')).toHaveCount(6); // 2 characters, 1 prop, 1 sound, 2 decors
   await page.getByLabel('description de Awa').fill('Une agricultrice sénégalaise, casquette bleue, tablette à la main.');
-  await page.getByRole('button', { name: 'Dessiner et écrire les scènes' }).click();
+  await page.getByLabel('musique de s2').fill('nuit paisible, clochettes');
+  await page.getByRole('button', { name: 'Dessiner, composer et écrire les scènes' }).click();
   await expect(page.getByTestId('gen-status')).toContainText('Terminé', { timeout: 30_000 });
   // everything was drawn for this film, each drawing looked at as an image, then the scenes written with them
   expect(asked.filter((a) => a.startsWith('draw')).sort()).toEqual(['draw awa', 'draw field', 'draw jumo', 'draw night', 'draw sensor']);
   expect(asked.filter((a) => a.startsWith('look')).sort()).toEqual(['look awa', 'look field', 'look jumo', 'look night', 'look sensor']);
   expect(asked.filter((a) => a.startsWith('scene')).sort()).toEqual(['scene s1', 'scene s2']);
+  expect(asked.filter((a) => a === 'compose' || a === 'design sounds').sort()).toEqual(['compose', 'design sounds']);
   await expect(page.getByRole('list', { name: 'étapes' })).toContainText('Dessins 5/5');
   await page.getByRole('button', { name: 'Ouvrir le projet' }).click();
 
   await expect(page).toHaveURL(/\/p\//);
   await expect(page.locator('.editor-bar h1')).toHaveText('Le jumeau des champs');
+  // the film's own music and sound, played in the preview
+  const saved = await (await page.request.get(`/api/projects/${new URL(page.url()).pathname.split('/').pop()}`)).json();
+  expect(saved.project.scenes.map((x: { music: { mood: string } }) => x.music.mood)).toEqual(['aube', 'aube']);
+  expect(Object.keys(saved.project.sounds)).toEqual(['beep']);
+  await expect(page.getByTestId('sound-info')).toContainText(/son prêt|réplique/, { timeout: 20_000 });
   await page.getByRole('tab', { name: 'Voix' }).click();
   await expect(page.getByTestId('voice-line').filter({ hasText: 'capteurs' })).toHaveCount(1);
 
@@ -90,5 +100,5 @@ test('text → storyboard (reviewed and edited) → scenes → project, then an 
   await expect(page.getByLabel('scène (JSON)')).toHaveValue(/"mood": "epic"/);
   await expect(page.getByTestId('save-state')).toHaveText('modifié');
   await page.getByRole('button', { name: 'Annuler la modification' }).click();
-  await expect(page.getByLabel('scène (JSON)')).toHaveValue(/"mood": "calm"/);
+  await expect(page.getByLabel("scène (JSON)")).toHaveValue(/"mood": "aube"/); // back to the composed piece
 });

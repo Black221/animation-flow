@@ -65,7 +65,7 @@ export function Projects() {
         {gens.length > 0 && (
           <ul className="gen-list">
             {gens.slice(0, 5).map((g) => (
-              <li key={g.id}><Link to={`/g/${g.id}`}>{g.storyboard?.title ?? g.input.text.slice(0, 60) + '…'}</Link> <span className="muted small">{({ storyboard: 'storyboard en cours', review: 'à relire', assets: 'dessins en cours', scenes: 'scènes en cours', done: 'terminée', failed: 'échec', canceled: 'annulée' } as const)[g.status]}</span></li>
+              <li key={g.id}><Link to={`/g/${g.id}`}>{g.storyboard?.title ?? g.input.text.slice(0, 60) + '…'}</Link> <span className="muted small">{({ storyboard: 'storyboard en cours', review: 'à relire', assets: 'dessins en cours', music: 'musique en cours', scenes: 'scènes en cours', done: 'terminée', failed: 'échec', canceled: 'annulée' } as const)[g.status]}</span></li>
             ))}
           </ul>
         )}

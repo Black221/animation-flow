@@ -2,7 +2,7 @@ import type { ChatMessage } from '@af/providers';
 import { exampleProject, parseProject, type ProjectInput } from '@af/schema';
 import { describe, expect, it } from 'vitest';
 import {
-  checkAsset, drawOne, editScene, exampleCharacter, exampleDecor, exampleProp, extractJson, fallbackAsset, fallbackScene, generateDrawings, generateScenes, generateStoryboard,
+  checkAsset, composeScore, designSounds, drawOne, editScene, generateSound, moodFromWords, exampleCharacter, exampleDecor, exampleProp, extractJson, fallbackAsset, fallbackScene, generateDrawings, generateScenes, generateStoryboard,
   InvalidAnswer, ModelError, Storyboard, type Model, type Step,
 } from '../src';
 
@@ -171,6 +171,62 @@ describe('drawings', () => {
     expect(r.asset.made?.by).toBe('dessin de secours');
     expect(JSON.stringify(r.asset)).toContain('#123456');
     for (const kind of ['character', 'prop', 'decor'] as const) expect(checkAsset({ ...brief, kind })(fallbackAsset({ ...brief, kind })).ok).toBe(true);
+  });
+});
+
+describe('music and sounds', () => {
+  const piece = { name: 'Aube', bpm: 80, key: 'D', mode: 'major', chords: ['I', 'vi', 'IV', 'V'], parts: [{ instrument: 'pad', play: 'chords' }, { instrument: 'flute', play: 'melody', notes: ['1 - 3 - 5 - - - . . . . . . . .'] }] };
+  const night = { ...piece, name: 'Nuit', mode: 'minor', chords: ['i', 'bVI'] };
+  const sbWithSounds = Storyboard.parse({ ...storyboard, sounds: [{ id: 'blip', name: 'Bip', description: 'le bip joyeux de Jumo' }], scenes: storyboard.scenes.map((s, i) => ({ ...s, music: i ? 'nuit calme, clochettes' : 'matin lumineux, flûte' })) });
+
+  it('composes a score for the film and assigns a piece to each scene', async () => {
+    const m = scripted([JSON.stringify({ pieces: { aube: piece, nuit: night }, music: { s1: 'aube', s2: 'nuit' } })]);
+    const r = await composeScore(m, sbWithSounds);
+    expect(r.fallback).toBe(false);
+    expect(Object.keys(r.score)).toEqual(['aube', 'nuit']);
+    expect(r.music).toEqual({ s1: 'aube', s2: 'nuit' });
+    expect(m.calls[0]!.messages[0]!.content).toContain('s2 "La nuit", 8 s: nuit calme, clochettes');
+    expect(m.calls[0]!.system).toContain('UNDER a narrator');
+  });
+
+  it('sends back what does not play, and falls back to the built-in moods when it stays wrong', async () => {
+    const bad = { pieces: { aube: { ...piece, chords: ['H'] } }, music: { s1: 'aube' } };
+    const m = scripted([JSON.stringify(bad), JSON.stringify({ pieces: { aube: piece }, music: { s1: 'aube', s2: 'none' } })]);
+    const r = await composeScore(m, sbWithSounds);
+    expect(r.music).toEqual({ s1: 'aube', s2: 'none' });
+    const repair = m.calls[1]!.messages.at(-1)!.content;
+    expect(repair).toContain('pieces.aube.chords.0');
+    expect(repair).toContain("la scène s2 n'a pas de musique");
+    const never = await composeScore(scripted(['{}']), sbWithSounds);
+    expect(never).toMatchObject({ fallback: true, score: {}, music: { s1: 'calm', s2: 'night' } });
+    expect([moodFromWords('épique et héroïque'), moodFromWords('none'), moodFromWords('suspense'), moodFromWords('quelque chose')]).toEqual(['epic', 'none', 'tense', 'calm']);
+  });
+
+  it('designs each sound effect, refusing silent ones', async () => {
+    const quiet = { layers: [{ wave: 'sine', freq: [500], duration: 0.2, gain: -40, filter: { type: 'lowpass', freq: [30] } }] };
+    const good = { layers: [{ wave: 'square', freq: [900, 1300], duration: 0.12, decay: 0.05 }, { wave: 'square', freq: [1300], start: 0.15, duration: 0.1, decay: 0.05 }] };
+    const m = scripted([JSON.stringify({ blip: quiet }), JSON.stringify({ blip: good })]);
+    const r = await designSounds(m, sbWithSounds.sounds, 'f');
+    expect(r.sounds.blip!.name).toBe('Bip');
+    expect(r.fallbacks).toEqual([]);
+    expect(m.calls[1]!.messages.at(-1)!.content).toContain('inaudible');
+    const failed = await designSounds(scripted(['nope']), sbWithSounds.sounds, 'f');
+    expect(failed.fallbacks).toEqual(['son blip']);
+  });
+
+  it('puts the score and the sounds in the project; scenes play their piece and only the film\'s sounds', async () => {
+    const m = scripted([(msgs, system) => (system.startsWith('You compose') ? JSON.stringify({ pieces: { aube: piece }, music: { s1: 'aube', s2: 'none' } }) : system.startsWith('You design') ? JSON.stringify({ blip: { layers: [{ wave: 'sine', freq: [800], duration: 0.1 }] } }) : 'x')]);
+    const audio = await generateSound(m, sbWithSounds);
+    expect(audio.fallbacks).toEqual([]);
+    const assets = await drawings();
+    const withSfx = (kind: string) => (msgs: ChatMessage[]) => JSON.stringify({ ...JSON.parse(goodScene(msgs[0]!.content.includes('Write scene s2') ? 's2' : 's1', ['l1'])), music: { mood: 'epic' }, sfx: [{ t: 1, kind }] });
+    const sm = scripted([withSfx('pop'), withSfx('blip')]);
+    const { project } = await generateScenes(sm, Storyboard.parse({ ...sbWithSounds, scenes: [sbWithSounds.scenes[0]] }), assets, { audio, concurrency: 1 });
+    expect(sm.calls[1]!.messages.at(-1)!.content).toContain("« pop » n'est pas un son du film (blip)");
+    expect(project.scenes[0]!.music.mood).toBe('aube'); // the composed piece, whatever the model wrote
+    expect(project.score.aube!.name).toBe('Aube');
+    expect(project.sounds.blip!.name).toBe('Bip');
+    expect(sm.calls[0]!.system).toContain('"sounds":[{"kind":"blip"');
   });
 });
 

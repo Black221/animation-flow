@@ -12,7 +12,7 @@ export interface Model {
   call(req: { system: string; messages: ChatMessage[]; json?: { name: string; schema: Record<string, unknown> }; maxTokens?: number }): Promise<CompletionResult>;
 }
 
-export interface Step { stage: 'storyboard' | 'asset' | 'review' | 'plan' | 'scene' | 'edit'; target: string; attempt: number; ok: boolean; issues: Issue[]; usage: Usage; ms: number }
+export interface Step { stage: 'storyboard' | 'asset' | 'review' | 'music' | 'sound' | 'plan' | 'scene' | 'edit'; target: string; attempt: number; ok: boolean; issues: Issue[]; usage: Usage; ms: number }
 export type OnStep = (s: Step) => void;
 
 export class ModelError extends Error { constructor(message: string, public status?: number) { super(message); this.name = 'ModelError'; } }

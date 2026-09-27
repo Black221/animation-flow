@@ -1,5 +1,8 @@
-// Sound effects, synthesized: no sample files, no licences, same sound on every machine (seeded noise).
+// Sound effects, synthesized: no sample files, no licences, same sound on every machine (seeded noise). A project's
+// sounds are designed for it (SoundRecipe in @af/schema: layers of a wave or noise, gliding, filtered, shaped); the
+// built-in ones below serve older projects.
 import { rng } from '@af/engine';
+import type { SoundRecipe } from '@af/schema';
 import { Biquad, SR } from './dsp';
 
 type Make = (rand: () => number) => Float32Array;
@@ -66,5 +69,53 @@ export function sound(kind: string, seed = 0): Float32Array | null {
   const key = `${kind}:${seed}`;
   let b = cache.get(key);
   if (!b) { b = s.make(rng(key)); cache.set(key, b); if (cache.size > 64) cache.delete(cache.keys().next().value!); }
+  return b;
+}
+
+/** a sound designed for the project: its layers mixed, mono */
+export function recipeSound(r: SoundRecipe, seed = 0): Float32Array {
+  const rand = rng(`recipe:${r.name}:${seed}`);
+  const end = Math.max(...r.layers.map((l) => l.start + l.duration + (l.repeat ? (l.repeat.count - 1) * l.repeat.every : 0)));
+  const out = new Float32Array(Math.max(1, Math.round(Math.min(8, end) * SR)));
+  for (const l of r.layers) {
+    const f0 = l.freq[0], f1 = l.freq[1] ?? f0, n = Math.round(l.duration * SR), g = Math.pow(10, l.gain / 20) * 0.5;
+    for (let rep = 0; rep < (l.repeat?.count ?? 1); rep++) {
+      const s0 = Math.round((l.start + rep * (l.repeat?.every ?? 0)) * SR);
+      const filt = l.filter ? (l.filter.type === 'lowpass' ? Biquad.lowpass : l.filter.type === 'highpass' ? Biquad.highpass : Biquad.bandpass)(l.filter.freq[0], l.filter.q) : null;
+      let ph = 0;
+      for (let i = 0; i < n && s0 + i < out.length; i++) {
+        const k = i / Math.max(1, n), t = i / SR;
+        const vib = l.vibrato ? Math.pow(2, (l.vibrato.depth / 12) * Math.sin(2 * Math.PI * l.vibrato.rate * t)) : 1;
+        const f = f0 * Math.pow(f1 / f0, k) * vib;
+        ph += f / SR; ph -= Math.floor(ph);
+        let x: number;
+        switch (l.wave) {
+          case 'sine': x = Math.sin(2 * Math.PI * ph); break;
+          case 'triangle': x = 1 - 4 * Math.abs(ph - 0.5); break;
+          case 'square': x = ph < 0.5 ? 0.7 : -0.7; break;
+          case 'saw': x = (2 * ph - 1) * 0.7; break;
+          default: x = rand() * 2 - 1;
+        }
+        if (filt && l.filter) {
+          // sweep the filter along the layer (retuned every 64 samples, without clicks)
+          if (l.filter.freq[1] && i % 64 === 0) { const ff = l.filter.freq[0] * Math.pow(l.filter.freq[1] / l.filter.freq[0], k); filt.retune((l.filter.type === 'lowpass' ? Biquad.lowpass : l.filter.type === 'highpass' ? Biquad.highpass : Biquad.bandpass)(Math.min(20000, ff), l.filter.q)); }
+          x = filt.process(x);
+        }
+        const env = Math.min(1, t / Math.max(1e-4, l.attack)) * (t < l.attack ? 1 : Math.exp(-(t - l.attack) / l.decay)) * Math.min(1, (n - i) / (0.004 * SR));
+        out[s0 + i]! += x * env * g;
+      }
+    }
+  }
+  return out;
+}
+
+const recipeCache = new Map<string, Float32Array>();
+/** the sound of a kind: one designed for the project, else a built-in one; null if neither exists */
+export function soundFor(kind: string, sounds: Record<string, SoundRecipe> = {}, seed = 0): Float32Array | null {
+  const r = sounds[kind];
+  if (!r) return sound(kind, seed);
+  const key = `${JSON.stringify(r)}:${seed}`;
+  let b = recipeCache.get(key);
+  if (!b) { b = recipeSound(r, seed); recipeCache.set(key, b); if (recipeCache.size > 64) recipeCache.delete(recipeCache.keys().next().value!); }
   return b;
 }
