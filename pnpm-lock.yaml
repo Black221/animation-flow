@@ -99,6 +99,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@af/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@af/audio':
         specifier: workspace:*
         version: link:../../packages/audio

@@ -5,7 +5,7 @@ import { registry } from '@af/library';
 import type { Project } from '@af/schema';
 import { getStyle, stylePacks, type Renderer } from '@af/styles';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Api } from '../api';
+import { usePictures } from '../pictures';
 import { fmtTime, usePlayback, type Playback } from '../playback';
 
 const QUALITIES = [640, 960, 1280, 1920];
@@ -34,28 +34,6 @@ function useAudioSync(pb: Playback, buffer: AudioBuffer | null, on: boolean) {
     const unsub = pb.subscribe(sync);
     return () => { unsub(); stop(); };
   }, [pb, buffer, on]);
-}
-
-/** the project's pictures (decors painted by an image model), loaded through signed links; `onReady` asks for a repaint */
-function usePictures(project: Project, onReady: () => void) {
-  const pics = useRef(new Map<string, HTMLImageElement>());
-  const wanted = useMemo(() => [...new Set(Object.values(project.assets ?? {}).flatMap((a) => (a.image ? [a.image.asset] : [])))].sort().join(','), [project.assets]);
-  useEffect(() => {
-    const need = wanted ? wanted.split(',').filter((a) => !pics.current.has(a)) : [];
-    if (!need.length) return;
-    let alive = true;
-    Api.imageLinks(need).then((links) => {
-      for (const [asset, url] of Object.entries(links)) {
-        if (!alive || pics.current.has(asset)) continue;
-        const img = new Image();
-        img.onload = () => onReady();
-        img.src = url;
-        pics.current.set(asset, img);
-      }
-    }).catch(() => undefined); // without them, the decors' drawings show
-    return () => { alive = false; };
-  }, [wanted, onReady]);
-  return useMemo(() => (src: string) => { const img = pics.current.get(src); return img?.complete && img.naturalWidth ? img : null; }, []);
 }
 
 export function Player({ project, pb, style, onStyle, audio, sound, onSound, soundInfo }: {

@@ -101,4 +101,21 @@ test('text → storyboard (reviewed and edited) → scenes → project, then an 
   await expect(page.getByTestId('save-state')).toHaveText('modifié');
   await page.getByRole('button', { name: 'Annuler la modification' }).click();
   await expect(page.getByLabel("scène (JSON)")).toHaveValue(/"mood": "aube"/); // back to the composed piece
+
+  // the film's drawings: looked at, drawn again with a change
+  await page.getByRole('tab', { name: 'Dessins' }).click();
+  await expect(page.getByRole('list', { name: 'dessins du film' }).getByRole('button')).toHaveCount(5);
+  await page.getByTestId('drawing-sensor').click();
+  await expect(page.getByTestId('asset-view-sensor')).toBeVisible();
+  await page.getByLabel('changement du dessin').fill('plus grand, avec une antenne');
+  await page.getByRole('button', { name: "Redessiner avec l'IA" }).click();
+  await expect(page.getByTestId('drawing-note')).toContainText('OpenAI · gpt-scenes', { timeout: 20_000 });
+  expect(asked.filter((a) => a === 'draw sensor')).toHaveLength(2);
+  // its music and sounds: composed again with a direction
+  await page.getByRole('tab', { name: 'Musique' }).click();
+  await expect(page.locator('.piece-list')).toContainText('Aube');
+  await expect(page.locator('.sound-list')).toContainText('Bip');
+  await page.getByLabel('direction musicale').fill('plus joyeux');
+  await page.getByRole('button', { name: 'Recomposer la musique' }).click();
+  await expect(page.getByTestId('music-note')).toContainText('1 morceau', { timeout: 20_000 });
 });

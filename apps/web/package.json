@@ -12,6 +12,7 @@
     "e2e:cluster": "vite build && playwright test -c playwright.cluster.config.ts"
   },
   "dependencies": {
+    "@af/ai": "workspace:*",
     "@af/audio": "workspace:*",
     "@af/engine": "workspace:*",
     "@af/library": "workspace:*",

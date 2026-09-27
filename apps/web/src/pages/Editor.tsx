@@ -8,6 +8,8 @@ import { JsonEditor, type JsonIssue } from '../components/JsonEditor';
 import { Player } from '../components/Player';
 import { RenderPanel } from '../components/RenderPanel';
 import { VoicesPanel } from '../components/VoicesPanel';
+import { DrawingsPanel } from '../components/DrawingsPanel';
+import { MusicPanel } from '../components/MusicPanel';
 import { useSoundtrack } from '../audio/useSoundtrack';
 import { Timeline } from '../components/Timeline';
 import { Playback } from '../playback';
@@ -15,12 +17,12 @@ import { useSession } from '../session';
 import { useLive } from '../live';
 import { CommentsPanel, openThreads, useComments, type CommentEvent } from '../components/Comments';
 
-type Tab = 'scene' | 'voices' | 'project' | 'cast' | 'comments';
+type Tab = 'scene' | 'voices' | 'drawings' | 'music' | 'project' | 'cast' | 'comments';
 // until the project is loaded, the soundtrack hook gets this (it mixes nothing while disabled)
 const EMPTY = { schemaVersion: 1, title: '-', language: 'fr', fps: 24, width: 16, height: 16, style: 'flat', cast: {}, scenes: [] } as unknown as Project;
 
 const withScene = (p: Project, i: number, s: unknown) => ({ ...p, scenes: p.scenes.map((x, k) => (k === i ? s : x)) });
-const TAB_LABEL: Record<string, string> = { scene: 'scène', voices: 'voix', project: 'projet', cast: 'distribution', comments: 'commentaires' };
+const TAB_LABEL: Record<string, string> = { scene: 'scène', voices: 'voix', drawings: 'dessins', music: 'musique', project: 'projet', cast: 'distribution', comments: 'commentaires' };
 const issuesOf = (candidate: unknown): JsonIssue[] => { const r = parseProject(candidate); return r.ok ? [] : r.issues; };
 
 export function Editor() {
@@ -216,9 +218,9 @@ export function Editor() {
 
       <aside className="inspector">
         <div className="tabs" role="tablist">
-          {(['scene', 'voices', 'project', 'cast', 'comments'] as Tab[]).map((t) => (
+          {(['scene', 'voices', 'drawings', 'music', 'project', 'cast', 'comments'] as Tab[]).map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-              {t === 'scene' ? `Scène ${scene.id}` : t === 'voices' ? 'Voix' : t === 'project' ? 'Projet' : t === 'cast' ? 'Distribution' : `Commentaires${Object.values(open).reduce((a, b) => a + b, 0) ? ` (${Object.values(open).reduce((a, b) => a + b, 0)})` : ''}`}
+              {t === 'scene' ? `Scène ${scene.id}` : t === 'voices' ? 'Voix' : t === 'drawings' ? 'Dessins' : t === 'music' ? 'Musique' : t === 'project' ? 'Projet' : t === 'cast' ? 'Distribution' : `Commentaires${Object.values(open).reduce((a, b) => a + b, 0) ? ` (${Object.values(open).reduce((a, b) => a + b, 0)})` : ''}`}
             </button>
           ))}
         </div>
@@ -246,6 +248,8 @@ export function Editor() {
           <JsonEditor label="scène (JSON)" readOnly={!editable} value={scene} resetKey={`scene:${scene.id}:${resetN}`} remoteKey={live.remoteN} validate={(v) => issuesOf(withScene(draft, i, v))} onApply={(v) => update(withScene(draft, i, v) as Project)} />
         )}
         {tab === 'voices' && <VoicesPanel project={draft} onChange={update} readOnly={!editable} />}
+        {tab === 'drawings' && <DrawingsPanel project={draft} onChange={update} readOnly={!editable} resetKey={String(resetN)} remoteKey={live.remoteN} />}
+        {tab === 'music' && <MusicPanel project={draft} onChange={update} readOnly={!editable} resetKey={String(resetN)} remoteKey={live.remoteN} />}
         {tab === 'project' && (
           <div className="form">
             <label>Titre <input value={draft.title} onChange={(e) => e.target.value.trim() && update({ ...draft, title: e.target.value })} /></label>

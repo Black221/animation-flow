@@ -78,6 +78,11 @@ part avec un lien construit sur `APP_URL`.
   texte change, elle est signalée « texte modifié ».
 - **Musique et bruitages** synthétisés (aucun fichier, aucune licence) : une ambiance par scène (`calm`, `curious`,
   `playful`, `epic`, `night`, `tense`) et des bruitages calés sur les répliques (`pop`, `whoosh`, `chime`, `stamp`…).
+- **Dessins** (onglet « Dessins ») : tout ce que le film montre a été dessiné pour lui (personnages, accessoires,
+  décors). Chaque dessin s'anime dans l'onglet ; on peut le renommer, le faire redessiner par l'IA avec un changement
+  (« une écharpe rouge »), en demander un nouveau, le modifier en JSON, ou, avec un modèle d'images, peindre un décor.
+- **Musique** (onglet « Musique ») : la partition composée pour le film et ses bruitages, à écouter, à recomposer
+  avec une direction (« plus joyeux ») ou à reconcevoir un par un.
 - **Son dans l'aperçu** : voix, musique et bruitages mixés dans le navigateur avec le même code que le rendu.
 - **Rendu vidéo** depuis l'éditeur (panneau « Vidéo ») : style, largeur (640 à 1920 px), qualité, film entier ou une
   scène, sous-titres intégrés comme piste. Le rendu porte sur la version enregistrée ; la progression s'affiche en direct,
