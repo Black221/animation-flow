@@ -53,7 +53,8 @@ describe('synthesis', () => {
     for (const k of SOUND_KINDS) {
       const s = sound(k)!;
       expect(s.length, k).toBeGreaterThan(100);
-      let peak = 0; for (const v of s) { expect(Number.isFinite(v)).toBe(true); peak = Math.max(peak, Math.abs(v)); }
+      let peak = 0, finite = true; for (const v of s) { finite &&= Number.isFinite(v); peak = Math.max(peak, Math.abs(v)); }
+      expect(finite).toBe(true);
       expect(peak, k).toBeGreaterThan(0.05);
       expect(peak, k).toBeLessThan(2);
     }
@@ -69,7 +70,7 @@ describe('synthesis', () => {
   });
 });
 
-describe('composed music and designed sounds', () => {
+describe('composed music and designed sounds', { timeout: 30_000 }, () => {
   const piece = Piece.parse({
     name: 'Marche', bpm: 120, key: 'D', mode: 'major', chords: ['I', 'V7', 'vi', 'IV'], swing: 0.1,
     parts: [
@@ -95,7 +96,8 @@ describe('composed music and designed sounds', () => {
     expect(notes.filter((n) => n.kind === 'synthbass').length).toBe(8 + 2 + 8 + 2); // alternating bar patterns
     const [l] = renderMusic([{ start: 0, duration: 8, piece, gainDb: 0 }], 8);
     expect(Number.isFinite(integratedLoudness([l]))).toBe(true);
-    let peak = 0; for (const v of l) { expect(Number.isFinite(v)).toBe(true); peak = Math.max(peak, Math.abs(v)); }
+    let peak = 0, finite = true; for (const v of l) { finite &&= Number.isFinite(v); peak = Math.max(peak, Math.abs(v)); }
+    expect(finite).toBe(true);
     expect(peak).toBeGreaterThan(0.05);
   });
   it('refuses a piece written wrong', () => {
@@ -114,7 +116,8 @@ describe('composed music and designed sounds', () => {
     const a = recipeSound(r), b = recipeSound(r);
     expect(a.length).toBe(Math.round(0.4 * SR));
     expect(Buffer.from(a.buffer).equals(Buffer.from(b.buffer))).toBe(true);
-    let peak = 0; for (const v of a) { expect(Number.isFinite(v)).toBe(true); peak = Math.max(peak, Math.abs(v)); }
+    let peak = 0, finite = true; for (const v of a) { finite &&= Number.isFinite(v); peak = Math.max(peak, Math.abs(v)); }
+      expect(finite).toBe(true);
     expect(peak).toBeGreaterThan(0.05);
     expect(soundFor('porte', { porte: r })).toEqual(a);
     expect(soundFor('pop', {})).toEqual(sound('pop')); // a built-in one, for older projects
@@ -122,7 +125,8 @@ describe('composed music and designed sounds', () => {
   });
 });
 
-describe('mix', () => {
+// full soundtracks are mixed here (seconds of CPU each): a budget that holds while the other test files run too
+describe('mix', { timeout: 30_000 }, () => {
   const r = parseProject(exampleProject); if (!r.ok) throw new Error('bad example');
   // give two lines of scene 1 a "recording" so the mixer has voices to place
   const withVoices = (): { project: Project; voices: Map<string, Float32Array> } => {
