@@ -283,6 +283,51 @@ const MIGRATIONS: string[] = [
    ALTER TABLE projects ADD COLUMN remix_of uuid REFERENCES publications(id) ON DELETE SET NULL`,
   // a publication keeps the length of each of its scenes: its card shows the film's timeline
   `ALTER TABLE publications ADD COLUMN scenes jsonb NOT NULL DEFAULT '[]'`,
+  // plans and quotas: a plan per workspace (the platform admin may override its limits), monthly usage as events
+  // (a failed job gives its share back), payments through Stripe; platform admins, suspended accounts; reports on
+  // published films, and films hidden by moderation. Workspaces from before plans keep working: they get Pro.
+  `ALTER TABLE workspaces ADD COLUMN plan text NOT NULL DEFAULT 'free';
+   UPDATE workspaces SET plan = 'pro';
+   ALTER TABLE workspaces ADD COLUMN quotas jsonb NOT NULL DEFAULT '{}';
+   ALTER TABLE workspaces ADD COLUMN stripe_customer_id text;
+   ALTER TABLE workspaces ADD COLUMN stripe_subscription_id text;
+   ALTER TABLE workspaces ADD COLUMN billing_status text;
+   ALTER TABLE workspaces ADD COLUMN plan_renews_at timestamptz;
+   CREATE UNIQUE INDEX workspaces_stripe_customer ON workspaces (stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
+   ALTER TABLE users ADD COLUMN platform_admin boolean NOT NULL DEFAULT false;
+   ALTER TABLE users ADD COLUMN suspended_at timestamptz;
+   UPDATE users SET platform_admin = true WHERE id = (SELECT id FROM users ORDER BY created_at LIMIT 1);
+   CREATE TABLE usage_events (
+     id uuid PRIMARY KEY,
+     workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+     kind text NOT NULL,
+     amount double precision NOT NULL,
+     ref text,
+     user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+     created_at timestamptz NOT NULL DEFAULT now()
+   );
+   CREATE INDEX usage_events_ws ON usage_events (workspace_id, created_at);
+   CREATE INDEX usage_events_ref ON usage_events (ref);
+   CREATE TABLE billing_events (
+     id text PRIMARY KEY,
+     type text NOT NULL,
+     created_at timestamptz NOT NULL DEFAULT now()
+   );
+   ALTER TABLE renders ADD COLUMN priority integer NOT NULL DEFAULT 0;
+   ALTER TABLE publications ADD COLUMN hidden_at timestamptz;
+   CREATE TABLE reports (
+     id uuid PRIMARY KEY,
+     publication_id uuid NOT NULL REFERENCES publications(id) ON DELETE CASCADE,
+     reporter_id uuid REFERENCES users(id) ON DELETE SET NULL,
+     reason text NOT NULL,
+     message text NOT NULL DEFAULT '',
+     status text NOT NULL DEFAULT 'open',
+     resolved_by uuid REFERENCES users(id) ON DELETE SET NULL,
+     resolved_at timestamptz,
+     created_at timestamptz NOT NULL DEFAULT now()
+   );
+   CREATE INDEX reports_open ON reports (status, created_at);
+   CREATE UNIQUE INDEX reports_once ON reports (publication_id, reporter_id) WHERE status = 'open'`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */

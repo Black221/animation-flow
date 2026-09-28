@@ -16,10 +16,11 @@ export interface RenderRow {
 export const MAX_ATTEMPTS = 2;
 export const STALE_AFTER_S = 90;
 
-export async function enqueue(db: Db, projectId: string, version: number, by: string | null, options: RenderOptionsDb, framesTotal: number): Promise<RenderRow> {
+/** `priority`: taken before the others (the Pro plan) */
+export async function enqueue(db: Db, projectId: string, version: number, by: string | null, options: RenderOptionsDb, framesTotal: number, priority = 0, id: string = randomUUID()): Promise<RenderRow> {
   const { rows } = await db.query<RenderRow>(
-    'INSERT INTO renders (id, project_id, project_version, options, frames_total, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-    [randomUUID(), projectId, version, JSON.stringify(options), framesTotal, by]);
+    'INSERT INTO renders (id, project_id, project_version, options, frames_total, created_by, priority) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+    [id, projectId, version, JSON.stringify(options), framesTotal, by, priority]);
   return rows[0]!;
 }
 
@@ -27,7 +28,7 @@ export async function enqueue(db: Db, projectId: string, version: number, by: st
 export async function claim(db: Db, worker: string): Promise<RenderRow | null> {
   const { rows } = await db.query<RenderRow>(
     `UPDATE renders SET status = 'running', worker = $1, attempts = attempts + 1, started_at = now(), heartbeat_at = now(), error = NULL
-      WHERE id = (SELECT id FROM renders WHERE status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)
+      WHERE id = (SELECT id FROM renders WHERE status = 'queued' ORDER BY priority DESC, created_at LIMIT 1 FOR UPDATE SKIP LOCKED)
       RETURNING *`, [worker]);
   return rows[0] ?? null;
 }
@@ -44,9 +45,11 @@ export async function finish(db: Db, id: string, file: string, bytes: number, fr
 }
 export async function fail(db: Db, id: string, error: string) {
   await db.query(`UPDATE renders SET status = 'failed', error = $2, finished_at = now() WHERE id = $1 AND status = 'running'`, [id, error.slice(0, 2000)]);
+  await db.query('DELETE FROM usage_events WHERE ref = $1', [id]); // the minutes it counted come back
 }
 export async function markCanceled(db: Db, id: string) {
   await db.query(`UPDATE renders SET status = 'canceled', finished_at = COALESCE(finished_at, now()) WHERE id = $1`, [id]);
+  await db.query(`DELETE FROM usage_events WHERE ref = $1 AND NOT EXISTS (SELECT 1 FROM renders WHERE id::text = $1 AND frames_done >= frames_total AND frames_total > 0)`, [id]);
 }
 
 /** a worker shutting down hands its job back to the queue (the attempt does not count) */

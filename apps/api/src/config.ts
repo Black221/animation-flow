@@ -21,11 +21,16 @@
 //   SMTP_URL                   smtp(s)://user:password@host:port : enables e-mail (invitations, forgotten passwords)
 //   MAIL_FROM                  sender, e.g. "animation-flow <noreply@example.org>" (required with SMTP_URL)
 //   APP_URL                    public address of the app, e.g. https://anim.example.org (required with SMTP_URL:
-//                              links in e-mails are built from it, never from the request)
+//                              links in e-mails are built from it, never from the request; and with Stripe)
+//   PLANS                      on (default: plans and quotas, Gratuit · Basique · Premium · Pro) · off (nothing limited)
+//   STRIPE_SECRET_KEY          sk_… : enables paying for a plan (Checkout, customer portal). With it, all of:
+//   STRIPE_WEBHOOK_SECRET      whsec_… : the signing secret of the webhook pointed at APP_URL/api/billing/webhook
+//   STRIPE_PRICE_BASIC, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_PRO   price_… : the monthly price of each paid plan
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { join, resolve } from 'node:path';
+import type { StripeConfig } from './billing';
 
 export interface Config {
   port: number;
@@ -45,6 +50,22 @@ export interface Config {
   fontsDir: string | null;
   mail: { smtpUrl: string; from: string; appUrl: string } | null;
   trustProxy: boolean | number | string;
+  plans: boolean;
+  stripe: StripeConfig | null;
+}
+
+/** all of the Stripe settings or none; the error names what is missing, never a value */
+export function stripeConfig(env: NodeJS.ProcessEnv): StripeConfig | null {
+  const names = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_BASIC', 'STRIPE_PRICE_PREMIUM', 'STRIPE_PRICE_PRO'] as const;
+  const given = names.filter((n) => env[n]);
+  if (!given.length) return null;
+  const missing = names.filter((n) => !env[n]);
+  if (missing.length) throw new Error(`Stripe: missing ${missing.join(', ')}`);
+  if (!/^(sk|rk)_/.test(env.STRIPE_SECRET_KEY!)) throw new Error('STRIPE_SECRET_KEY must start with sk_ (or rk_)');
+  if (!env.STRIPE_WEBHOOK_SECRET!.startsWith('whsec_')) throw new Error('STRIPE_WEBHOOK_SECRET must start with whsec_');
+  let appUrl: URL;
+  try { appUrl = new URL(env.APP_URL ?? ''); } catch { throw new Error('APP_URL (the public address of the app) is required with Stripe: payments come back to it'); }
+  return { secretKey: env.STRIPE_SECRET_KEY!, webhookSecret: env.STRIPE_WEBHOOK_SECRET!, prices: { basic: env.STRIPE_PRICE_BASIC!, premium: env.STRIPE_PRICE_PREMIUM!, pro: env.STRIPE_PRICE_PRO! }, appUrl: appUrl.origin + appUrl.pathname.replace(/\/+$/, '') };
 }
 
 export function parseKey(raw: string): Buffer {
@@ -103,5 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     fontsDir,
     mail: mailConfig(env),
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
+    plans: env.PLANS !== 'off',
+    stripe: stripeConfig(env),
   };
 }

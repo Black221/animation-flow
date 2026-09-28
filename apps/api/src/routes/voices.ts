@@ -17,6 +17,7 @@ import type { SecretBox } from '../crypto';
 import { wsOf } from '../auth/context';
 import type { Db } from '../db';
 import { sendFile } from '../files';
+import type { Quotas } from '../plans';
 import type { Signer } from '../render/sign';
 
 const Asset = z.string().regex(/^[0-9a-f]{32}$/);
@@ -26,7 +27,7 @@ export const voiceFile = (dir: string, ws: string, asset: string) => join(dir, w
 /** duration in seconds of a stored recording (16-bit mono WAV at 48 kHz: 44-byte header) */
 const durationOf = (file: string) => Math.round(((statSync(file).size - 44) / 2 / SR) * 1000) / 1000;
 
-export function voiceRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: Signer, voicesDir: string, fetchImpl?: PostFetch) {
+export function voiceRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: Signer, voicesDir: string, fetchImpl: PostFetch | undefined, quota: Quotas) {
   mkdirSync(voicesDir, { recursive: true });
   const link = (ws: string, asset: string) => `/api/voices/${ws}/${asset}.wav?${sign.sign(`voice:${ws}:${asset}`)}`;
 
@@ -42,6 +43,7 @@ export function voiceRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: 
     const file = voiceFile(voicesDir, ws, asset);
     mkdirSync(join(voicesDir, ws), { recursive: true });
     if (existsSync(file)) return { asset, textHash: textHash(text), duration: durationOf(file), cached: true, url: link(ws, asset) };
+    await quota.ensure(ws, 'storageMb', 0);
 
     let apiKey: string;
     try { apiKey = box.open(a.secret ?? ''); } catch { return reply.code(500).send({ error: 'la clé ne peut pas être déchiffrée : saisissez-la de nouveau' }); }
@@ -54,6 +56,7 @@ export function voiceRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: 
     const tmp = `${file}.${process.pid}.tmp`;
     writeFileSync(tmp, encodeWav({ sampleRate: SR, channels: [samples] }, 16));
     renameSync(tmp, file);
+    quota.touched(ws);
     return { asset, textHash: textHash(text), duration: durationOf(file), cached: false, url: link(ws, asset) };
   });
 

@@ -12,6 +12,8 @@ import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
 import { enqueue, markCanceled, type RenderRow } from '../render/queue';
 import type { Signer } from '../render/sign';
+import type { Quotas } from '../plans';
+import { randomUUID } from 'node:crypto';
 
 const WIDTHS = [640, 960, 1280, 1920] as const;
 const Uuid = z.object({ id: z.string().uuid() });
@@ -26,7 +28,7 @@ const Body = z.object({
 });
 const CRF = { draft: 28, standard: 21, high: 17 } as const;
 
-export function renderRoutes(app: FastifyInstance, db: Db, sign: Signer) {
+export function renderRoutes(app: FastifyInstance, db: Db, sign: Signer, quota: Quotas) {
   const view = (r: RenderRow) => ({
     id: r.id, projectId: r.project_id, projectVersion: r.project_version, status: r.status, options: r.options,
     framesDone: r.frames_done, framesTotal: r.frames_total, fps: r.fps, error: r.error, bytes: r.bytes == null ? null : Number(r.bytes), warnings: r.warnings ?? [],
@@ -52,7 +54,12 @@ export function renderRoutes(app: FastifyInstance, db: Db, sign: Signer) {
       from = s.start; to = s.start + s.duration;
     }
     const frames = Math.round((to ?? tl.duration) * project.fps) - Math.round((from ?? 0) * project.fps);
-    const job = await enqueue(db, p.data.id, rows[0].version, userOf(req).id, { style, width: b.data.width, crf: CRF[b.data.quality], subtitles: b.data.subtitles, audio: b.data.audio, ...(from != null ? { from, to: to!, sceneId: b.data.sceneId! } : {}) }, frames);
+    // the plan: how wide, how many minutes left this month, room for the file
+    const ws = wsOf(req).id, minutes = frames / project.fps / 60;
+    await quota.width(ws, b.data.width); await quota.ensure(ws, 'renderMinutes', minutes); await quota.ensure(ws, 'storageMb', 0);
+    const id = randomUUID();
+    await quota.record(ws, 'renderMinutes', minutes, id, userOf(req).id);
+    const job = await enqueue(db, p.data.id, rows[0].version, userOf(req).id, { style, width: b.data.width, crf: CRF[b.data.quality], subtitles: b.data.subtitles, audio: b.data.audio, ...(from != null ? { from, to: to!, sceneId: b.data.sceneId! } : {}) }, frames, (await quota.has(ws, 'priority')) ? 1 : 0, id);
     return reply.code(202).send(view(job));
   });
 

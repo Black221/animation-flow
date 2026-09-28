@@ -11,7 +11,8 @@ import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { imageModel, NotConfigured, type ImageModel } from '../ai/models';
-import { wsOf } from '../auth/context';
+import { userOf, wsOf } from '../auth/context';
+import type { Quotas } from '../plans';
 import type { SecretBox } from '../crypto';
 import type { Db } from '../db';
 import { sendFile } from '../files';
@@ -51,7 +52,7 @@ export async function painterOf(db: Db, box: SecretBox, ws: string, dir: string,
   return m ? { label: m.label, paint: painter(m, dir, ws) } : undefined;
 }
 
-export function imageRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: Signer, dir: string, fetchImpl?: JsonPost) {
+export function imageRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: Signer, dir: string, fetchImpl: JsonPost | undefined, quota: Quotas) {
   mkdirSync(dir, { recursive: true });
   const link = (ws: string, asset: string) => `/api/images/${ws}/${asset}.jpg?${sign.sign(`image:${ws}:${asset}`)}`;
 
@@ -62,12 +63,14 @@ export function imageRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: 
       style: z.string().max(40).default('watercolor'), palette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(10).optional(),
     }).safeParse(req.body), ws = wsOf(req).id;
     if (!b.success) return reply.code(400).send({ error: b.error.issues[0]?.message ?? 'requête invalide' });
+    await quota.feature(ws, 'decorImages'); await quota.ensure(ws, 'aiActions'); await quota.ensure(ws, 'storageMb', 0);
     let p;
     try { p = await painterOf(db, box, ws, dir, fetchImpl); } catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
     if (!p) return reply.code(400).send({ error: 'aucun modèle pour « Décors en images » : Réglages → Fournisseurs' });
     const d = b.data, description = d.instruction ? `${d.description} ${d.instruction}` : d.description;
     const r = await p.paint({ id: 'decor', kind: 'decor', name: d.name, description }, picturePrompt({ name: d.name, description }, { style: d.style, palette: d.palette }));
     if (!r.ok) return reply.code(502).send({ error: r.error });
+    await quota.record(ws, 'aiActions', 1, null, userOf(req).id); quota.touched(ws);
     return { image: r.image, url: link(ws, r.image.asset), model: p.label };
   });
 

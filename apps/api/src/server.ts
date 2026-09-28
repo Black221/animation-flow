@@ -23,6 +23,10 @@ import { commentRoutes } from './routes/comments';
 import { LiveHub } from './live/hub';
 import { signer, type Signer } from './render/sign';
 import type { MailSetup } from './mail';
+import { QuotaError, quotas } from './plans';
+import { planRoutes } from './routes/plans';
+import { adminRoutes } from './routes/admin';
+import { stripeClient, type StripeConfig, type StripeFetch } from './billing';
 
 export interface ServerDeps {
   db: Db;
@@ -52,6 +56,12 @@ export interface ServerDeps {
   fontsDir?: string | undefined;
   /** behind a reverse proxy: which X-Forwarded-* to believe (client address, protocol, host) */
   trustProxy?: boolean | number | string;
+  /** plans and quotas (default on); off: nothing is limited (a self-hosted server) */
+  plans?: boolean;
+  /** paying for a plan (none: plans are changed by the platform admin) */
+  stripe?: StripeConfig | null;
+  /** for Stripe (tests) */
+  stripeFetch?: StripeFetch;
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
@@ -71,6 +81,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   await hub.start();
   app.addHook('onClose', async () => { await hub.close(); });
   app.setErrorHandler((err: { statusCode?: number; message: string }, req, reply) => {
+    if (err instanceof QuotaError) return reply.code(402).send(err.body);
     const code = err.statusCode && err.statusCode >= 400 && err.statusCode < 500 ? err.statusCode : 500;
     if (code === 500) req.log.error(err);
     reply.code(code).send({ error: code === 500 ? 'erreur interne' : err.message });
@@ -79,18 +90,21 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true }));
   authRoutes(app, deps.db, deps.signup ?? 'invite', deps.mail ?? null, hub);
   const imagesDir = deps.imagesDir ?? join(deps.voicesDir, '_images'), communityDir = deps.communityDir ?? join(deps.voicesDir, '_community');
-  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, hub, deps.mail ?? null);
-  projectRoutes(app, deps.db, hub);
+  const quota = quotas(deps.db, { enabled: deps.plans ?? true, voicesDir: deps.voicesDir, imagesDir });
+  workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, hub, deps.mail ?? null, quota);
+  projectRoutes(app, deps.db, hub, quota);
   liveRoutes(app, hub);
   commentRoutes(app, deps.db, hub);
   providerRoutes(app, deps.db, deps.box, deps.fetchImpl);
   const sign = deps.signer ?? signer(randomBytes(32));
-  renderRoutes(app, deps.db, sign);
-  voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch);
-  generationRoutes(app, deps.db, deps.box, deps.llmFetch, deps.fontsDir, imagesDir);
-  imageRoutes(app, deps.db, deps.box, sign, imagesDir, deps.llmFetch);
+  renderRoutes(app, deps.db, sign, quota);
+  voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch, quota);
+  generationRoutes(app, deps.db, deps.box, deps.llmFetch, deps.fontsDir, imagesDir, quota);
+  imageRoutes(app, deps.db, deps.box, sign, imagesDir, deps.llmFetch, quota);
   const thumbnail = thumbnailRoutes(app, deps.db, imagesDir, deps.fontsDir);
-  communityRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, thumbnail);
+  communityRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, thumbnail, quota);
+  adminRoutes(app, deps.db, quota, communityDir);
+  planRoutes(app, deps.db, quota, deps.stripe ? { stripe: stripeClient(deps.stripe, deps.stripeFetch), config: deps.stripe } : null);
 
   if (deps.webDist && existsSync(deps.webDist)) {
     const { default: fastifyStatic } = await import('@fastify/static');

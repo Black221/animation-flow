@@ -5,6 +5,7 @@
 // anyone can play it, signed in or not. Publishing the project again replaces the copy. Remixing makes a new project
 // in the remixer's workspace from the copy, media included, and remembers where it came from: the remix, once
 // published, shows its origin, and the origin counts its remixes. Only names are ever shown of people, never e-mails.
+import type { Quotas } from '../plans';
 import { timeProject } from '@af/engine';
 import { parseProject, voiceIsCurrent, type Project } from '@af/schema';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -29,11 +30,12 @@ type License = keyof typeof LICENSES;
 
 interface PubRow {
   id: string; project_id: string | null; workspace_id: string; author_id: string | null; author_name: string | null;
-  title: string; description: string; tags: string[]; license: License; data: unknown; project_version: number; duration: number; scenes?: number[];
+  title: string; description: string; tags: string[]; license: License; data: unknown; project_version: number; duration: number; scenes?: number[]; hidden_at?: Date | null;
   remix_of: string | null; remixes: number; likes: number; views: number; created_at: Date; updated_at: Date;
   parent_title?: string | null; parent_author?: string | null; parent_author_id?: string | null; liked?: boolean;
 }
 const Uuid = z.object({ id: z.string().uuid() });
+export const REPORT_REASONS = ['inappropriate', 'copyright', 'spam', 'other'] as const;
 const Tag = z.string().trim().toLowerCase().min(1).max(24).regex(/^[\p{L}\p{N}][\p{L}\p{N} '’-]*$/u, 'étiquette : lettres, chiffres, espaces, tirets');
 const Meta = z.object({
   title: z.string().trim().min(1).max(120),
@@ -42,7 +44,7 @@ const Meta = z.object({
   license: z.enum(Object.keys(LICENSES) as [License, ...License[]]).default('cc-by'),
 });
 const SELECT = `SELECT p.id, p.project_id, p.workspace_id, p.author_id, u.name AS author_name, p.title, p.description, p.tags, p.license,
-  p.project_version, p.duration, p.scenes, p.remix_of, p.remixes, p.likes, p.views, p.created_at, p.updated_at,
+  p.project_version, p.duration, p.scenes, p.remix_of, p.hidden_at, p.remixes, p.likes, p.views, p.created_at, p.updated_at,
   o.title AS parent_title, ou.name AS parent_author, o.author_id AS parent_author_id
   FROM publications p LEFT JOIN users u ON u.id = p.author_id
   LEFT JOIN publications o ON o.id = p.remix_of LEFT JOIN users ou ON ou.id = o.author_id`;
@@ -65,9 +67,18 @@ const listMedia = (root: string, id: string, kind: 'voices' | 'images') => {
   return existsSync(d) ? readdirSync(d).map((f) => f.replace(/\.(wav|jpg)$/, '')) : [];
 };
 
-export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string; imagesDir: string; communityDir: string }, thumbnail: Thumbnailer) {
+export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string; imagesDir: string; communityDir: string }, thumbnail: Thumbnailer, quota: Quotas) {
   mkdirSync(dirs.communityDir, { recursive: true });
   const me = (req: FastifyRequest) => req.ctx?.user?.id ?? null;
+  // films published before their cards showed a timeline: measured once, in the background
+  void (async () => {
+    const { rows } = await db.query<{ id: string; data: unknown }>(`SELECT id, data FROM publications WHERE scenes = '[]'::jsonb LIMIT 1000`);
+    for (const r of rows) {
+      const parsed = parseProject(r.data);
+      if (parsed.ok) await db.query('UPDATE publications SET scenes = $2 WHERE id = $1', [r.id, JSON.stringify(timeProject(parsed.project).scenes.map((s) => Math.round(s.duration * 10) / 10))]);
+    }
+  })().catch(() => undefined);
+
   const load = async (id: string, viewer: string | null) => (await db.query<PubRow>(
     `${SELECT.replace('p.updated_at,', `p.updated_at, ${viewer ? 'EXISTS (SELECT 1 FROM publication_likes l WHERE l.publication_id = p.id AND l.user_id = $2)' : 'false'} AS liked,`)} WHERE p.id = $1`,
     viewer ? [id, viewer] : [id])).rows[0];
@@ -142,7 +153,7 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
   app.get('/api/community', { config: { auth: 'public' } }, async (req, reply) => {
     const b = List.safeParse(req.query ?? {});
     if (!b.success) return reply.code(400).send({ error: 'recherche invalide' });
-    const where: string[] = [], args: unknown[] = [], viewer = me(req);
+    const where: string[] = ['p.hidden_at IS NULL'], args: unknown[] = [], viewer = me(req);
     if (b.data.q) { args.push(`%${b.data.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`); where.push(`(p.title ILIKE $${args.length} OR p.description ILIKE $${args.length})`); }
     if (b.data.tag) { args.push(JSON.stringify([b.data.tag])); where.push(`p.tags @> $${args.length}::jsonb`); }
     if (b.data.author) { args.push(b.data.author); where.push(`p.author_id = $${args.length}`); }
@@ -152,7 +163,7 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     let sql = SELECT.replace('p.updated_at,', `p.updated_at, ${viewer ? `EXISTS (SELECT 1 FROM publication_likes l WHERE l.publication_id = p.id AND l.user_id = $${args.length + 1})` : 'false'} AS liked,`);
     const params = viewer ? [...args, viewer] : [...args];
     sql += ` ${cond} ORDER BY ${order} LIMIT ${b.data.limit} OFFSET ${b.data.offset}`;
-    const tags = (await db.query<{ tag: string; n: string }>(`SELECT t.tag, count(*) AS n FROM publications, jsonb_array_elements_text(tags) AS t(tag) GROUP BY t.tag ORDER BY n DESC, t.tag LIMIT 16`)).rows;
+    const tags = (await db.query<{ tag: string; n: string }>(`SELECT t.tag, count(*) AS n FROM publications, jsonb_array_elements_text(tags) AS t(tag) WHERE hidden_at IS NULL GROUP BY t.tag ORDER BY n DESC, t.tag LIMIT 16`)).rows;
     return { items: (await db.query<PubRow>(sql, params)).rows.map(summary), total, tags: tags.map((t) => ({ tag: t.tag, count: Number(t.n) })) };
   });
 
@@ -160,10 +171,13 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     const p = Uuid.safeParse(req.params), viewer = me(req);
     const r = p.success ? await load(p.data.id, viewer) : undefined;
     if (!r) return reply.code(404).send({ error: 'publication introuvable' });
+    // hidden by moderation: only its author, its workspace's admins and the platform admins still see it
+    const manage = await canManage(r, viewer), admin = !!req.ctx?.user.admin;
+    if (r.hidden_at && !manage && !admin) return reply.code(404).send({ error: 'publication introuvable' });
     const data = (await db.query<{ data: unknown }>('SELECT data FROM publications WHERE id = $1', [r.id])).rows[0]!.data;
-    const remixes = (await db.query<PubRow>(`${SELECT} WHERE p.remix_of = $1 ORDER BY p.likes DESC, p.created_at DESC LIMIT 12`, [r.id])).rows.map(summary);
+    const remixes = (await db.query<PubRow>(`${SELECT} WHERE p.remix_of = $1 AND p.hidden_at IS NULL ORDER BY p.likes DESC, p.created_at DESC LIMIT 12`, [r.id])).rows.map(summary);
     return {
-      ...summary(r), project: data, remixList: remixes, canManage: await canManage(r, viewer), licenseLabel: LICENSES[r.license],
+      ...summary(r), project: data, remixList: remixes, canManage: manage, hidden: !!r.hidden_at, licenseLabel: LICENSES[r.license],
       media: { voices: listMedia(dirs.communityDir, r.id, 'voices'), images: listMedia(dirs.communityDir, r.id, 'images') },
     };
   });
@@ -196,8 +210,18 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     const p = Uuid.safeParse(req.params);
     const u = p.success ? (await db.query<{ name: string; created_at: Date }>('SELECT name, created_at FROM users WHERE id = $1', [p.data.id])).rows[0] : undefined;
     if (!u) return reply.code(404).send({ error: 'auteur introuvable' });
-    const stats = (await db.query<{ n: string; likes: string; remixes: string }>('SELECT count(*) AS n, coalesce(sum(likes), 0) AS likes, coalesce(sum(remixes), 0) AS remixes FROM publications WHERE author_id = $1', [p.data!.id])).rows[0]!;
+    const stats = (await db.query<{ n: string; likes: string; remixes: string }>('SELECT count(*) AS n, coalesce(sum(likes), 0) AS likes, coalesce(sum(remixes), 0) AS remixes FROM publications WHERE author_id = $1 AND hidden_at IS NULL', [p.data!.id])).rows[0]!;
     return { id: p.data!.id, name: u.name, since: u.created_at, publications: Number(stats.n), likes: Number(stats.likes), remixes: Number(stats.remixes) };
+  });
+
+  // ---------------------------------------------------------------- reports (anyone signed in), read by the platform admins
+  app.post('/api/community/:id/report', { config: { auth: 'user' } }, async (req, reply) => {
+    const p = Uuid.safeParse(req.params), b = z.object({ reason: z.enum(REPORT_REASONS), message: z.string().trim().max(1000).default('') }).safeParse(req.body ?? {});
+    if (!p.success || !(await db.query('SELECT 1 FROM publications WHERE id = $1', [p.data.id])).rows.length) return reply.code(404).send({ error: 'publication introuvable' });
+    if (!b.success) return reply.code(400).send({ error: 'motif attendu' });
+    await db.query(`INSERT INTO reports (id, publication_id, reporter_id, reason, message) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (publication_id, reporter_id) WHERE status = 'open' DO UPDATE SET reason = EXCLUDED.reason, message = EXCLUDED.message`,
+      [randomUUID(), p.data.id, userOf(req).id, b.data.reason, b.data.message]);
+    return reply.code(201).send({ reported: true });
   });
 
   // ---------------------------------------------------------------- media and thumbnails (anyone)
@@ -226,9 +250,10 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
   app.post('/api/community/:id/remix', { config: { role: 'editor' } }, async (req, reply) => {
     const p = Uuid.safeParse(req.params), b = z.object({ title: z.string().trim().min(1).max(200).optional() }).safeParse(req.body ?? {}), ws = wsOf(req).id, user = userOf(req).id;
     if (!p.success || !b.success) return reply.code(400).send({ error: 'requête invalide' });
-    const r = (await db.query<{ data: unknown; title: string }>('SELECT data, title FROM publications WHERE id = $1', [p.data.id])).rows[0];
+    const r = (await db.query<{ data: unknown; title: string }>('SELECT data, title FROM publications WHERE id = $1 AND hidden_at IS NULL', [p.data.id])).rows[0];
     const parsed = r ? parseProject(r.data) : null;
     if (!r || !parsed?.ok) return reply.code(404).send({ error: 'publication introuvable' });
+    await quota.ensure(ws, 'projects'); await quota.ensure(ws, 'storageMb', 0);
     const project = { ...parsed.project, title: b.data.title ?? `${r.title} (remix)` };
     // its recordings and painted decors, into this workspace (named by content: nothing clashes)
     const root = dirOf(dirs.communityDir, p.data.id);

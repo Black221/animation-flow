@@ -12,6 +12,7 @@ import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
 import { logReset, saveLog, type LiveHub } from '../live/hub';
 import { TEMPLATES } from '../templates';
+import type { Quotas } from '../plans';
 
 interface Row { id: string; title: string; data: unknown; version: number; remix_of: string | null; publication_id: string | null; remix_title: string | null; created_at: Date; updated_at: Date; updated_by_name: string | null; created_by_name: string | null }
 /** the length of each scene: the card's timeline (nothing when the stored project no longer parses) */
@@ -22,7 +23,7 @@ const SELECT = `SELECT p.*, uu.name AS updated_by_name, cu.name AS created_by_na
   (SELECT id FROM publications pub WHERE pub.project_id = p.id) AS publication_id, (SELECT title FROM publications o WHERE o.id = p.remix_of) AS remix_title FROM projects p
   LEFT JOIN users uu ON uu.id = p.updated_by LEFT JOIN users cu ON cu.id = p.created_by`;
 
-export function projectRoutes(app: FastifyInstance, db: Db, hub?: LiveHub) {
+export function projectRoutes(app: FastifyInstance, db: Db, hub: LiveHub | undefined, quota: Quotas) {
   const load = async (id: string, ws: string) => (await db.query<Row>(`${SELECT} WHERE p.id = $1 AND p.workspace_id = $2`, [id, ws])).rows[0];
 
   app.get('/api/library', { config: { auth: 'user' } }, async () => ({
@@ -50,6 +51,7 @@ export function projectRoutes(app: FastifyInstance, db: Db, hub?: LiveHub) {
     const parsed = parseProject(project ?? TEMPLATES[template]!(title));
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
     const id = randomUUID(), data = JSON.stringify(parsed.project), ws = wsOf(req).id, by = userOf(req).id;
+    await quota.ensure(ws, 'projects');
     await db.tx(async (q) => {
       await q.query('INSERT INTO projects (id, title, data, workspace_id, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $5)', [id, parsed.project.title, data, ws, by]);
       await q.query('INSERT INTO project_versions (project_id, version, data, created_by) VALUES ($1, 1, $2, $3)', [id, data, by]);

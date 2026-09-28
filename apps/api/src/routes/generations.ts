@@ -16,6 +16,7 @@ import type { SecretBox } from '../crypto';
 import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
 import { painterOf } from './images';
+import type { Quotas } from '../plans';
 
 type Status = 'storyboard' | 'review' | 'assets' | 'music' | 'scenes' | 'done' | 'failed' | 'canceled';
 interface Row {
@@ -34,7 +35,11 @@ const Input = z.object({
   review: z.boolean().default(true),
 });
 
-export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl: JsonPost | undefined, fontsDir: string | undefined, imagesDir: string) {
+export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl: JsonPost | undefined, fontsDir: string | undefined, imagesDir: string, quota: Quotas) {
+  // decors are painted only where the plan includes it (otherwise drawn in vectors, like without an image model)
+  const paintersOf = async (ws: string) => ((await quota.has(ws, 'decorImages')) ? painterOf(db, box, ws, imagesDir, fetchImpl) : null);
+  // a generation that fails or is canceled gives back what it counted
+  const failed = async (id: string, error: string) => { await set(id, { status: 'failed', error }); await quota.refund(id); };
   const running = new Map<string, AbortController>();
   // what a model is shown of its drawing: rendered here, on the server's canvas
   const draw: DrawOptions = { preview: async (p: ProjectInput) => (await renderStill(p, { t: PREVIEW_TIME, width: 1024, ...(fontsDir ? { fontsDir } : {}) })).toString('base64') };
@@ -55,7 +60,8 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
   const failure = (e: unknown) => e instanceof InvalidAnswer ? `${e.message} : ${e.issues.slice(0, 3).map((i) => `${i.path} ${i.message}`).join(' ; ')}` : (e as Error).message;
 
   // a job cut off by a restart cannot resume: say so
-  void db.query(`UPDATE generations SET status = 'failed', error = 'interrompue par un redémarrage du serveur', updated_at = now() WHERE status IN ('storyboard', 'assets', 'music', 'scenes')`).catch(() => undefined);
+  void db.query(`DELETE FROM usage_events WHERE ref IN (SELECT id::text FROM generations WHERE status IN ('storyboard', 'assets', 'music', 'scenes'))`)
+    .then(() => db.query(`UPDATE generations SET status = 'failed', error = 'interrompue par un redémarrage du serveur', updated_at = now() WHERE status IN ('storyboard', 'assets', 'music', 'scenes')`)).catch(() => undefined);
 
   const runStoryboard = (id: string, ws: string, input: Row['input']) => {
     const ctrl = new AbortController(); running.set(id, ctrl);
@@ -67,7 +73,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
         if (ctrl.signal.aborted) return;
         await set(id, { storyboard: sb, status: 'review', scenes_total: sb.scenes.length });
         if (!input.review) runScenes(id, ws, sb);
-      } catch (e) { if (!ctrl.signal.aborted) await set(id, { status: 'failed', error: failure(e) }); }
+      } catch (e) { if (!ctrl.signal.aborted) await failed(id, failure(e)); }
       finally { if (running.get(id) === ctrl) running.delete(id); } // with review: false, runScenes has taken over the entry
     })();
   };
@@ -81,7 +87,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
         const briefs = briefsOf(sb), drawnFallbacks: string[] = [];
         if (!assets || briefs.some((b) => !assets![b.id])) {
           await set(id, { status: 'assets', assets_done: 0, assets_total: briefs.length, fallbacks: [] });
-          const painter = await drawingModel(db, box, ws, fetchImpl), pictures = await painterOf(db, box, ws, imagesDir, fetchImpl);
+          const painter = await drawingModel(db, box, ws, fetchImpl), pictures = await paintersOf(ws);
           await set(id, { models: { ...((await load(id))?.models ?? {}), assets: painter.label, ...(pictures ? { images: pictures.label } : {}) } });
           let drawnCount = 0, progress: Promise<unknown> = Promise.resolve();
           const r = await generateDrawings(painter, sb, {
@@ -127,7 +133,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
           await q.query('INSERT INTO project_versions (project_id, version, data, created_by) VALUES ($1, 1, $2, $3)', [pid, data, by]);
         });
         await set(id, { status: 'done', project_id: pid, scenes_done: done, fallbacks });
-      } catch (e) { if (!ctrl.signal.aborted) await set(id, { status: 'failed', error: failure(e) }); }
+      } catch (e) { if (!ctrl.signal.aborted) await failed(id, failure(e)); }
       finally { if (running.get(id) === ctrl) running.delete(id); }
     })();
   };
@@ -137,10 +143,13 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (!b.success) return reply.code(400).send({ error: b.error.issues[0]?.message ?? 'requête invalide' });
     if (!stylePacks[b.data.style]) return reply.code(400).send({ error: `style inconnu : ${b.data.style}` });
     const ws = wsOf(req).id;
+    // a film generated this month more, and room for the project it makes
+    await quota.ensure(ws, 'generations'); await quota.ensure(ws, 'projects');
     try { await modelFor(db, box, ws, 'storyboard', fetchImpl); await modelFor(db, box, ws, 'scenes', fetchImpl); }
     catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
     const id = randomUUID();
     await db.query('INSERT INTO generations (id, status, input, workspace_id, created_by) VALUES ($1, $2, $3, $4, $5)', [id, 'storyboard', JSON.stringify(b.data), ws, userOf(req).id]);
+    await quota.record(ws, 'generations', 1, id, userOf(req).id);
     runStoryboard(id, ws, b.data);
     return reply.code(202).send(view((await load(id))!));
   });
@@ -168,6 +177,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (!['review', 'failed', 'canceled'].includes(r.status) || r.project_id) return reply.code(409).send({ error: 'impossible à cette étape' });
     const extra = z.object({ instructions: z.string().max(2000).optional() }).safeParse(req.body ?? {});
     const input = { ...r.input, ...(extra.success && extra.data.instructions ? { instructions: extra.data.instructions } : {}) };
+    if (r.status !== 'review') { await quota.ensure(r.workspace_id, 'generations'); await quota.refund(r.id); await quota.record(r.workspace_id, 'generations', 1, r.id, userOf(req).id); }
     await set(r.id, { status: 'storyboard', error: null, input, storyboard: null });
     runStoryboard(r.id, r.workspace_id, input);
     return view((await load(r.id))!);
@@ -178,6 +188,8 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (!r) return reply.code(404).send({ error: 'génération introuvable' });
     const sb = Storyboard.safeParse(r.storyboard);
     if (!['review', 'failed'].includes(r.status) || !sb.success || r.project_id) return reply.code(409).send({ error: 'relisez d\'abord le storyboard' });
+    await quota.ensure(r.workspace_id, 'projects');
+    if (r.status === 'failed') { await quota.ensure(r.workspace_id, 'generations'); await quota.refund(r.id); await quota.record(r.workspace_id, 'generations', 1, r.id, userOf(req).id); }
     await set(r.id, { status: 'assets', error: null });
     runScenes(r.id, r.workspace_id, sb.data);
     return view((await load(r.id))!);
@@ -187,7 +199,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     const p = Uuid.safeParse(req.params), r = p.success ? await load(p.data.id, wsOf(req).id) : undefined;
     if (!r) return reply.code(404).send({ error: 'génération introuvable' });
     running.get(r.id)?.abort(); running.delete(r.id);
-    if (['storyboard', 'assets', 'music', 'scenes'].includes(r.status)) await set(r.id, { status: 'canceled' });
+    if (['storyboard', 'assets', 'music', 'scenes'].includes(r.status)) { await set(r.id, { status: 'canceled' }); await quota.refund(r.id); }
     return view((await load(r.id))!);
   });
 
@@ -197,13 +209,15 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (!b.success) return reply.code(400).send({ error: 'requête invalide' });
     const parsed = parseProject(b.data.project);
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
+    await quota.ensure(wsOf(req).id, 'aiActions');
     let model, painter, pictures;
-    try { model = await modelFor(db, box, wsOf(req).id, 'scenes', fetchImpl); painter = await drawingModel(db, box, wsOf(req).id, fetchImpl); pictures = await painterOf(db, box, wsOf(req).id, imagesDir, fetchImpl); }
+    try { model = await modelFor(db, box, wsOf(req).id, 'scenes', fetchImpl); painter = await drawingModel(db, box, wsOf(req).id, fetchImpl); pictures = await paintersOf(wsOf(req).id); }
     catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
     const usage = { inputTokens: 0, outputTokens: 0 }, onStep = (s: Step) => { usage.inputTokens += s.usage.inputTokens; usage.outputTokens += s.usage.outputTokens; };
     try {
       // what the change needs and the film does not have is drawn first
       const r = await editScene(model, parsed.project, b.data.sceneIndex, b.data.instruction, { onStep, drawModel: painter, draw: { ...draw, ...(pictures ? { paint: pictures.paint } : {}) } });
+      await quota.record(wsOf(req).id, 'aiActions', 1, null, userOf(req).id);
       return { scene: r.scene, assets: r.assets, cast: r.cast, sounds: r.sounds, drawn: r.drawn.map((d) => ({ id: d.id, fallback: d.fallback, rounds: d.rounds, review: d.review })), usage, model: model.label };
     } catch (e) {
       if (e instanceof InvalidAnswer) return reply.code(422).send({ error: e.message, issues: e.issues, usage });
@@ -226,6 +240,8 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     const current = b.data.current === undefined ? undefined : Asset.safeParse(b.data.current);
     if (current && !current.success) return reply.code(422).send({ error: 'dessin actuel invalide' });
     let painter, pictures;
+    await quota.ensure(wsOf(req).id, 'aiActions');
+    if (b.data.picture) { await quota.feature(wsOf(req).id, 'decorImages'); await quota.ensure(wsOf(req).id, 'storageMb', 0); }
     try { painter = await drawingModel(db, box, wsOf(req).id, fetchImpl); pictures = b.data.picture ? await painterOf(db, box, wsOf(req).id, imagesDir, fetchImpl) : undefined; }
     catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
     const usage = { inputTokens: 0, outputTokens: 0 };
@@ -233,6 +249,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     try {
       const r = await drawOne(painter, { id: b.data.id, kind: b.data.kind, name: b.data.name, description: b.data.description }, { title: p.title, style: p.style, others },
         { ...draw, ...(pictures ? { paint: pictures.paint } : {}), onStep: (s) => { usage.inputTokens += s.usage.inputTokens; usage.outputTokens += s.usage.outputTokens; } }, b.data.instruction, current?.success ? current.data : undefined);
+      await quota.record(wsOf(req).id, 'aiActions', 1, null, userOf(req).id); quota.touched(wsOf(req).id);
       return { asset: r.asset, fallback: r.fallback, rounds: r.rounds, review: r.review, issues: r.issues, usage, model: painter.label };
     } catch (e) {
       if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage });
@@ -247,6 +264,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     const parsed = parseProject(b.data.project);
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
     let composer;
+    await quota.ensure(wsOf(req).id, 'aiActions');
     try { composer = await musicModel(db, box, wsOf(req).id, fetchImpl); } catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
     const p = parsed.project, tl = timeProject(p), usage = { inputTokens: 0, outputTokens: 0 };
     // what each scene wants: its current piece's description, the direction given, its title
@@ -256,6 +274,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     }) } as unknown as Storyboard;
     try {
       const r = await composeScore(composer, sb, (st) => { usage.inputTokens += st.usage.inputTokens; usage.outputTokens += st.usage.outputTokens; });
+      await quota.record(wsOf(req).id, 'aiActions', 1, null, userOf(req).id);
       return { score: r.score, music: r.music, fallback: r.fallback, issues: r.issues, usage, model: composer.label };
     } catch (e) { if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage }); throw e; }
   });
@@ -267,10 +286,12 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     const parsed = parseProject(b.data.project);
     if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues });
     let composer;
+    await quota.ensure(wsOf(req).id, 'aiActions');
     try { composer = await musicModel(db, box, wsOf(req).id, fetchImpl); } catch (e) { if (e instanceof NotConfigured) return reply.code(400).send({ error: e.message }); throw e; }
     const usage = { inputTokens: 0, outputTokens: 0 };
     try {
       const r = await designSounds(composer, [{ id: b.data.id, name: b.data.name, description: b.data.description }], parsed.project.title, (st) => { usage.inputTokens += st.usage.inputTokens; usage.outputTokens += st.usage.outputTokens; });
+      await quota.record(wsOf(req).id, 'aiActions', 1, null, userOf(req).id);
       return { sound: r.sounds[b.data.id], fallback: r.fallbacks.length > 0, issues: r.issues, usage, model: composer.label };
     } catch (e) { if (e instanceof ModelError) return reply.code(502).send({ error: e.message, usage }); throw e; }
   });

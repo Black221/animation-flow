@@ -12,15 +12,21 @@ import type { Db } from '../db';
 import type { LiveHub } from '../live/hub';
 import { invitationMail, type MailSetup } from '../mail';
 import { workspacesOf } from './auth';
+import { FREE_WORKSPACES_PER_OWNER, QuotaError, type Quotas } from '../plans';
 
 const Uuid = z.string().uuid();
 
-export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string; imagesDir?: string | undefined; communityDir?: string | undefined }, hub?: LiveHub, mail: MailSetup | null = null) {
+export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string; imagesDir?: string | undefined; communityDir?: string | undefined }, hub: LiveHub | undefined, mail: MailSetup | null, quota: Quotas) {
   app.get('/api/workspaces', { config: { auth: 'user' } }, async (req) => workspacesOf(db, userOf(req).id));
 
   app.post('/api/workspaces', { config: { auth: 'user' } }, async (req, reply) => {
     const b = z.object({ name: z.string().trim().min(1).max(80) }).safeParse(req.body);
     if (!b.success) return reply.code(400).send({ error: 'nom attendu' });
+    // free workspaces are not a way round the free plan's limits
+    if (quota.enabled) {
+      const free = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM memberships m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = $1 AND m.role = 'owner' AND w.plan = 'free'`, [userOf(req).id])).rows[0]!.n;
+      if (free >= FREE_WORKSPACES_PER_OWNER) throw new QuotaError('workspaces', 'free', FREE_WORKSPACES_PER_OWNER, free, `Vous avez déjà ${free} espaces gratuits : passez l'un d'eux à un plan payant pour en créer un autre.`);
+    }
     const id = randomUUID();
     await db.tx(async (q) => {
       await q.query('INSERT INTO workspaces (id, name) VALUES ($1, $2)', [id, b.data.name]);
@@ -56,6 +62,7 @@ export function workspaceRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     if (b.data.send && !mail) return reply.code(400).send({ error: "l'envoi d'e-mails n'est pas configuré (SMTP_URL)" });
     const ws = wsOf(req);
     if (b.data.role === 'admin' && RANK[ws.role] < RANK.admin) return reply.code(403).send({ error: 'réservé aux administrateurs' });
+    await quota.ensure(ws.id, 'members');
     const token = randomBytes(24).toString('base64url'), id = randomUUID();
     await db.query(`INSERT INTO invitations (id, workspace_id, token_hash, role, email, created_by, expires_at) VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(days => $7))`,
       [id, ws.id, hashToken(token), b.data.role, b.data.email ?? null, userOf(req).id, b.data.days]);

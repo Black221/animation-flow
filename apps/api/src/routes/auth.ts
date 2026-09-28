@@ -47,7 +47,7 @@ export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode, mai
   const logins = new Limiter(10, 15 * 60_000), failsByIp = new Limiter(50, 15 * 60_000), signups = new Limiter(20, 60 * 60_000), resets = new Limiter(5, 60 * 60_000);
   const ip = (req: FastifyRequest) => req.ip;
   const me = async (userId: string) => {
-    const { rows } = await db.query<{ id: string; email: string; name: string; created_at: Date }>('SELECT id, email, name, created_at FROM users WHERE id = $1', [userId]);
+    const { rows } = await db.query<{ id: string; email: string; name: string; created_at: Date; admin: boolean }>('SELECT id, email, name, created_at, platform_admin AS admin FROM users WHERE id = $1', [userId]);
     return { user: rows[0], workspaces: await workspacesOf(db, userId) };
   };
   const hasUsers = async () => (await db.query('SELECT 1 FROM users LIMIT 1')).rows.length > 0;
@@ -71,12 +71,14 @@ export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode, mai
     const id = randomUUID(), hash = await hashPassword(b.data.password);
     try {
       await db.tx(async (q) => {
-        await q.query('INSERT INTO users (id, email, name, password_hash) VALUES ($1, $2, $3, $4)', [id, b.data.email, b.data.name, hash]);
+        // the first account runs the platform: its administrator, its workspace on the Pro plan
+        await q.query('INSERT INTO users (id, email, name, password_hash, platform_admin) VALUES ($1, $2, $3, $4, $5)', [id, b.data.email, b.data.name, hash, first]);
         if (inv) return acceptInvitation(q, inv, id);
         // the first account takes over the workspace holding the data from before accounts existed
         const orphan = first ? (await q.query<{ id: string }>(`SELECT w.id FROM workspaces w WHERE NOT EXISTS (SELECT 1 FROM memberships m WHERE m.workspace_id = w.id) ORDER BY w.created_at LIMIT 1`)).rows[0] : undefined;
         const ws = orphan?.id ?? randomUUID();
-        if (!orphan) await q.query('INSERT INTO workspaces (id, name) VALUES ($1, $2)', [ws, `Espace de ${b.data.name}`]);
+        if (!orphan) await q.query('INSERT INTO workspaces (id, name, plan) VALUES ($1, $2, $3)', [ws, `Espace de ${b.data.name}`, first ? 'pro' : 'free']);
+        else await q.query(`UPDATE workspaces SET plan = 'pro' WHERE id = $1`, [ws]);
         await q.query(`INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, 'owner')`, [ws, id]);
       });
     } catch (e) {
@@ -92,9 +94,11 @@ export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode, mai
     if (!b.success) return reply.code(400).send({ error: 'e-mail et mot de passe attendus' });
     const key = `${b.data.email}|${ip(req)}`;
     if (logins.blocked(key) || failsByIp.blocked(ip(req))) return reply.code(429).send({ error: 'trop de tentatives : réessayez dans quelques minutes' });
-    const { rows } = await db.query<{ id: string; password_hash: string }>('SELECT id, password_hash FROM users WHERE email = $1', [b.data.email]);
+    const { rows } = await db.query<{ id: string; password_hash: string; suspended: boolean }>('SELECT id, password_hash, suspended_at IS NOT NULL AS suspended FROM users WHERE email = $1', [b.data.email]);
     const ok = await verifyPassword(b.data.password, rows[0]?.password_hash ?? (await dummyHash()));
     if (!rows[0] || !ok) { logins.hit(key); failsByIp.hit(ip(req)); return reply.code(401).send({ error: 'e-mail ou mot de passe incorrect' }); }
+    // said only to the one who knows the password
+    if (rows[0].suspended) return reply.code(403).send({ error: 'ce compte est suspendu : écrivez à l’administrateur de la plateforme' });
     logins.reset(key);
     setSessionCookie(req, reply, await createSession(db, rows[0].id, String(req.headers['user-agent'] ?? '')));
     return { ...(await me(rows[0].id)), signup, setup: false, mail: !!mail };

@@ -43,9 +43,9 @@ if (config.role !== 'api') {
 let close = async () => { await runner?.stop(); await db.close(); };
 if (config.role !== 'worker') {
   const mail = config.mail ? { mailer: await smtpMailer(config.mail.smtpUrl, config.mail.from), appUrl: config.mail.appUrl } : null;
-  const app = await buildServer({ db, box: secretBox(config.encryptionKey), signer: signer(config.encryptionKey), signup: config.signup, webDist: config.webDist, voicesDir: config.voicesDir, imagesDir: config.imagesDir, communityDir: config.communityDir, logger: true, mail, trustProxy: config.trustProxy, fontsDir: config.fontsDir ?? undefined });
+  const app = await buildServer({ db, box: secretBox(config.encryptionKey), signer: signer(config.encryptionKey), signup: config.signup, webDist: config.webDist, voicesDir: config.voicesDir, imagesDir: config.imagesDir, communityDir: config.communityDir, logger: true, mail, trustProxy: config.trustProxy, fontsDir: config.fontsDir ?? undefined, plans: config.plans, stripe: config.stripe });
   await app.listen({ port: config.port, host: config.host });
-  app.log.info(`animation-flow on http://${config.host}:${config.port} · database: ${config.databaseUrl ? 'postgres' : 'embedded (PGlite)'} · role: ${config.role}${applied ? ` · ${applied} migration(s) applied` : ''}${config.signup === 'open' ? ' · open sign-up' : ' · sign-up by invitation'}${config.webDist ? '' : ' · web app not built (pnpm build)'}${config.mail ? ` · e-mail via SMTP, links to ${config.mail.appUrl}` : ' · no e-mail (SMTP_URL)'}`);
+  app.log.info(`animation-flow on http://${config.host}:${config.port} · database: ${config.databaseUrl ? 'postgres' : 'embedded (PGlite)'} · role: ${config.role}${applied ? ` · ${applied} migration(s) applied` : ''}${config.signup === 'open' ? ' · open sign-up' : ' · sign-up by invitation'}${config.webDist ? '' : ' · web app not built (pnpm build)'}${config.mail ? ` · e-mail via SMTP, links to ${config.mail.appUrl}` : ' · no e-mail (SMTP_URL)'}${config.plans ? ` · plans on${config.stripe ? ', payments via Stripe' : ', no payments (STRIPE_*)'}` : ' · plans off'}`);
   const base = close; close = async () => { await app.close(); await base(); };
 }
 
