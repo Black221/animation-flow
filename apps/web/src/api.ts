@@ -15,6 +15,12 @@ export class ApiError extends Error {
 type Listener = () => void;
 const unauthorized = new Set<Listener>();
 export const onUnauthorized = (f: Listener) => { unauthorized.add(f); return () => { unauthorized.delete(f); }; };
+/** a limit of the plan reached (402): the app explains it and offers a bigger plan, wherever it happened */
+export interface QuotaInfo { error: string; quota: { metric: string; plan: PlanId; limit: number | null; used: number } }
+const overQuota = new Set<(q: QuotaInfo) => void>();
+export const onQuota = (f: (q: QuotaInfo) => void) => { overQuota.add(f); return () => { overQuota.delete(f); }; };
+/** the last limit reached: its dialog already says it, a toast with the same words would say it twice */
+export const lastQuota = { text: '', at: 0 };
 
 export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const headers: Record<string, string> = { 'x-requested-with': 'animation-flow' };
@@ -25,6 +31,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   if (r.status === 401) unauthorized.forEach((f) => f());
   if (r.status === 204) return undefined as T;
   const text = await r.text(), body = text ? JSON.parse(text) : null;
+  if (r.status === 402 && body?.quota) { lastQuota.text = body.error; lastQuota.at = Date.now(); overQuota.forEach((f) => f(body as QuotaInfo)); }
   if (!r.ok) throw new ApiError(r.status, body?.error ?? `HTTP ${r.status}`, body);
   return body as T;
 }
@@ -38,7 +45,7 @@ export interface Publication {
   author: { id: string; name: string } | null; remixOf: { id: string; title: string; author: string | null; authorId: string | null } | null;
   remixes: number; likes: number; views: number; liked: boolean; createdAt: string; updatedAt: string;
 }
-export interface PublicationDetail extends Publication { project: Project; remixList: Publication[]; canManage: boolean; licenseLabel: string; media: { voices: string[]; images: string[] } }
+export interface PublicationDetail extends Publication { project: Project; remixList: Publication[]; canManage: boolean; hidden?: boolean; licenseLabel: string; media: { voices: string[]; images: string[] } }
 export interface CommunityPage { items: Publication[]; total: number; tags: { tag: string; count: number }[] }
 export interface AuthorInfo { id: string; name: string; since: string; publications: number; likes: number; remixes: number }
 export interface PublishMeta { title: string; description: string; tags: string[]; license: License }
@@ -64,7 +71,28 @@ export interface RenderRequest { style?: string; width: number; quality: 'draft'
 export type Role = 'owner' | 'admin' | 'editor' | 'viewer';
 export const RANK: Record<Role, number> = { viewer: 0, editor: 1, admin: 2, owner: 3 };
 export const ROLE_LABEL: Record<Role, string> = { owner: 'propriétaire', admin: 'administrateur', editor: 'éditeur', viewer: 'lecteur' };
-export interface Me { user: { id: string; email: string; name: string } | null; workspaces: { id: string; name: string; role: Role }[]; signup: 'invite' | 'open'; setup: boolean; mail: boolean }
+export type PlanId = 'free' | 'basic' | 'premium' | 'pro';
+export type Metric = 'projects' | 'members' | 'storageMb' | 'generations' | 'aiActions' | 'renderMinutes';
+export interface Limits { projects: number | null; members: number | null; storageMb: number | null; generations: number | null; aiActions: number | null; renderMinutes: number | null; maxWidth: number; decorImages: boolean; priority: boolean }
+export interface Plan { id: PlanId; label: string; price: number; tagline: string; limits: Limits }
+export interface WorkspacePlan {
+  enabled: boolean; plan: PlanId; label: string; limits: Limits; overrides: Partial<Limits>; usage: Record<Metric, number>;
+  billing: { payments: boolean; status: string | null; renewsAt: string | null; customer: boolean }; canManage: boolean; plans: Plan[];
+}
+export interface AdminWorkspace { id: string; name: string; role: Role; plan: PlanId; limits?: Limits; overrides?: Partial<Limits>; usage?: Record<Metric, number>; billing?: WorkspacePlan['billing'] }
+export interface AdminUser { id: string; name: string; email: string; createdAt: string; lastSeenAt: string | null; admin: boolean; suspended: boolean; workspaces: AdminWorkspace[] }
+export interface AdminUserDetail extends Omit<AdminUser, 'lastSeenAt'> { suspendedAt: string | null; publications: number }
+export interface AdminOverview {
+  plansEnabled: boolean; users: number; newUsers: number; suspended: number; activeUsers: number; workspaces: number; byPlan: Record<PlanId, number>;
+  paying: number; monthlyRevenue: number; projects: number; publications: number; usage: Partial<Record<Metric, number>>; openReports: number;
+}
+export type ReportReason = 'inappropriate' | 'copyright' | 'spam' | 'other';
+export const REPORT_REASON: Record<ReportReason, string> = { inappropriate: 'Contenu choquant ou inapproprié', copyright: "Droits d'auteur", spam: 'Spam ou publicité trompeuse', other: 'Autre chose' };
+export interface Report {
+  id: string; reason: ReportReason; message: string; status: string; createdAt: string; resolvedAt: string | null; resolvedBy: string | null; reporter: string | null;
+  publication: { id: string; title: string; hidden: boolean; author: { id: string; name: string } | null; openReports: number };
+}
+export interface Me { user: { id: string; email: string; name: string; admin?: boolean } | null; workspaces: { id: string; name: string; role: Role }[]; signup: 'invite' | 'open'; setup: boolean; mail: boolean }
 export interface Member { userId: string; name: string; email: string; role: Role; joinedAt: string }
 export interface PendingInvitation { id: string; role: Role; email: string | null; createdAt: string; expiresAt: string; by: string | null }
 export interface WorkspaceInfo { id: string; name: string; role: Role; members: Member[]; invitations: PendingInvitation[] }
@@ -110,6 +138,21 @@ export const Api = {
   setRole: (userId: string, role: Role) => api<{ ok: boolean }>(`/api/workspace/members/${userId}`, { method: 'PATCH', body: { role } }),
   removeMember: (userId: string) => api<void>(`/api/workspace/members/${userId}`, { method: 'DELETE' }),
   health: () => api<{ ok: boolean; auth: boolean }>('/api/health'),
+  plans: () => api<{ enabled: boolean; payments: boolean; plans: Plan[] }>('/api/plans'),
+  workspacePlan: () => api<WorkspacePlan>('/api/workspace/plan'),
+  checkout: (plan: Exclude<PlanId, 'free'>) => api<{ url: string }>('/api/billing/checkout', { method: 'POST', body: { plan } }),
+  billingPortal: () => api<{ url: string }>('/api/billing/portal', { method: 'POST' }),
+  report: (publicationId: string, reason: ReportReason, message: string) => api<{ reported: boolean }>(`/api/community/${publicationId}/report`, { method: 'POST', body: { reason, message } }),
+  admin: {
+    overview: () => api<AdminOverview>('/api/admin/overview'),
+    users: (q: { q?: string; filter?: string; offset?: number } = {}) => api<{ total: number; items: AdminUser[] }>(`/api/admin/users?${new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)]))}`),
+    user: (id: string) => api<AdminUserDetail>(`/api/admin/users/${id}`),
+    updateUser: (id: string, b: { suspended?: boolean; admin?: boolean }) => api<{ ok: boolean }>(`/api/admin/users/${id}`, { method: 'PATCH', body: b }),
+    updateWorkspace: (id: string, b: { plan?: PlanId; quotas?: Partial<Limits> }) => api<{ plan: PlanId; limits: Limits; overrides: Partial<Limits> }>(`/api/admin/workspaces/${id}`, { method: 'PATCH', body: b }),
+    reports: (status: 'open' | 'resolved' | 'all' = 'open') => api<Report[]>(`/api/admin/reports?status=${status}`),
+    settle: (id: string, action: 'dismiss' | 'hide' | 'remove') => api<{ ok: boolean; status: string }>(`/api/admin/reports/${id}`, { method: 'POST', body: { action } }),
+    hidePublication: (id: string, hidden: boolean) => api<{ ok: boolean }>(`/api/admin/publications/${id}`, { method: 'PATCH', body: { hidden } }),
+  },
   library: () => api<Library>('/api/library'),
   projects: () => api<ProjectSummary[]>('/api/projects'),
   project: (id: string) => api<ProjectDoc>(`/api/projects/${id}`),

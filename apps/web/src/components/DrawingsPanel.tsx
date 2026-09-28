@@ -4,11 +4,13 @@
 import { parseProject, type Asset, type Project } from '@af/schema';
 import { useEffect, useMemo, useState } from 'react';
 import { Api } from '../api';
+import { usePlan } from '../plan';
 import { addPicture } from '../pictures';
 import { AssetView } from './AssetView';
 import { JsonEditor, type JsonIssue } from './JsonEditor';
 import { Icon } from './Icon';
 import { Dialog, useUI } from './ui';
+import { Link } from 'react-router';
 
 const KIND_LABEL: Record<Asset['kind'], string> = { character: 'personnage', prop: 'accessoire', decor: 'décor' };
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
@@ -21,6 +23,7 @@ function usesOf(p: Project, id: string, a: Asset): string[] {
 }
 
 export function DrawingsPanel({ project, onChange, readOnly, resetKey, remoteKey }: { project: Project; onChange: (p: Project) => void; readOnly: boolean; resetKey: string; remoteKey: number }) {
+  const { plan } = usePlan(), paintable = !plan || plan.limits.decorImages;
   const ids = Object.keys(project.assets);
   const [sel, setSel] = useState<string | null>(ids[0] ?? null);
   const [instruction, setInstruction] = useState('');
@@ -94,7 +97,9 @@ export function DrawingsPanel({ project, onChange, readOnly, resetKey, remoteKey
               </label>
               <div className="row">
                 <button onClick={() => void redraw(cur, asset)} disabled={!!busy || asset.description.trim().length < 3}>{busy === 'draw' ? 'L\'IA dessine…' : 'Redessiner avec l\'IA'}</button>
-                {asset.kind === 'decor' && <button onClick={() => void paint(cur, asset)} disabled={!!busy || asset.description.trim().length < 3}>{busy === 'paint' ? 'Peinture…' : asset.image ? 'Repeindre l\'image' : 'Peindre en image'}</button>}
+                {asset.kind === 'decor' && (paintable
+                  ? <button onClick={() => void paint(cur, asset)} disabled={!!busy || asset.description.trim().length < 3}>{busy === 'paint' ? 'Peinture…' : asset.image ? 'Repeindre l\'image' : 'Peindre en image'}</button>
+                  : <Link to="/plans" className="button" title="les décors peints sont inclus à partir du plan Premium"><Icon name="lock" size={15} /> Peindre en image · Premium</Link>)}
                 {asset.image && <button onClick={() => { const { image: _drop, ...rest } = asset; setAsset(cur, rest as Asset); }}>Retirer l'image</button>}
                 <button className="danger" disabled={!!busy || uses.length > 0} title={uses.length ? 'utilisé dans des scènes' : ''} onClick={() => void ui.confirm({ title: `Supprimer le dessin « ${asset.name} » ?`, message: 'Il ne sert dans aucune scène. Vous pourrez le redemander à l’IA.', confirm: 'Supprimer', danger: true }).then((ok) => { if (ok) { setAsset(cur, null); ui.toast(`« ${asset.name} » supprimé`); } })}>Supprimer</button>
               </div>

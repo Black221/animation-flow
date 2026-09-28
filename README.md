@@ -85,7 +85,19 @@ part avec un lien construit sur `APP_URL`.
   Creative Commons) ; tout le monde, même sans compte, parcourt la galerie (recherche, tri, étiquettes), regarde le
   film dans la page et voit ses remix. Connecté, on aime et on **remixe** : une copie complète (dessins, musique,
   voix) arrive dans son espace, avec le lien vers l'original, qui compte ses remix. Pour une plateforme publique,
-  ouvrez les inscriptions (`SIGNUP=open`).
+  ouvrez les inscriptions (`SIGNUP=open`). On **signale** un film (motif, précisions) ; les administrateurs de la
+  plateforme le laissent, le masquent (il sort de la communauté, son auteur le voit encore) ou le retirent.
+- **Plans** (page « Abonnement ») : chaque espace a un plan — Gratuit, Basique (9 €/mois), Premium (19 €/mois) ou Pro
+  (39 €/mois) — avec ses limites : projets, membres, stockage, films générés, retouches IA et minutes de rendu par
+  mois, largeur des vidéos (720p en Gratuit, 1080p ensuite), décors peints (Premium et Pro), rendus prioritaires
+  (Pro). Des jauges montrent ce que le mois a utilisé ; une limite atteinte ouvre un dialogue qui dit laquelle et ce
+  qu'un plan supérieur donne. Une génération ou un rendu qui échoue, ou qu'on annule, ne compte pas. Un plan qui
+  baisse garde ce qui existe ; seules les créations au-delà de la limite sont refusées. Une personne possède au plus
+  deux espaces gratuits. Le paiement passe par **Stripe** (Checkout pour s'abonner, espace client pour changer de
+  plan, de carte ou résilier) : seul le propriétaire de l'espace paie. Sans Stripe, l'administrateur change les plans.
+- **Administration** (administrateurs de la plateforme : le premier compte, et ceux qu'il nomme) : vue d'ensemble
+  (comptes, actifs, espaces par plan, revenu mensuel, utilisation du mois, signalements), recherche des comptes, plan
+  et **limites sur mesure** d'un espace, suspension (sessions fermées, connexion refusée), modération.
 - **Interface** : une barre latérale (recherche, communauté, créer, mon espace, compte) ; l'éditeur et les
   générations en plein écran ; création par l'IA sur sa propre page avec toutes ses options (ton, public, voix,
   musique, rythme, consignes) ; dialogues pour créer, confirmer et voir le détail, notifications ; une interface
@@ -94,6 +106,10 @@ part avec un lien construit sur `APP_URL`.
 - **Thème** : thème clair, sombre ou automatique (menu du compte, en haut à droite ; le choix est gardé dans le
   navigateur), miniature de chaque projet et de chaque scène, scène modifiable sans JSON (titre, durée, décor,
   transition, répliques ; le code reste accessible en mode avancé).
+- **Petits écrans** : sur téléphone, l'éditeur garde la scène, les voix et les commentaires (dessins, musique et code
+  du projet attendent une tablette ou un ordinateur) et laisse l'export des sous-titres ; sur écran tactile, pas de
+  raccourcis clavier à montrer ; les plans se feuillettent d'un glissement ; les tableaux d'administration perdent
+  leurs colonnes secondaires.
 - **Musique** (onglet « Musique ») : la partition composée pour le film et ses bruitages, à écouter, à recomposer
   avec une direction (« plus joyeux ») ou à reconcevoir un par un.
 - **Son dans l'aperçu** : voix, musique et bruitages mixés dans le navigateur avec le même code que le rendu.
@@ -123,6 +139,13 @@ part avec un lien construit sur `APP_URL`.
   peut pas l'envoyer, le serveur n'autorisant aucune origine étrangère).
 - Tentatives de connexion limitées (10 par adresse e-mail et par IP sur 15 minutes).
 - Chaque route déclare le rôle qu'elle exige ; une route qui oublie de le dire est réservée aux membres, jamais ouverte.
+- Paiement : la carte ne passe jamais par ce serveur (Stripe Checkout). La clé secrète Stripe ne sert qu'à l'en-tête
+  d'authentification des appels à Stripe ; elle n'est ni journalisée ni envoyée au navigateur. Un plan payé n'est
+  accordé que par le webhook, dont la signature (HMAC SHA-256 du corps brut, horodatage de moins de 5 minutes) est
+  vérifiée en temps constant ; chaque événement n'est appliqué qu'une fois. Le webhook est la seule route d'écriture
+  sans l'en-tête CSRF : elle prouve son origine par cette signature.
+- Un compte suspendu perd toutes ses sessions et ne peut plus se connecter ; seul qui connaît le mot de passe apprend
+  qu'il est suspendu. Un administrateur ne peut ni se suspendre ni se retirer ses propres droits.
 - Inscription : `SIGNUP=invite` (défaut : le premier compte, puis sur invitation) ou `SIGNUP=open` (chacun crée
   son compte et reçoit son propre espace).
 - **E-mail** (facultatif, `SMTP_URL` + `MAIL_FROM` + `APP_URL`) : l'invitation part directement à l'adresse saisie
@@ -162,7 +185,11 @@ part avec un lien construit sur `APP_URL`.
 | `FFMPEG_PATH`, `FFPROBE_PATH` | binaires FFmpeg (défaut : ceux du `PATH`) |
 | `SMTP_URL` | `smtp://` ou `smtps://utilisateur:mot-de-passe@serveur:port` : active l'envoi d'e-mails (invitations, mot de passe oublié) |
 | `MAIL_FROM` | expéditeur, par exemple `animation-flow <noreply@example.org>` (obligatoire avec `SMTP_URL`) |
-| `APP_URL` | adresse publique de l'application, par exemple `https://anim.example.org` (obligatoire avec `SMTP_URL` : les liens des e-mails en partent) |
+| `APP_URL` | adresse publique de l'application, par exemple `https://anim.example.org` (obligatoire avec `SMTP_URL` : les liens des e-mails en partent ; et avec Stripe : le paiement y revient) |
+| `PLANS` | `on` (défaut) : plans et limites ; `off` : rien n'est limité (un serveur privé) |
+| `STRIPE_SECRET_KEY` | `sk_…` : active le paiement des plans. Avec elle, les quatre suivantes |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_…` : le secret de signature du webhook, à pointer sur `APP_URL/api/billing/webhook` (événements `checkout.session.completed`, `customer.subscription.*`, `invoice.payment_failed`) |
+| `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_PREMIUM`, `STRIPE_PRICE_PRO` | `price_…` : le prix mensuel de chaque plan payant, créé dans Stripe |
 
 Derrière un proxy inverse (nginx, Caddy, Traefik), laisser passer les WebSocket (`Upgrade`) sur
 `/api/projects/<id>/live` et transmettre `Host` (ou `X-Forwarded-Host`) : le serveur compare l'origine de la page à
@@ -259,7 +286,8 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 4. **Génération par IA** (fait) : texte → storyboard relu → scènes validées (corrections guidées, scène de secours), retouche d'une scène dans l'éditeur, tokens affichés.
 5. **Multi-utilisateur** (fait) : comptes, espaces de travail, rôles, invitations, isolation des données, auteur de chaque version.
 6. **Travail d'équipe** (fait) : édition à plusieurs en temps réel, commentaires sur les scènes, invitations et mot de passe oublié par e-mail.
-7. **Ensuite** : modèles de projets, packs de styles supplémentaires.
+7. **Communauté, plans et paiements** (fait) : publier, remixer, signaler ; plans et limites par espace, paiement Stripe, administration de la plateforme.
+8. **Ensuite** : modèles de projets, packs de styles supplémentaires.
 
 ## Crédits
 

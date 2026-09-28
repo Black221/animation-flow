@@ -2,8 +2,10 @@ import { expect, type Page } from '@playwright/test';
 
 export const OWNER = { email: 'owner@example.org', name: 'Olga', password: 'mot-de-passe-solide-1' };
 
-/** sign in as the owner (creating the first account on a fresh server); the page's context keeps the cookie */
+/** sign in as the owner (creating the first account on a fresh server); the page's context keeps the cookie. Signing
+ *  in comes first: sign-ups are limited per address, and every test would spend one */
 export async function signedIn(page: Page, who = OWNER) {
+  if ((await page.request.post('/api/auth/login', { data: { email: who.email, password: who.password } })).ok()) return;
   const up = await page.request.post('/api/auth/signup', { data: who });
   if (up.status() !== 201) expect((await page.request.post('/api/auth/login', { data: { email: who.email, password: who.password } })).ok()).toBe(true);
 }

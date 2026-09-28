@@ -12,6 +12,7 @@ import { DrawingsPanel } from '../components/DrawingsPanel';
 import { MusicPanel } from '../components/MusicPanel';
 import { Icon, type IconName } from '../components/Icon';
 import { Loading } from '../components/Motion';
+import { PHONE, TOUCH, useMedia } from '../media';
 import { SceneForm } from '../components/SceneForm';
 import { SceneThumb } from '../components/SceneThumb';
 import { PublishDialog } from '../components/PublishDialog';
@@ -24,6 +25,8 @@ import { useLive } from '../live';
 import { CommentsPanel, openThreads, useComments, type CommentEvent } from '../components/Comments';
 
 type Tab = 'scene' | 'voices' | 'drawings' | 'music' | 'project' | 'comments';
+/** on a phone, the inspector keeps what works with a finger on a small screen: the scene, its voices, the comments */
+const DESK_ONLY: Tab[] = ['drawings', 'music', 'project'];
 const TABS: [Tab, IconName, string][] = [['scene', 'scene', 'Scène'], ['voices', 'mic', 'Voix'], ['drawings', 'brush', 'Dessins'], ['music', 'music', 'Musique'], ['project', 'sliders', 'Projet'], ['comments', 'message', 'Commentaires']];
 /** the scene's code stays open once opened (this browser) */
 const ADV = 'af-scene-code';
@@ -48,6 +51,9 @@ export function Editor() {
   const [selId, setSelId] = useState<string | null>(null);
   const lastIndex = useRef(0);
   const [tab, setTab] = useState<Tab>('scene');
+  const phone = useMedia(PHONE), touch = useMedia(TOUCH);
+  // turned to a phone on a tab it does not show: back to the scene
+  useEffect(() => { if (phone && DESK_ONLY.includes(tab)) setTab('scene'); }, [phone, tab]);
   const [resetN, setResetN] = useState(0);
   const [ask, setAsk] = useState('');
   const [asking, setAsking] = useState(false);
@@ -187,8 +193,8 @@ export function Editor() {
         )}
         {editable ? <button onClick={() => setPublishing(true)} className={publication ? 'published' : ''} title={publication ? 'publié dans la communauté : republier, voir ou retirer' : 'partager ce film avec la communauté'}><Icon name="globe" size={16} /> {publication ? 'Publié' : 'Publier'}</button>
           : publication && <Link to={`/c/${publication.id}`} className="button"><Icon name="globe" size={16} /> Voir dans la communauté</Link>}
-        <button className="icon ghost" onClick={showKeys} aria-label="raccourcis clavier" title="raccourcis clavier (?)"><Icon name="keyboard" size={17} /></button>
-        <button onClick={downloadSrt} title="télécharger les sous-titres"><Icon name="subtitles" size={16} /> Sous-titres .srt</button>
+        {!touch && <button className="icon ghost" onClick={showKeys} aria-label="raccourcis clavier" title="raccourcis clavier (?)"><Icon name="keyboard" size={17} /></button>}
+        {!phone && <button onClick={downloadSrt} title="télécharger les sous-titres"><Icon name="subtitles" size={16} /> Sous-titres .srt</button>}
         {editable ? (liveOn
           ? <button className="primary" onClick={() => void save()} disabled={liveSaving} title="enregistré automatiquement ; ceci clôt la version en cours (Ctrl+S)"><Icon name="save" size={16} />{liveSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
           : <button className="primary" onClick={() => void save()} disabled={!dirty || saving}><Icon name="save" size={16} />{saving ? 'Enregistrement…' : 'Enregistrer'}</button>)
@@ -250,7 +256,7 @@ export function Editor() {
 
       <aside className="inspector">
         <div className="tabs" role="tablist">
-          {TABS.map(([t, icon, label]) => {
+          {TABS.filter(([t]) => !phone || !DESK_ONLY.includes(t)).map(([t, icon, label]) => {
             const n = t === 'comments' ? Object.values(open).reduce((a, b) => a + b, 0) : 0;
             return (
               <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)} title={t === 'scene' ? `Scène ${scene.id}` : label}>
@@ -260,6 +266,7 @@ export function Editor() {
             );
           })}
         </div>
+        {phone && <p className="muted small desk-note"><Icon name="monitor" size={13} /> Dessins, musique et réglages du projet : sur une tablette ou un ordinateur.</p>}
         {tab === 'scene' && editable && (
           <form className="ai-edit" aria-label="modifier avec l'IA" onSubmit={(e) => { e.preventDefault(); void (async () => {
             setAsking(true); setAiNote('');

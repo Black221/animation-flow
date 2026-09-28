@@ -2,12 +2,12 @@
 // (played in the page, liked, remixed into your workspace), an author's page. Readable without an account.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
-import { Api, communityMedia, LICENSE_LABEL, type AuthorInfo, type Publication, type PublicationDetail } from '../api';
+import { Api, communityMedia, LICENSE_LABEL, REPORT_REASON, type AuthorInfo, type Publication, type PublicationDetail, type ReportReason } from '../api';
 import { useSoundtrack } from '../audio/useSoundtrack';
 import { Icon } from '../components/Icon';
 import { Player } from '../components/Player';
 import { Playback } from '../playback';
-import { useUI } from '../components/ui';
+import { Dialog, useUI } from '../components/ui';
 import { HoverPlay, Loading, SceneStrip, SkeletonGrid, SpacingChart, useHover } from '../components/Motion';
 import { useSession } from '../session';
 
@@ -87,6 +87,28 @@ export function Community() {
   );
 }
 
+/** telling the moderators about a film: why, and a word if wanted */
+function ReportDialog({ id, title, open, onClose }: { id: string; title: string; open: boolean; onClose: () => void }) {
+  const ui = useUI();
+  const [reason, setReason] = useState<ReportReason | ''>(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) { setReason(''); setMessage(''); } }, [open]);
+  const send = async () => {
+    if (!reason) return;
+    setBusy(true);
+    try { await Api.report(id, reason, message.trim()); ui.toast('Merci : la modération va regarder ce film.'); onClose(); }
+    catch (e) { ui.toast((e as Error).message, 'error'); } finally { setBusy(false); }
+  };
+  return (
+    <Dialog open={open} onClose={onClose} title="Signaler ce film" description={`« ${title} » : dites-nous ce qui ne va pas. L'auteur ne sait pas qui l'a signalé.`} icon="flag" tone="danger" size="sm"
+      footer={<><button className="ghost" onClick={onClose}>Annuler</button><button className="danger" onClick={() => void send()} disabled={!reason || busy}><Icon name="flag" size={15} /> Signaler</button></>}>
+      <div className="radio-list" role="radiogroup" aria-label="motif">
+        {(Object.keys(REPORT_REASON) as ReportReason[]).map((r) => <label key={r} className="radio"><input type="radio" name="reason" checked={reason === r} onChange={() => setReason(r)} /> {REPORT_REASON[r]}</label>)}
+      </div>
+      <label className="field">Précisions (facultatif)<textarea rows={3} maxLength={1000} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="ce qui pose problème, où dans le film…" aria-label="précisions" /></label>
+    </Dialog>
+  );
+}
+
 export function PublicationPage() {
   const { id = '' } = useParams();
   const { me, can } = useSession(), nav = useNavigate(), at = useLocation();
@@ -96,6 +118,7 @@ export function PublicationPage() {
   const [sound, setSound] = useState(true);
   const [busy, setBusy] = useState('');
   const [copied, setCopied] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const ui = useUI();
   const pb = useMemo(() => new Playback(), []);
   const media = useMemo(() => communityMedia(id), [id]);
@@ -169,7 +192,10 @@ export function PublicationPage() {
             <button className={`like${p.liked ? ' on' : ''}`} onClick={() => void like()} aria-pressed={p.liked} aria-label="j'aime"><Icon name="heart" filled={p.liked} /> {p.likes}</button>
             <button className="icon" onClick={() => void share()} aria-label="copier le lien" title={copied ? 'lien copié' : 'copier le lien'}><Icon name={copied ? 'check' : 'link'} /></button>
             <button className="icon" onClick={details} aria-label="informations" title="informations"><Icon name="info" /></button>
+            {signedIn && !p.canManage && <button className="icon ghost" onClick={() => setReporting(true)} aria-label="signaler" title="signaler ce film"><Icon name="flag" /></button>}
           </div>
+          {p.hidden && <div className="alert error" role="status"><Icon name="eye" size={16} /><span>Masqué par la modération : seuls vous et les administrateurs voyez ce film.</span></div>}
+          <ReportDialog id={p.id} title={p.title} open={reporting} onClose={() => setReporting(false)} />
           {!signedIn && <p className="small muted"><Link to="/login" state={{ from: at.pathname }}>Connectez-vous</Link>{me?.signup === 'open' || me?.setup ? <> ou <Link to="/signup">créez un compte</Link></> : null} pour remixer ce film et l'aimer.</p>}
           {signedIn && !can('editor') && <p className="small muted">Votre rôle dans cet espace (lecteur) ne permet pas d'y créer de projet : changez d'espace pour remixer.</p>}
           <p className="small muted license"><Icon name="globe" size={13} /> {LICENSE_LABEL[p.license]}</p>

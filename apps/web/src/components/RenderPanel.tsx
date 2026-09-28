@@ -4,6 +4,7 @@ import type { Project } from '@af/schema';
 import { stylePacks } from '@af/styles';
 import { useCallback, useEffect, useState } from 'react';
 import { Api, type RenderJob, type RenderRequest } from '../api';
+import { usePlan, widthText } from '../plan';
 
 const STATUS: Record<RenderJob['status'], string> = { queued: 'en attente', running: 'en cours', done: 'terminé', failed: 'échec', canceled: 'annulé' };
 const QUALITY: Record<RenderRequest['quality'], string> = { draft: 'brouillon', standard: 'standard', high: 'haute' };
@@ -19,6 +20,9 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst, rea
   const [jobs, setJobs] = useState<RenderJob[]>([]);
   const [style, setStyle] = useState(project.style);
   const [width, setWidth] = useState(1280);
+  // the plan's widest video: wider ones are shown, not offered
+  const { plan, refresh: refreshPlan } = usePlan(), maxWidth = plan?.limits.maxWidth ?? 1920;
+  useEffect(() => { if (width > maxWidth) setWidth(maxWidth); }, [maxWidth]); // eslint-disable-line react-hooks/exhaustive-deps
   const [quality, setQuality] = useState<RenderRequest['quality']>('standard');
   const [scope, setScope] = useState<'film' | 'scene'>('film');
   const [subtitles, setSubtitles] = useState(true);
@@ -38,7 +42,7 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst, rea
     try {
       if (dirty && !(await saveFirst())) return;
       const j = await Api.startRender(projectId, { style, width, quality, subtitles, audio, ...(scope === 'scene' ? { sceneId } : {}) });
-      setJobs((all) => [j, ...all]);
+      setJobs((all) => [j, ...all]); void refreshPlan();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   const act = async (f: () => Promise<unknown>) => { try { await f(); } catch (e) { setError((e as Error).message); } void refresh(); };
@@ -49,13 +53,14 @@ export function RenderPanel({ projectId, project, sceneId, dirty, saveFirst, rea
       <h3><Icon name="film" size={18} /> Vidéo</h3>
       {!readOnly && <div className="row wrap">
         <label>Style <select value={style} onChange={(e) => setStyle(e.target.value)}>{Object.values(stylePacks).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
-        <label>Largeur <select value={width} onChange={(e) => setWidth(+e.target.value)} aria-label="largeur">{[640, 960, 1280, 1920].map((w) => <option key={w} value={w}>{w} px</option>)}</select></label>
+        <label>Largeur <select value={width} onChange={(e) => setWidth(+e.target.value)} aria-label="largeur">{[640, 960, 1280, 1920].map((w) => <option key={w} value={w} disabled={w > maxWidth}>{w} px{w > maxWidth ? ' · plan supérieur' : ''}</option>)}</select></label>
         <label>Qualité <select value={quality} onChange={(e) => setQuality(e.target.value as RenderRequest['quality'])}>{Object.entries(QUALITY).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         <label>Portée <select value={scope} onChange={(e) => setScope(e.target.value as 'film' | 'scene')} aria-label="portée"><option value="film">film entier</option><option value="scene">scène {sceneId}</option></select></label>
         <label className="check"><input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} /> sous-titres</label>
         <label className="check"><input type="checkbox" checked={audio} onChange={(e) => setAudio(e.target.checked)} aria-label="son du rendu" /> son</label>
         <button className="primary" onClick={() => void start()} disabled={busy}><Icon name="film" size={16} />{dirty ? 'Enregistrer et rendre' : 'Rendre la vidéo'}</button>
       </div>}
+      {!readOnly && plan?.enabled && plan.limits.renderMinutes != null && <p className="muted small">Rendu ce mois : {Math.round(plan.usage.renderMinutes * 10) / 10} / {plan.limits.renderMinutes} min · jusqu'en {widthText(maxWidth)}</p>}
       {error && <p className="error small" role="alert">{error}</p>}
       {shown?.videoUrl && (canPlayH264()
         ? <video key={shown.id} className="video" controls src={shown.videoUrl} data-testid="video" />

@@ -144,6 +144,30 @@ projet (espace A) ──publier──► publication : copie figée du projet en
 - Seuls les noms des personnes sont montrés, jamais leur e-mail ; les clés, commentaires et générations ne sont
   jamais publiés. Supprimer un espace supprime ses publications et leurs médias.
 
+## Plans, quotas et paiements (`apps/api/src/plans.ts`, `billing.ts`, `routes/plans.ts`, `routes/admin.ts`)
+
+- Un plan par **espace** (`workspaces.plan` : `free`, `basic`, `premium`, `pro`), ses limites dans `PLANS` ;
+  l'administrateur peut en surcharger une partie pour un espace (`workspaces.quotas`, JSON : un nombre, `null` pour
+  « illimité », absent pour « celui du plan »).
+- Deux sortes de compteurs. Ce qui existe se mesure : projets, membres (invitations en attente comprises), stockage
+  (voix et décors sur disque, mesurés au plus toutes les 30 s, plus les vidéos rendues). Ce que le mois consomme
+  s'inscrit dans `usage_events` (`generations`, `aiActions`, `renderMinutes`), avec une référence au travail : un
+  rendu ou une génération qui échoue, ou qu'on annule, efface sa ligne (la file de rendu le fait elle-même).
+- `quota.ensure(ws, metric, n)` avant chaque création (projet, remix, génération, retouche IA, rendu, invitation,
+  voix, décor peint), `quota.width` pour la largeur, `quota.feature` pour les décors peints. Une limite atteinte
+  lève `QuotaError`, que le serveur transforme en **402** `{ error, quota: { metric, plan, limit, used } }` ; le
+  navigateur ouvre alors un seul dialogue (`plan.tsx`) quel que soit l'endroit. `PLANS=off` : tout est illimité.
+- Les rendus du plan Pro passent devant (`renders.priority`, `ORDER BY priority DESC, created_at`).
+- **Stripe** sans SDK (`billing.ts`) : Checkout en mode abonnement (`metadata.workspace_id` et `plan` sur la session et
+  sur l'abonnement), espace client, et le webhook. Celui-ci lit le corps brut (son propre `scope` Fastify), vérifie
+  `Stripe-Signature`, écrit l'identifiant de l'événement dans `billing_events` (une seule fois ; en cas d'erreur, la
+  ligne est retirée pour que Stripe réessaie) puis applique : `checkout.session.completed` → le plan payé ;
+  `customer.subscription.updated` → le plan du prix (actif, essai) ou seulement l'état (retard de paiement) ;
+  `deleted`, `canceled`, `unpaid` → retour au plan Gratuit. Le serveur ne décide jamais seul qu'un plan est payé.
+- Administration de la plateforme (`users.platform_admin`, route `{ auth: 'admin' }`) : le premier compte, puis ceux
+  qu'il nomme. Suspension : `users.suspended_at` (les sessions sont supprimées, `sessionUser` ignore un compte
+  suspendu). Modération : `reports` (un signalement ouvert par personne et par film) et `publications.hidden_at`.
+
 ## Interface (`apps/web`)
 
 - Trois mises en page : l'application (barre latérale : recherche dans la communauté, créer, mon espace, compte ;
@@ -161,6 +185,9 @@ projet (espace A) ──publier──► publication : copie figée du projet en
   barre latérale marque la page comme une tête de lecture ; le défilement fait avancer une tête de lecture en haut de
   la page. Les mouvements suivent les principes de l'animation (écrasement à l'appui, dépassement à l'arrivée,
   cartes en cascade, coupe entre les pages) ; tout s'arrête avec `prefers-reduced-motion`.
+- `media.ts` : ce qui est volontairement laissé de côté sur petit écran (`PHONE`) ou tactile (`TOUCH`) : sur téléphone,
+  l'inspecteur ne garde que Scène, Voix et Commentaires, l'export des sous-titres disparaît ; au doigt, pas de
+  raccourcis clavier ; classes `hide-phone` et `hide-tablet` pour les colonnes secondaires des tableaux.
 
 ## Rendu vidéo (`packages/render`, `apps/api/src/render`)
 

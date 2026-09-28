@@ -10,6 +10,9 @@ import { CreateProvider, useCreate } from './components/Create';
 import { Icon, type IconName } from './components/Icon';
 import { Menu, UIProvider } from './components/ui';
 import { Loading, Storyboard } from './components/Motion';
+import { PlanBadge, PlanProvider, UsageMeter, usePlan } from './plan';
+import { Plans } from './pages/Plans';
+import { Admin } from './pages/Admin';
 import { Forgot, Invite, Login, Reset, Signup } from './pages/Auth';
 import { AuthorPage, Community, PublicationPage } from './pages/Community';
 import { Editor } from './pages/Editor';
@@ -92,8 +95,16 @@ function AccountMenu() {
   );
 }
 
+/** the limit nearest to being reached, as a small meter under the workspace's links */
+function SideMeter() {
+  const { plan } = usePlan();
+  if (!plan) return null;
+  const tight = (['projects', 'renderMinutes', 'generations', 'storageMb'] as const).map((m) => ({ m, r: plan.limits[m] == null ? 0 : plan.usage[m] / Math.max(1e-9, plan.limits[m]!) })).sort((a, b) => b.r - a.r)[0]!;
+  return <Link to="/plans" className="side-meter" aria-label="utilisation du plan"><UsageMeter metric={tight.m} used={plan.usage[tight.m]} limit={plan.limits[tight.m]} compact /></Link>;
+}
+
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { me, workspace, switchTo, can } = useSession(), create = useCreate(), at = useLocation().pathname;
+  const { me, workspace, switchTo, can } = useSession(), create = useCreate(), at = useLocation().pathname, { plan } = usePlan();
   const signedIn = !!me?.user;
   const go = onNavigate;
   return (
@@ -119,6 +130,14 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <Item to="/projects" icon="folder" onClick={go}>Mes projets</Item>
           <Item to="/settings" icon="key" onClick={go}>Fournisseurs</Item>
           <Item to="/team" icon="users" onClick={go}>Équipe</Item>
+          <Item to="/plans" icon="card" onClick={go}>Abonnement {plan?.enabled && <PlanBadge plan={plan.plan} label={plan.label} />}</Item>
+        </div>
+      )}
+      {signedIn && workspace && plan?.enabled && <SideMeter />}
+      {me?.user?.admin && (
+        <div className="side-section">
+          <span className="side-label">Plateforme</span>
+          <Item to="/admin" icon="shield" onClick={go}>Administration</Item>
         </div>
       )}
       <span className="spacer" />
@@ -240,6 +259,8 @@ function Shell() {
           <Route path="/create" element={<CreatePage />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/team" element={<Team />} />
+          <Route path="/plans" element={<Plans />} />
+          <Route path="/admin" element={<Admin />} />
           <Route path="/reset/:token" element={<Reset />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="/signup" element={<Navigate to="/" replace />} />
@@ -251,5 +272,5 @@ function Shell() {
 }
 
 export function App() {
-  return <BrowserRouter><SessionProvider><UIProvider><CreateProvider><Shell /></CreateProvider></UIProvider></SessionProvider></BrowserRouter>;
+  return <BrowserRouter><SessionProvider><UIProvider><PlanProvider><CreateProvider><Shell /></CreateProvider></PlanProvider></UIProvider></SessionProvider></BrowserRouter>;
 }

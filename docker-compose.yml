@@ -42,6 +42,14 @@ services:
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
       APP_URL: ${APP_URL:-}
+      # plans and quotas: on (Gratuit · Basique · Premium · Pro) or off (nothing limited, e.g. for a private server)
+      PLANS: ${PLANS:-on}
+      # paying for a plan, optional: all five together, with APP_URL; the webhook goes to APP_URL/api/billing/webhook
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_BASIC: ${STRIPE_PRICE_BASIC:-}
+      STRIPE_PRICE_PREMIUM: ${STRIPE_PRICE_PREMIUM:-}
+      STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
     volumes:
       - data:/data   # rendered videos
     ports:
