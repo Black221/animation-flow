@@ -1,10 +1,11 @@
-// The back office, a server of its own: platform admins only (one answer for a wrong password and for no access),
-// its own sessions (the app's cookie opens nothing there, and the reverse), its own CSRF header, rights taken away
-// end its sessions; every write is in the audit log; it lists workspaces, subscriptions, films; it can be kept to
-// some addresses; nothing of it is framed or cached.
+// The back office, the platform manager's tool, a server of its own with its own accounts: the first manager is made
+// with the setup secret (once); users of the platform cannot sign in there, whatever they manage in their workspace;
+// sessions apart from the app's, their own CSRF header; managers invite managers, disable or remove them (never
+// themselves); every write is in the audit log; it lists workspaces, subscriptions, films; it can be kept to some
+// addresses; nothing of it is framed or cached.
 import type { FastifyInstance } from 'fastify';
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -17,27 +18,41 @@ import { openTestDb } from './testdb';
 
 let db: Db, app: FastifyInstance, adm: FastifyInstance, root: Client, eve: Client, boss: Client;
 const dir = () => mkdtempSync(join(tmpdir(), 'af-adm-'));
-const login = (email: string, password = 'mot-de-passe-solide-1', headers: Record<string, string> = { 'x-requested-with': 'animation-flow-admin' }) =>
-  adm.inject({ method: 'POST', url: '/api/auth/login', headers, payload: { email, password } });
+const H = { 'x-requested-with': 'animation-flow-admin' };
+const PW = 'mot-de-passe-solide-1';
+const login = (email: string, password = PW, headers: Record<string, string> = H) => adm.inject({ method: 'POST', url: '/api/auth/login', headers, payload: { email, password } });
+const setupFile = join(dir(), 'admin-setup-token');
 
 beforeAll(async () => {
   db = await openTestDb();
-  app = await buildServer({ db, box: secretBox(randomBytes(32)), voicesDir: dir(), signup: 'open', adminUrl: 'https://admin.example.org' });
+  app = await buildServer({ db, box: secretBox(randomBytes(32)), voicesDir: dir(), signup: 'open', plans: true });
   root = await signUp(app, 'root@example.org', { name: 'Root' });
   eve = await signUp(app, 'eve@example.org', { name: 'Eve' });
-  adm = await buildAdminServer({ db, voicesDir: dir(), imagesDir: dir(), communityDir: dir(), stripe: null });
-  boss = await adminSignIn(adm, 'root@example.org');
+  adm = await buildAdminServer({ db, voicesDir: dir(), imagesDir: dir(), communityDir: dir(), plans: true, setupTokenFile: setupFile, publicUrl: 'http://127.0.0.1:3001' });
 });
 afterAll(async () => { await adm.close(); await app.close(); await db.close(); });
 
-describe('back office: who gets in', () => {
-  it('lets platform admins in, with one answer for a wrong password and for an account without access', async () => {
-    const wrong = await login('root@example.org', 'pas-le-bon-mot-de-passe'), none = await login('eve@example.org');
+describe('back office: its own accounts', () => {
+  it('has no manager at first: the setup secret, in a file of the server, makes the first one — once', async () => {
+    expect((await adm.inject('/api/auth/me')).json()).toMatchObject({ user: null, setup: true });
+    const [token, link] = readFileSync(setupFile, 'utf8').trim().split('\n');
+    expect(link).toBe(`http://127.0.0.1:3001/setup?token=${token}`);
+    const wrong = await adm.inject({ method: 'POST', url: '/api/setup', headers: H, payload: { token: 'pas-le-bon', email: 'gerant@example.org', name: 'Gérant', password: PW } });
+    expect(wrong.statusCode).toBe(403);
+    const ok = await adm.inject({ method: 'POST', url: '/api/setup', headers: H, payload: { token, email: 'gerant@example.org', name: 'Gérant', password: PW } });
+    expect(ok.statusCode).toBe(201);
+    expect(existsSync(setupFile)).toBe(false);
+    expect((await adm.inject({ method: 'POST', url: '/api/setup', headers: H, payload: { token, email: 'autre@example.org', name: 'Autre', password: PW } })).statusCode).toBe(409);
+    expect((await adm.inject('/api/setup')).json()).toEqual({ needed: false });
+    boss = await adminSignIn(adm, 'gerant@example.org');
+  });
+
+  it('is not for the platform’s users: one answer for them, a wrong password and a disabled manager', async () => {
+    const wrong = await login('gerant@example.org', 'pas-le-bon-mot-de-passe'), user = await login('root@example.org');
     expect(wrong.statusCode).toBe(401);
-    expect(none.statusCode).toBe(401);
-    expect(none.json().error).toBe(wrong.json().error);
-    const ok = await login('root@example.org');
-    expect(ok.statusCode).toBe(200);
+    expect(user.statusCode).toBe(401); // the owner of a workspace, not of the platform
+    expect(user.json().error).toBe(wrong.json().error);
+    const ok = await login('gerant@example.org');
     const cookie = String(ok.headers['set-cookie']);
     expect(cookie).toMatch(/^af_admin=/);
     expect(cookie).toMatch(/HttpOnly/);
@@ -49,29 +64,55 @@ describe('back office: who gets in', () => {
     expect((await adm.inject({ url: '/api/admin/overview', headers: { cookie: root.cookie } })).statusCode).toBe(401);
     expect((await app.inject({ url: '/api/projects', headers: { cookie: boss.cookie.replace('af_admin=', 'af_session=') } })).statusCode).toBe(401);
     expect((await boss.inject('/api/admin/overview')).statusCode).toBe(200);
-    // and the app has no administration of its own any more; it gives its admins the back office's address
+    // the app has no administration, no platform flag, no link to the back office
     expect((await root.inject('/api/admin/users')).statusCode).toBe(404);
-    expect((await root.inject('/api/auth/me')).json().adminUrl).toBe('https://admin.example.org');
-    expect((await eve.inject('/api/auth/me')).json().adminUrl).toBeUndefined();
+    const me = (await root.inject('/api/auth/me')).json();
+    expect(me.user).not.toHaveProperty('admin');
+    expect(me).not.toHaveProperty('adminUrl');
   });
 
   it('wants its own CSRF header on every write', async () => {
-    expect((await login('root@example.org', 'mot-de-passe-solide-1', { 'x-requested-with': 'animation-flow' })).statusCode).toBe(403);
-    expect((await adm.inject({ method: 'PATCH', url: `/api/admin/users/${eve.user.id}`, headers: { cookie: boss.cookie }, payload: { admin: true } })).statusCode).toBe(403);
+    expect((await login('gerant@example.org', PW, { 'x-requested-with': 'animation-flow' })).statusCode).toBe(403);
+    expect((await adm.inject({ method: 'PATCH', url: `/api/admin/users/${eve.user.id}`, headers: { cookie: boss.cookie }, payload: { suspended: true } })).statusCode).toBe(403);
   });
 
-  it('ends a back-office session when the rights are taken away', async () => {
-    await boss.inject({ method: 'PATCH', url: `/api/admin/users/${eve.user.id}`, payload: { admin: true } });
-    const evil = await adminSignIn(adm, 'eve@example.org');
-    expect((await evil.inject('/api/admin/overview')).statusCode).toBe(200);
-    await boss.inject({ method: 'PATCH', url: `/api/admin/users/${eve.user.id}`, payload: { admin: false } });
-    expect((await evil.inject('/api/admin/overview')).statusCode).toBe(401);
-    // the app's session is untouched
-    expect((await eve.inject('/api/projects')).statusCode).toBe(200);
+  it('lets a manager invite another (a link shown once), who then signs in; disabling ends their session', async () => {
+    const inv = await boss.inject({ method: 'POST', url: '/api/admin/staff/invitations', payload: { email: 'aide@example.org' } });
+    expect(inv.statusCode).toBe(201);
+    const token = inv.json().path.split('/').pop();
+    expect((await adm.inject(`/api/join/${token}`)).json()).toMatchObject({ email: 'aide@example.org' });
+    expect((await adm.inject({ method: 'POST', url: `/api/join/${token}`, headers: H, payload: { name: 'Aide', password: 'court' } })).statusCode).toBe(400);
+    const joined = await adm.inject({ method: 'POST', url: `/api/join/${token}`, headers: H, payload: { name: 'Aide', password: PW } });
+    expect(joined.statusCode).toBe(201);
+    expect((await adm.inject({ method: 'POST', url: `/api/join/${token}`, headers: H, payload: { name: 'Encore', password: PW } })).statusCode).toBe(404); // once
+    const aide = await adminSignIn(adm, 'aide@example.org');
+    const list = (await boss.inject('/api/admin/staff')).json();
+    expect(list.staff.map((m: { name: string }) => m.name)).toEqual(['Gérant', 'Aide']);
+    expect(list.staff[0]).toMatchObject({ you: true });
+    const aideId = list.staff[1].id;
+    // never oneself
+    expect((await boss.inject({ method: 'PATCH', url: `/api/admin/staff/${list.staff[0].id}`, payload: { disabled: true } })).statusCode).toBe(400);
+    expect((await boss.inject({ method: 'DELETE', url: `/api/admin/staff/${list.staff[0].id}` })).statusCode).toBe(400);
+    expect((await boss.inject({ method: 'PATCH', url: `/api/admin/staff/${aideId}`, payload: { disabled: true } })).statusCode).toBe(200);
+    expect((await aide.inject('/api/admin/overview')).statusCode).toBe(401);
+    expect((await login('aide@example.org')).statusCode).toBe(401);
+    await boss.inject({ method: 'PATCH', url: `/api/admin/staff/${aideId}`, payload: { disabled: false } });
+    expect((await login('aide@example.org')).statusCode).toBe(200);
+    expect((await boss.inject({ method: 'DELETE', url: `/api/admin/staff/${aideId}` })).statusCode).toBe(204);
+    expect((await login('aide@example.org')).statusCode).toBe(401);
+  });
+
+  it('changes a manager’s own password, ending their other sessions', async () => {
+    const other = await adminSignIn(adm, 'gerant@example.org');
+    expect((await boss.inject({ method: 'POST', url: '/api/auth/password', payload: { current: 'faux', next: 'nouveau-mot-de-passe-9' } })).statusCode).toBe(400);
+    expect((await boss.inject({ method: 'POST', url: '/api/auth/password', payload: { current: PW, next: 'nouveau-mot-de-passe-9' } })).statusCode).toBe(200);
+    expect((await other.inject('/api/admin/overview')).statusCode).toBe(401);
+    expect((await boss.inject('/api/admin/overview')).statusCode).toBe(200);
+    await boss.inject({ method: 'POST', url: '/api/auth/password', payload: { current: 'nouveau-mot-de-passe-9', next: PW } });
   });
 
   it('signs out', async () => {
-    const c = await adminSignIn(adm, 'root@example.org');
+    const c = await adminSignIn(adm, 'gerant@example.org');
     expect((await c.inject({ method: 'POST', url: '/api/auth/logout' })).statusCode).toBe(200);
     expect((await c.inject('/api/admin/overview')).statusCode).toBe(401);
   });
@@ -90,6 +131,12 @@ describe('back office: who gets in', () => {
     const closed = await buildAdminServer({ db, voicesDir: dir(), imagesDir: dir(), communityDir: dir(), allowedIps: ['10.0.0.0/8'] });
     expect((await closed.inject('/api/health')).statusCode).toBe(403); // inject comes from 127.0.0.1
     await closed.close();
+  });
+
+  it('takes a setup secret from the configuration instead of a file', async () => {
+    const d = await openTestDb(), a = await buildAdminServer({ db: d, voicesDir: dir(), imagesDir: dir(), communityDir: dir(), setupToken: 'secret-de-deploiement-1234' });
+    expect((await a.inject({ method: 'POST', url: '/api/setup', headers: H, payload: { token: 'secret-de-deploiement-1234', email: 'g@example.org', name: 'G', password: PW } })).statusCode).toBe(201);
+    await a.close(); await d.close();
   });
 });
 
@@ -110,10 +157,10 @@ describe('back office: what it shows and does', () => {
     expect(subs.revenue.find((r: { plan: string }) => r.plan === 'premium')).toMatchObject({ count: 0, monthly: 0 });
   });
 
-  it('shows the plans as this server has them', async () => {
+  it('shows the three plans as this server has them', async () => {
     const p = (await boss.inject('/api/admin/plans')).json();
     expect(p).toMatchObject({ enabled: true, payments: false, prices: null });
-    expect(p.plans).toHaveLength(4);
+    expect(p.plans.map((x: { id: string }) => x.id)).toEqual(['free', 'premium', 'pro']);
   });
 
   it('lists every film, hidden ones too, and hides, restores or removes one', async () => {
@@ -129,21 +176,22 @@ describe('back office: what it shows and does', () => {
     expect((await boss.inject({ method: 'DELETE', url: `/api/admin/publications/${pub}` })).statusCode).toBe(404);
   });
 
-  it('signs someone out everywhere, without suspending them', async () => {
+  it('suspends a user and signs someone out everywhere; hands out no platform right', async () => {
+    expect((await boss.inject({ method: 'PATCH', url: `/api/admin/users/${eve.user.id}`, payload: { admin: true } })).statusCode).toBe(400);
     const r = (await boss.inject({ method: 'POST', url: `/api/admin/users/${eve.user.id}/signout` })).json();
     expect(r.ended).toBeGreaterThanOrEqual(1);
     expect((await eve.inject('/api/projects')).statusCode).toBe(401);
-    expect((await app.inject({ method: 'POST', url: '/api/auth/login', headers: { 'x-requested-with': 'animation-flow' }, payload: { email: 'eve@example.org', password: 'mot-de-passe-solide-1' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/api/auth/login', headers: { 'x-requested-with': 'animation-flow' }, payload: { email: 'eve@example.org', password: PW } })).statusCode).toBe(200);
   });
 
   it('writes every action to the audit log, searchable', async () => {
-    const all = (await boss.inject('/api/admin/audit')).json();
+    const all = (await boss.inject('/api/admin/audit?limit=200')).json();
     const actions = all.items.map((e: { action: string }) => e.action);
-    for (const a of ['sign-in', 'grant-admin', 'revoke-admin', 'set-plan', 'set-limits', 'hide', 'unhide', 'remove', 'signout']) expect(actions, a).toContain(a);
-    expect(all.items[0]).toMatchObject({ admin: { name: 'Root' } });
+    for (const a of ['setup', 'sign-in', 'invite-manager', 'join', 'disable-manager', 'enable-manager', 'remove-manager', 'password', 'set-plan', 'set-limits', 'hide', 'unhide', 'remove', 'signout']) expect(actions, a).toContain(a);
+    expect(all.items[0]).toMatchObject({ admin: { name: 'Gérant' } });
     const found = (await boss.inject('/api/admin/audit?q=Premium')).json();
     expect(found.items[0].summary).toMatch(/au plan Premium/);
-    // the overview adds the sign-ups of the last 30 days, day by day
+    // the overview adds the sign-ups of the last 30 days, day by day (users of the platform only)
     const o = (await boss.inject('/api/admin/overview')).json();
     expect(o.signups).toHaveLength(30);
     expect(o.signups.at(-1).count).toBe(2);

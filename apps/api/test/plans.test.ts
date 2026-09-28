@@ -1,7 +1,7 @@
-// Plans and quotas, payments, the platform's administration: the first account runs the platform (admin, Pro); the
-// next ones start free and meet its limits (projects, members, video width and minutes, workspaces, painted decors);
-// a failed or canceled job gives its minutes back; the admin changes a plan, sets custom limits, suspends an
-// account, settles reports; Stripe's signed webhook is what grants a paid plan, once per event.
+// Plans and quotas, payments, the platform's administration: every account starts free and meets its limits
+// (projects, members, video width and minutes, workspaces, painted decors); a failed or canceled job gives its minutes
+// back; the platform's manager (an account of the back office, not a user) changes a plan, sets custom limits,
+// suspends an account, settles reports; Stripe's signed webhook is what grants a paid plan, once per event.
 import type { FastifyInstance } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
@@ -13,10 +13,10 @@ import { secretBox } from '../src/crypto';
 import type { Db } from '../src/db';
 import { buildServer } from '../src/server';
 import { adminSignIn, signIn, signUp, type Client } from './client';
-import { buildAdminServer } from '../src/admin/server';
+import { buildAdminServer, createManager } from '../src/admin/server';
 import { openTestDb } from './testdb';
 
-const WHSEC = 'whsec_test_0000000000', PRICES = { basic: 'price_basic', premium: 'price_premium', pro: 'price_pro' };
+const WHSEC = 'whsec_test_0000000000', PRICES = { premium: 'price_premium', pro: 'price_pro' };
 let db: Db, app: FastifyInstance, adm: FastifyInstance, root: Client, ben: Client, boss: Client;
 const stripeCalls: { url: string; auth: string; body: URLSearchParams }[] = [];
 const stripeFetch: StripeFetch = async (url, init) => {
@@ -32,24 +32,24 @@ const plan = async (c: Client) => (await c.inject('/api/workspace/plan')).json()
 
 beforeAll(async () => {
   db = await openTestDb();
-  app = await buildServer({ db, box: secretBox(randomBytes(32)), voicesDir: mkdtempSync(join(tmpdir(), 'af-pv-')), signup: 'open',
+  app = await buildServer({ db, box: secretBox(randomBytes(32)), voicesDir: mkdtempSync(join(tmpdir(), 'af-pv-')), signup: 'open', plans: true,
     stripe: { secretKey: 'sk_test_secret', webhookSecret: WHSEC, prices: PRICES, appUrl: 'https://anim.example.org' }, stripeFetch });
   root = await signUp(app, 'root@example.org', { name: 'Root' });
   ben = await signUp(app, 'ben@example.org', { name: 'Ben' });
-  // the back office: its own server on the same database; the first account signs in there too
-  adm = await buildAdminServer({ db, voicesDir: mkdtempSync(join(tmpdir(), 'af-pv-')), imagesDir: mkdtempSync(join(tmpdir(), 'af-pi-')), communityDir: mkdtempSync(join(tmpdir(), 'af-pc-')), stripe: null });
-  boss = await adminSignIn(adm, 'root@example.org');
+  // the back office: its own server on the same database, its own accounts (the manager is no user of the platform)
+  await createManager(db, { email: 'gerant@example.org', name: 'Gérant', password: 'mot-de-passe-solide-1' });
+  adm = await buildAdminServer({ db, voicesDir: mkdtempSync(join(tmpdir(), 'af-pv-')), imagesDir: mkdtempSync(join(tmpdir(), 'af-pi-')), communityDir: mkdtempSync(join(tmpdir(), 'af-pc-')), stripe: null, plans: true });
+  boss = await adminSignIn(adm, 'gerant@example.org');
 });
 afterAll(async () => { await adm.close(); await app.close(); await db.close(); });
 
 describe('plans', () => {
-  it('lists the plans for anyone; the first account is the platform admin, on Pro; the next start free', async () => {
+  it('lists the three plans for anyone; every account starts free, the first one too', async () => {
     const r = (await app.inject('/api/plans')).json();
-    expect(r.plans.map((p: { id: string }) => p.id)).toEqual(['free', 'basic', 'premium', 'pro']);
+    expect(r.plans.map((p: { id: string }) => p.id)).toEqual(['free', 'premium', 'pro']);
     expect(r).toMatchObject({ enabled: true, payments: true });
-    expect((await root.inject('/api/auth/me')).json().user.admin).toBe(true);
-    expect((await ben.inject('/api/auth/me')).json().user.admin).toBe(false);
-    expect(await plan(root)).toMatchObject({ plan: 'pro', label: 'Pro', canManage: true });
+    expect((await root.inject('/api/auth/me')).json().user).not.toHaveProperty('admin');
+    expect(await plan(root)).toMatchObject({ plan: 'free', label: 'Gratuit', canManage: true });
     expect(await plan(ben)).toMatchObject({ plan: 'free', limits: { projects: 3, maxWidth: 1280 }, usage: { projects: 0, members: 1 } });
   });
 
@@ -63,7 +63,6 @@ describe('plans', () => {
     const first = (await ben.inject('/api/projects')).json()[0].id;
     expect((await ben.inject({ method: 'DELETE', url: `/api/projects/${first}` })).statusCode).toBe(204);
     expect((await ben.inject({ method: 'POST', url: '/api/projects', payload: { template: 'pizza' } })).statusCode).toBe(201);
-    expect((await root.inject({ method: 'POST', url: '/api/projects', payload: { template: 'blank' } })).statusCode).toBe(201); // Pro: no limit
   });
 
   it('keeps videos to the plan’s width and minutes, and gives back what a canceled render counted', async () => {
@@ -144,7 +143,7 @@ describe('payments', () => {
     expect((await plan(ben)).plan).toBe('free');
     const ok = await hook(completed);
     expect(ok.statusCode).toBe(200);
-    expect(await plan(ben)).toMatchObject({ plan: 'premium', billing: { status: 'active', customer: true }, limits: { decorImages: true, projects: 50 } });
+    expect(await plan(ben)).toMatchObject({ plan: 'premium', billing: { status: 'active', customer: true }, limits: { decorImages: true, projects: 30 } });
     expect((await hook(completed)).json()).toMatchObject({ duplicate: true });
     // an upgrade in the portal: the price says the plan
     const end = Math.floor(Date.now() / 1000) + 30 * 86400;
@@ -160,7 +159,7 @@ describe('payments', () => {
     expect(portal.json().url).toBe('https://billing.stripe.test/p_1');
     expect(stripeCalls.at(-1)!.body.get('customer')).toBe('cus_1');
     // already subscribed: no second checkout
-    expect((await ben.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'basic' } })).statusCode).toBe(409);
+    expect((await ben.inject({ method: 'POST', url: '/api/billing/checkout', payload: { plan: 'premium' } })).statusCode).toBe(409);
     // canceled: back to free
     await hook({ id: 'evt_4', type: 'customer.subscription.deleted', data: { object: { id: 'sub_1', customer: 'cus_1', status: 'canceled' } } });
     expect(await plan(ben)).toMatchObject({ plan: 'free', billing: { status: 'canceled' } });
@@ -168,29 +167,29 @@ describe('payments', () => {
 });
 
 describe('administration (the back office)', () => {
-  it('is for platform admins only', async () => {
+  it('is for the platform’s managers only', async () => {
     // not on the app's server any more; on the back office, not with the app's cookie
     expect((await root.inject('/api/admin/overview')).statusCode).toBe(404);
     for (const url of ['/api/admin/overview', '/api/admin/users', '/api/admin/reports']) expect((await adm.inject({ url, headers: { cookie: ben.cookie } })).statusCode, url).toBe(401);
     expect((await adm.inject({ url: '/api/admin/overview', headers: { cookie: root.cookie } })).statusCode).toBe(401);
     const o = (await boss.inject('/api/admin/overview')).json();
     expect(o).toMatchObject({ users: 2, openReports: 0 });
-    expect(o.byPlan.pro).toBe(1);
+    expect(o.byPlan.free).toBe(3); // Root's, Ben's and Ben's studio
   });
 
   it('finds accounts, shows their workspaces, plans and usage; changes a plan', async () => {
     const list = (await boss.inject('/api/admin/users?q=ben')).json();
     expect(list.total).toBe(1);
-    expect(list.items[0]).toMatchObject({ email: 'ben@example.org', admin: false, suspended: false });
+    expect(list.items[0]).toMatchObject({ email: 'ben@example.org', suspended: false });
     const detail = (await boss.inject(`/api/admin/users/${ben.user.id}`)).json();
     expect(detail.workspaces[0]).toMatchObject({ role: 'owner', plan: 'free', usage: { projects: 3 } });
-    const r = await boss.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { plan: 'basic', quotas: { projects: 4 } } });
-    expect(r.json()).toMatchObject({ plan: 'basic', limits: { projects: 4, maxWidth: 1920 } });
+    const r = await boss.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { plan: 'premium', quotas: { projects: 4 } } });
+    expect(r.json()).toMatchObject({ plan: 'premium', limits: { projects: 4, maxWidth: 1920 } });
     expect((await boss.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: { projects: -1 } } })).statusCode).toBe(400);
   });
 
   it('suspends an account (signed out everywhere, no signing in) and restores it; never oneself', async () => {
-    expect((await boss.inject({ method: 'PATCH', url: `/api/admin/users/${root.user.id}`, payload: { suspended: true } })).statusCode).toBe(400);
+    expect((await boss.inject({ method: 'PATCH', url: `/api/admin/users/${ben.user.id}`, payload: { admin: true } })).statusCode).toBe(400); // no such right any more
     expect((await boss.inject({ method: 'PATCH', url: `/api/admin/users/${ben.user.id}`, payload: { suspended: true } })).statusCode).toBe(200);
     expect((await ben.inject('/api/projects')).statusCode).toBe(401);
     const login = await app.inject({ method: 'POST', url: '/api/auth/login', headers: { 'x-requested-with': 'animation-flow' }, payload: { email: 'ben@example.org', password: 'mot-de-passe-solide-1' } });
@@ -226,10 +225,10 @@ describe('configuration', () => {
     const { stripeConfig, loadConfig } = await import('../src/config');
     expect(stripeConfig({})).toBeNull();
     const partial = { STRIPE_SECRET_KEY: 'sk_live_verysecret', APP_URL: 'https://anim.example.org' };
-    expect(() => stripeConfig(partial)).toThrow(/missing STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_BASIC, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_PRO/);
+    expect(() => stripeConfig(partial)).toThrow(/missing STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_PRO/);
     try { stripeConfig(partial); } catch (e) { expect((e as Error).message).not.toContain('verysecret'); }
-    const full = { ...partial, STRIPE_WEBHOOK_SECRET: 'whsec_x', STRIPE_PRICE_BASIC: 'price_b', STRIPE_PRICE_PREMIUM: 'price_p', STRIPE_PRICE_PRO: 'price_x' };
-    expect(stripeConfig(full)).toMatchObject({ prices: { basic: 'price_b', pro: 'price_x' }, appUrl: 'https://anim.example.org' });
+    const full = { ...partial, STRIPE_WEBHOOK_SECRET: 'whsec_x', STRIPE_PRICE_PREMIUM: 'price_p', STRIPE_PRICE_PRO: 'price_x' };
+    expect(stripeConfig(full)).toMatchObject({ prices: { premium: 'price_p', pro: 'price_x' }, appUrl: 'https://anim.example.org' });
     expect(() => stripeConfig({ ...full, APP_URL: '' })).toThrow(/APP_URL/);
     expect(loadConfig({ DATA_DIR: mkdtempSync(join(tmpdir(), 'af-cfg-')), PLANS: 'off' }).plans).toBe(false);
   });

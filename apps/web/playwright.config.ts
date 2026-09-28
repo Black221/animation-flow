@@ -8,11 +8,15 @@ const PORT = 4173;
 export const MAIL_SMTP = 4625, MAIL_HTTP = 4626;
 /** the back office, its own server (started with the API) */
 export const ADMIN_PORT = 4175, ADMIN = `http://127.0.0.1:${ADMIN_PORT}`;
+/** the secret that creates the first manager of the back office (global-setup.ts does it) */
+export const ADMIN_SETUP_TOKEN = 'e2e-setup-secret-0123456789';
 const dataDir = mkdtempSync(join(tmpdir(), 'af-e2e-'));
 const chromium = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 export default defineConfig({
   testDir: 'e2e',
+  // the platform's manager, and the owner's workspace on Pro (the tests share it and make many projects)
+  globalSetup: './e2e/global-setup.ts',
   timeout: 60_000,
   retries: 0,
   reporter: [['list']],
@@ -32,7 +36,7 @@ export default defineConfig({
       env: {
         PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: dataDir, WEB_DIST: 'dist',
         SMTP_URL: `smtp://127.0.0.1:${MAIL_SMTP}?ignoreTLS=true`, MAIL_FROM: 'animation-flow <noreply@example.org>', APP_URL: `http://127.0.0.1:${PORT}`,
-        ADMIN_PORT: String(ADMIN_PORT), ADMIN_HOST: '127.0.0.1', ADMIN_DIST: '../admin/dist', ADMIN_URL: ADMIN,
+        ADMIN_PORT: String(ADMIN_PORT), ADMIN_HOST: '127.0.0.1', ADMIN_DIST: '../admin/dist', ADMIN_SETUP_TOKEN, PLANS: 'on',
       },
       reuseExistingServer: false,
       timeout: 60_000,

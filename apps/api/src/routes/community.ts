@@ -171,9 +171,9 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     const p = Uuid.safeParse(req.params), viewer = me(req);
     const r = p.success ? await load(p.data.id, viewer) : undefined;
     if (!r) return reply.code(404).send({ error: 'publication introuvable' });
-    // hidden by moderation: only its author, its workspace's admins and the platform admins still see it
-    const manage = await canManage(r, viewer), admin = !!req.ctx?.user.admin;
-    if (r.hidden_at && !manage && !admin) return reply.code(404).send({ error: 'publication introuvable' });
+    // hidden by moderation: only its author and its workspace's admins still see it here (the managers, in the back office)
+    const manage = await canManage(r, viewer);
+    if (r.hidden_at && !manage) return reply.code(404).send({ error: 'publication introuvable' });
     const data = (await db.query<{ data: unknown }>('SELECT data FROM publications WHERE id = $1', [r.id])).rows[0]!.data;
     const remixes = (await db.query<PubRow>(`${SELECT} WHERE p.remix_of = $1 AND p.hidden_at IS NULL ORDER BY p.likes DESC, p.created_at DESC LIMIT 12`, [r.id])).rows.map(summary);
     return {

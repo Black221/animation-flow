@@ -80,7 +80,7 @@ export interface WorkspacePlan {
 }
 export type ReportReason = 'inappropriate' | 'copyright' | 'spam' | 'other';
 export const REPORT_REASON: Record<ReportReason, string> = { inappropriate: 'Contenu choquant ou inapproprié', copyright: "Droits d'auteur", spam: 'Spam ou publicité trompeuse', other: 'Autre chose' };
-export interface Me { user: { id: string; email: string; name: string; admin?: boolean } | null; adminUrl?: string | null; workspaces: { id: string; name: string; role: Role }[]; signup: 'invite' | 'open'; setup: boolean; mail: boolean }
+export interface Me { user: { id: string; email: string; name: string } | null; workspaces: { id: string; name: string; role: Role }[]; signup: 'invite' | 'open'; setup: boolean; mail: boolean }
 export interface Member { userId: string; name: string; email: string; role: Role; joinedAt: string }
 export interface PendingInvitation { id: string; role: Role; email: string | null; createdAt: string; expiresAt: string; by: string | null }
 export interface WorkspaceInfo { id: string; name: string; role: Role; members: Member[]; invitations: PendingInvitation[] }

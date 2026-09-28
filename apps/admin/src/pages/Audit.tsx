@@ -7,8 +7,8 @@ import { PageHead } from '../App';
 import { More } from '../parts';
 import { Bounce } from '../ui-bits';
 
-const ICON: Record<string, Parameters<typeof Icon>[0]['name']> = { 'sign-in': 'key', suspend: 'ban', restore: 'check', 'grant-admin': 'shield', 'revoke-admin': 'shield', signout: 'logout', 'set-plan': 'card', 'set-limits': 'sliders', hide: 'eye', unhide: 'eye', remove: 'trash' };
-const link = (e: AuditEntry) => (e.target.id && e.target.type === 'user' ? `/users/${e.target.id}` : e.target.id && e.target.type === 'workspace' ? `/workspaces/${e.target.id}` : null);
+const ICON: Record<string, Parameters<typeof Icon>[0]['name']> = { 'sign-in': 'key', password: 'key', setup: 'shield', join: 'shield', 'invite-manager': 'shield', 'revoke-invitation': 'x', 'disable-manager': 'ban', 'enable-manager': 'check', 'remove-manager': 'trash', suspend: 'ban', restore: 'check', signout: 'logout', 'set-plan': 'card', 'set-limits': 'sliders', hide: 'eye', unhide: 'eye', remove: 'trash' };
+const link = (e: AuditEntry) => (e.target.id && e.target.type === 'user' ? `/users/${e.target.id}` : e.target.id && e.target.type === 'workspace' ? `/workspaces/${e.target.id}` : e.target.type === 'staff' ? '/staff' : null);
 
 export function Audit() {
   const ui = useUI();

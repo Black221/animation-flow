@@ -342,6 +342,49 @@ const MIGRATIONS: string[] = [
      created_at timestamptz NOT NULL DEFAULT now()
    );
    CREATE INDEX admin_audit_time ON admin_audit (created_at DESC)`,
+  // three plans, not four: Basique joins Premium. And the back office's accounts apart from the platform's users:
+  // managers (the platform's staff) with their own sessions and invitations; the users who were platform admins become
+  // managers (same id, e-mail, name and password), users keep no platform rights; reports are settled by managers.
+  // The empty workspace the migrations make for the first account is on the free plan (only real data got Pro)
+  `UPDATE workspaces SET plan = 'premium' WHERE plan = 'basic';
+   CREATE TABLE staff (
+     id uuid PRIMARY KEY,
+     email text NOT NULL UNIQUE,
+     name text NOT NULL,
+     password_hash text NOT NULL,
+     disabled_at timestamptz,
+     created_by uuid REFERENCES staff(id) ON DELETE SET NULL,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     last_login_at timestamptz
+   );
+   CREATE TABLE staff_sessions (
+     id text PRIMARY KEY,
+     staff_id uuid NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+     expires_at timestamptz NOT NULL,
+     user_agent text NOT NULL DEFAULT '',
+     created_at timestamptz NOT NULL DEFAULT now()
+   );
+   CREATE TABLE staff_invitations (
+     id uuid PRIMARY KEY,
+     token_hash text NOT NULL UNIQUE,
+     email text NOT NULL,
+     created_by uuid REFERENCES staff(id) ON DELETE SET NULL,
+     expires_at timestamptz NOT NULL,
+     accepted_at timestamptz,
+     revoked_at timestamptz,
+     created_at timestamptz NOT NULL DEFAULT now()
+   );
+   INSERT INTO staff (id, email, name, password_hash, created_at) SELECT id, email, name, password_hash, created_at FROM users WHERE platform_admin;
+   DELETE FROM sessions WHERE scope = 'admin';
+   ALTER TABLE sessions DROP COLUMN scope;
+   ALTER TABLE users DROP COLUMN platform_admin;
+   ALTER TABLE admin_audit DROP CONSTRAINT IF EXISTS admin_audit_admin_id_fkey;
+   UPDATE admin_audit SET admin_id = NULL WHERE admin_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM staff WHERE staff.id = admin_audit.admin_id);
+   ALTER TABLE admin_audit ADD CONSTRAINT admin_audit_staff_fkey FOREIGN KEY (admin_id) REFERENCES staff(id) ON DELETE SET NULL;
+   ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_resolved_by_fkey;
+   UPDATE reports SET resolved_by = NULL WHERE resolved_by IS NOT NULL AND NOT EXISTS (SELECT 1 FROM staff WHERE staff.id = reports.resolved_by);
+   ALTER TABLE reports ADD CONSTRAINT reports_resolved_by_staff_fkey FOREIGN KEY (resolved_by) REFERENCES staff(id) ON DELETE SET NULL;
+   UPDATE workspaces w SET plan = 'free' WHERE plan = 'pro' AND billing_status IS NULL AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.workspace_id = w.id) AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.workspace_id = w.id)`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */

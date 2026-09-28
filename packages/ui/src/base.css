@@ -248,7 +248,6 @@ button:active:not(:disabled) { transform: scale(.96, .92); transition-duration: 
 /* ---------------------------------------------------------------- plans: badges and usage meters (both apps) */
 .badge.error { color: var(--error); background: var(--error-soft); }
 .plan-badge { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 1px 8px; border-radius: 6px; font-size: 0.68rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
-.plan-badge.basic { color: var(--track-5); border-color: color-mix(in srgb, var(--track-5) 40%, transparent); background: color-mix(in srgb, var(--track-5) 10%, var(--panel)); }
 .plan-badge.premium { color: var(--track-1); border-color: color-mix(in srgb, var(--track-1) 40%, transparent); background: color-mix(in srgb, var(--track-1) 12%, var(--panel)); }
 .plan-badge.pro { color: #fff; border-color: transparent; background: var(--brand); }
 h3 .plan-badge { margin-left: 0; font-size: 0.8rem; padding: 3px 10px; vertical-align: 3px; }

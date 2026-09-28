@@ -2,6 +2,8 @@ import { expect, type Browser, type Page } from '@playwright/test';
 import { ADMIN } from '../playwright.config';
 
 export const OWNER = { email: 'owner@example.org', name: 'Olga', password: 'mot-de-passe-solide-1' };
+/** the platform's manager: an account of the back office, not of the app */
+export const MANAGER = { email: 'gerant@example.org', name: 'Gaëlle', password: 'mot-de-passe-gerant-1' };
 
 /** sign in as the owner (creating the first account on a fresh server); the page's context keeps the cookie. Signing
  *  in comes first: sign-ups are limited per address, and every test would spend one */
@@ -22,14 +24,14 @@ export async function newProject(page: Page, template = 'Awa et Jumo', title?: s
   await expect(page).toHaveURL(/\/p\/[0-9a-f-]{36}$/);
 }
 
-/** the back office, in a browser of its own, signed in as the owner (the platform admin) through its sign-in form */
+/** the back office, in a browser of its own, signed in as the platform's manager through its sign-in form */
 export async function backOffice(browser: Browser, viewport = { width: 1440, height: 900 }) {
   const ctx = await browser.newContext({ viewport, baseURL: ADMIN, extraHTTPHeaders: {} });
   const page = await ctx.newPage();
   await page.goto('/');
   const form = page.getByRole('form', { name: 'connexion au back-office' });
-  await form.getByLabel('E-mail').fill(OWNER.email);
-  await form.getByLabel('Mot de passe').fill(OWNER.password);
+  await form.getByLabel('E-mail').fill(MANAGER.email);
+  await form.getByLabel('Mot de passe').fill(MANAGER.password);
   await form.getByRole('button', { name: 'Se connecter' }).click();
   await expect(page.getByRole('heading', { name: 'Tableau de bord' })).toBeVisible();
   return page;

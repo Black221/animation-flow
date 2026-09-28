@@ -26,9 +26,9 @@ export interface Overview {
   paying: number; monthlyRevenue: number; pastDue: number; projects: number; publications: number; hidden: number; renders: number; queued: number;
   usage: Partial<Record<Metric, number>>; openReports: number; signups: { day: string; count: number }[];
 }
-export interface UserRow { id: string; name: string; email: string; createdAt: string; lastSeenAt: string | null; admin: boolean; suspended: boolean; workspaces: { id: string; name: string; role: string; plan: PlanId }[] }
+export interface UserRow { id: string; name: string; email: string; createdAt: string; lastSeenAt: string | null; suspended: boolean; workspaces: { id: string; name: string; role: string; plan: PlanId }[] }
 export interface UserWorkspace { id: string; name: string; role: string; plan: PlanId; limits: Limits; overrides: Partial<Limits>; billing: Billing; usage: Usage }
-export interface UserDetail { id: string; name: string; email: string; createdAt: string; admin: boolean; suspended: boolean; suspendedAt: string | null; workspaces: UserWorkspace[]; publications: number; sessions: number; lastSeenAt: string | null }
+export interface UserDetail { id: string; name: string; email: string; createdAt: string; suspended: boolean; suspendedAt: string | null; workspaces: UserWorkspace[]; publications: number; sessions: number; lastSeenAt: string | null }
 export interface WorkspaceRow { id: string; name: string; plan: PlanId; billingStatus: string | null; renewsAt: string | null; custom: boolean; createdAt: string; owner: { id: string; name: string; email: string } | null; members: number; projects: number }
 export interface WorkspaceDetail {
   id: string; name: string; createdAt: string; plan: PlanId; limits: Limits; overrides: Partial<Limits>; usage: Usage; billing: Billing;
@@ -45,15 +45,26 @@ export interface Report {
 }
 export interface AuditEntry { id: string; admin: { id: string | null; name: string }; action: string; target: { type: string; id: string | null }; summary: string; ip: string | null; at: string }
 export interface Page<T> { total: number; items: T[] }
+export interface Manager { id: string; name: string; email: string; createdAt: string; lastLoginAt: string | null; disabled: boolean; by: string | null; you: boolean }
+export interface ManagerInvitation { id: string; email: string; createdAt: string; expiresAt: string; by: string | null }
 
 export const Api = {
-  me: () => api<{ user: Admin | null; appUrl?: string | null }>('/api/auth/me'),
+  me: () => api<{ user: Admin | null; appUrl?: string | null; setup?: boolean }>('/api/auth/me'),
+  setup: (b: { token: string; email: string; name: string; password: string }) => api<{ user: Admin }>('/api/setup', { method: 'POST', body: b }),
+  invitation: (token: string) => api<{ email: string; expiresAt: string }>(`/api/join/${encodeURIComponent(token)}`),
+  join: (token: string, b: { name: string; password: string }) => api<{ user: Admin }>(`/api/join/${encodeURIComponent(token)}`, { method: 'POST', body: b }),
+  password: (current: string, next: string) => api<{ ok: boolean }>('/api/auth/password', { method: 'POST', body: { current, next } }),
+  staff: () => api<{ staff: Manager[]; invitations: ManagerInvitation[] }>('/api/admin/staff'),
+  inviteManager: (email: string) => api<{ id: string; email: string; path: string; days: number }>('/api/admin/staff/invitations', { method: 'POST', body: { email } }),
+  revokeManagerInvitation: (id: string) => api<void>(`/api/admin/staff/invitations/${id}`, { method: 'DELETE' }),
+  updateManager: (id: string, disabled: boolean) => api<{ ok: boolean }>(`/api/admin/staff/${id}`, { method: 'PATCH', body: { disabled } }),
+  removeManager: (id: string) => api<void>(`/api/admin/staff/${id}`, { method: 'DELETE' }),
   login: (email: string, password: string) => api<{ user: Admin }>('/api/auth/login', { method: 'POST', body: { email, password } }),
   logout: () => api<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
   overview: () => api<Overview>('/api/admin/overview'),
   users: (q: { q?: string; filter?: string; offset?: number } = {}) => api<Page<UserRow>>(`/api/admin/users${qs(q)}`),
   user: (id: string) => api<UserDetail>(`/api/admin/users/${id}`),
-  updateUser: (id: string, b: { suspended?: boolean; admin?: boolean }) => api<{ ok: boolean }>(`/api/admin/users/${id}`, { method: 'PATCH', body: b }),
+  updateUser: (id: string, b: { suspended: boolean }) => api<{ ok: boolean }>(`/api/admin/users/${id}`, { method: 'PATCH', body: b }),
   signOutUser: (id: string) => api<{ ended: number }>(`/api/admin/users/${id}/signout`, { method: 'POST' }),
   workspaces: (q: { q?: string; plan?: string; billing?: string; offset?: number } = {}) => api<Page<WorkspaceRow>>(`/api/admin/workspaces${qs(q)}`),
   workspace: (id: string) => api<WorkspaceDetail>(`/api/admin/workspaces/${id}`),

@@ -146,7 +146,7 @@ projet (espace A) ──publier──► publication : copie figée du projet en
 
 ## Plans, quotas et paiements (`apps/api/src/plans.ts`, `billing.ts`, `routes/plans.ts`, `routes/admin.ts`)
 
-- Un plan par **espace** (`workspaces.plan` : `free`, `basic`, `premium`, `pro`), ses limites dans `PLANS` ;
+- Un plan par **espace** (`workspaces.plan` : `free`, `premium`, `pro`), ses limites dans `PLANS` ;
   l'administrateur peut en surcharger une partie pour un espace (`workspaces.quotas`, JSON : un nombre, `null` pour
   « illimité », absent pour « celui du plan »).
 - Deux sortes de compteurs. Ce qui existe se mesure : projets, membres (invitations en attente comprises), stockage
@@ -164,10 +164,14 @@ projet (espace A) ──publier──► publication : copie figée du projet en
   ligne est retirée pour que Stripe réessaie) puis applique : `checkout.session.completed` → le plan payé ;
   `customer.subscription.updated` → le plan du prix (actif, essai) ou seulement l'état (retard de paiement) ;
   `deleted`, `canceled`, `unpaid` → retour au plan Gratuit. Le serveur ne décide jamais seul qu'un plan est payé.
-- Administration de la plateforme (`users.platform_admin`) : le premier compte, puis ceux qu'il nomme. Elle vit dans
-  le **back-office**, un serveur à part (`apps/api/src/admin/server.ts`, `routes.ts`) et une application à part
-  (`apps/admin`) : sessions à part (`sessions.scope = 'admin'`, cookie `af_admin`), en-tête CSRF à part, journal
-  `admin_audit` de chaque écriture. `main.ts` démarre les deux serveurs sur la même base. Suspension : `users.suspended_at` (les sessions sont supprimées, `sessionUser` ignore un compte
+- Administration de la plateforme : les **gérants**, des comptes à part (`staff`, `staff_sessions`,
+  `staff_invitations`), jamais des utilisateurs. Elle vit dans le **back-office**, un serveur à part
+  (`apps/api/src/admin/server.ts`, `routes.ts`) et une application à part (`apps/admin`) : cookie `af_admin`, en-tête
+  CSRF à part, journal `admin_audit` de chaque écriture (`admin_id` → `staff`). Le premier gérant : `POST /api/setup`
+  avec le secret (`ADMIN_SETUP_TOKEN`, ou celui écrit dans `DATA_DIR/admin-setup-token`, supprimé ensuite) ; les
+  suivants : une invitation (`/join/<jeton>`, seul son hachage est gardé, trois jours). Côté application, les droits
+  s'arrêtent à l'espace (propriétaire, administrateur, éditeur, lecteur) ; l'API de l'application n'a aucune route de
+  la plateforme. La migration 11 a changé les anciens administrateurs de la plateforme en gérants (mêmes identifiants). `main.ts` démarre les deux serveurs sur la même base. Suspension : `users.suspended_at` (les sessions sont supprimées, `sessionUser` ignore un compte
   suspendu). Modération : `reports` (un signalement ouvert par personne et par film) et `publications.hidden_at`.
 
 ## Paquet partagé (`packages/ui`)

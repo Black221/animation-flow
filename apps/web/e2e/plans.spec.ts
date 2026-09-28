@@ -27,7 +27,7 @@ test('the free plan: a limit reached explains itself and leads to the plans; the
   const over = nina.getByRole('dialog', { name: 'limite du plan atteinte' });
   await expect(over).toContainText('Le plan Gratuit comprend 3 projets');
   await expect(over.getByRole('meter', { name: 'Projets' })).toHaveAttribute('aria-valuenow', '3');
-  await expect(over).toContainText('Basique');
+  await expect(over).toContainText('Premium');
   await over.getByRole('button', { name: 'Voir les plans' }).click();
 
   // the plans page: the meters, the four plans; no online payment on this server
@@ -36,23 +36,23 @@ test('the free plan: a limit reached explains itself and leads to the plans; the
   await expect(nina.getByRole('region', { name: 'plan actuel' }).getByRole('meter', { name: 'Projets' })).toHaveAttribute('aria-valuetext', '3 sur 3');
   // the sidebar shows the limit nearest to being reached
   await expect(nina.getByRole('link', { name: 'utilisation du plan' }).getByRole('meter')).toHaveAccessibleName('Projets');
-  await expect(nina.getByRole('list', { name: 'plans' }).locator(':scope > li')).toHaveCount(4);
+  await expect(nina.getByRole('list', { name: 'plans' }).locator(':scope > li')).toHaveCount(3);
   await expect(nina.getByRole('button', { name: 'Plan actuel' })).toBeDisabled();
   await expect(nina.getByText("Le paiement en ligne n'est pas activé")).toBeVisible();
 
-  // the platform admin (the first account), in the back office, finds her and moves her workspace to Basique
+  // the platform admin (the first account), in the back office, finds her and moves her workspace to Premium
   const bo = await backOffice(browser);
   await bo.getByRole('navigation', { name: 'back-office' }).getByRole('link', { name: 'Utilisateurs' }).click();
   await bo.getByLabel('chercher un utilisateur').fill('nina');
   await bo.getByRole('link', { name: 'Nina', exact: true }).click();
-  await bo.getByLabel('plan de Studio de Nina').selectOption('basic');
-  await bo.getByRole('dialog', { name: /Passer « Studio de Nina » au plan Basique/ }).getByRole('button', { name: 'Changer de plan' }).click();
-  await expect(bo.getByRole('region', { name: 'espace Studio de Nina' })).toContainText('Basique');
+  await bo.getByLabel('plan de Studio de Nina').selectOption('premium');
+  await bo.getByRole('dialog', { name: /Passer « Studio de Nina » au plan Premium/ }).getByRole('button', { name: 'Changer de plan' }).click();
+  await expect(bo.getByRole('region', { name: 'espace Studio de Nina' })).toContainText('Premium');
   await bo.context().close();
 
   // she can go on
   await nina.goto('/plans');
-  await expect(nina.getByRole('region', { name: 'plan actuel' })).toContainText('Basique');
+  await expect(nina.getByRole('region', { name: 'plan actuel' })).toContainText('Premium');
   expect((await nina.request.post('/api/projects', { data: { template: 'blank' }, headers: { 'x-workspace-id': ws.id } })).status()).toBe(201);
   await ctx.close();
 });

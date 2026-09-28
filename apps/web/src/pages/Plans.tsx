@@ -90,7 +90,7 @@ export function Plans() {
           else action = <button className={p.id === 'premium' ? 'cta' : 'primary'} onClick={() => void go(p.id)} disabled={!!busy}><Icon name="sparkles" size={16} /> {busy === p.id ? 'Redirection…' : `Choisir ${p.label}`}</button>;
           return (
             <li key={p.id} className={`plan-card ${p.id}${isCurrent ? ' current' : ''}`}>
-              <span className="tier" aria-hidden>{Array.from({ length: 4 }, (_, k) => <i key={k} className={k <= i ? 'on' : ''} />)}</span>
+              <span className="tier" aria-hidden>{Array.from({ length: 3 }, (_, k) => <i key={k} className={k <= i ? 'on' : ''} />)}</span>
               {p.id === 'premium' && <span className="ribbon">Le plus choisi</span>}
               <h3>{p.label}</h3>
               <p className="price">{p.price} €<span className="muted"> / mois</span></p>

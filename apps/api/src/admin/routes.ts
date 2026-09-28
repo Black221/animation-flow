@@ -1,4 +1,4 @@
-// The back office's API (served by the back-office server only, to platform admins): the overview, the accounts, the
+// The back office's API (served by the back-office server only, to the platform's managers): the overview, the accounts, the
 // workspaces (plan, custom limits, members, usage, billing), the subscriptions, the community's films (reports,
 // hiding, removing), the plans as configured, and the audit log. Every write says who did what to what, in the log.
 // E-mails appear here and nowhere public.
@@ -46,7 +46,7 @@ export function adminRoutes(app: FastifyInstance, db: Db, quota: Quotas, communi
     return {
       plansEnabled: quota.enabled, payments: billing.payments,
       users: await n('SELECT count(*) AS n FROM users'), newUsers: await n(`SELECT count(*) AS n FROM users WHERE created_at >= date_trunc('month', now())`),
-      suspended: await n('SELECT count(*) AS n FROM users WHERE suspended_at IS NOT NULL'), activeUsers: await n(`SELECT count(DISTINCT user_id) AS n FROM sessions WHERE scope = 'app' AND last_seen_at > now() - interval '30 days'`),
+      suspended: await n('SELECT count(*) AS n FROM users WHERE suspended_at IS NOT NULL'), activeUsers: await n(`SELECT count(DISTINCT user_id) AS n FROM sessions WHERE last_seen_at > now() - interval '30 days'`),
       workspaces: await n('SELECT count(*) AS n FROM workspaces'), byPlan,
       paying: paying.reduce((a, r) => a + Number(r.n), 0), monthlyRevenue: paying.reduce((a, r) => a + Number(r.n) * PLANS[r.plan].price, 0),
       pastDue: await n(`SELECT count(*) AS n FROM workspaces WHERE billing_status = 'past_due'`),
@@ -57,61 +57,54 @@ export function adminRoutes(app: FastifyInstance, db: Db, quota: Quotas, communi
   });
 
   // ---------------------------------------------------------------- accounts
-  const Users = z.object({ q: z.string().trim().max(100).optional(), filter: z.enum(['all', 'admins', 'suspended', 'paying']).default('all'), ...Page });
+  const Users = z.object({ q: z.string().trim().max(100).optional(), filter: z.enum(['all', 'suspended', 'paying']).default('all'), ...Page });
   app.get('/api/admin/users', cfg, async (req, reply) => {
     const b = Users.safeParse(req.query ?? {});
     if (!b.success) return reply.code(400).send({ error: 'recherche invalide' });
     const where: string[] = [], args: unknown[] = [];
     if (b.data.q) { args.push(like(b.data.q)); where.push(`(u.name ILIKE $${args.length} OR u.email ILIKE $${args.length})`); }
-    if (b.data.filter === 'admins') where.push('u.platform_admin');
     if (b.data.filter === 'suspended') where.push('u.suspended_at IS NOT NULL');
     if (b.data.filter === 'paying') where.push(`EXISTS (SELECT 1 FROM memberships m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = u.id AND m.role = 'owner' AND w.plan <> 'free')`);
     const cond = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = Number((await db.query<{ n: string }>(`SELECT count(*) AS n FROM users u ${cond}`, args)).rows[0]!.n);
-    const users = (await db.query<{ id: string; name: string; email: string; created_at: Date; platform_admin: boolean; suspended_at: Date | null; last_seen: Date | null }>(
-      `SELECT u.id, u.name, u.email, u.created_at, u.platform_admin, u.suspended_at, (SELECT max(last_seen_at) FROM sessions s WHERE s.user_id = u.id AND s.scope = 'app') AS last_seen
+    const users = (await db.query<{ id: string; name: string; email: string; created_at: Date; suspended_at: Date | null; last_seen: Date | null }>(
+      `SELECT u.id, u.name, u.email, u.created_at, u.suspended_at, (SELECT max(last_seen_at) FROM sessions s WHERE s.user_id = u.id) AS last_seen
          FROM users u ${cond} ORDER BY u.created_at DESC LIMIT ${b.data.limit} OFFSET ${b.data.offset}`, args)).rows;
     const ws = users.length ? (await db.query<{ user_id: string; id: string; name: string; role: string; plan: PlanId }>(
       `SELECT m.user_id, w.id, w.name, m.role, w.plan FROM memberships m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = ANY($1::uuid[]) ORDER BY m.created_at`, [users.map((u) => u.id)])).rows : [];
     return {
       total,
-      items: users.map((u) => ({ id: u.id, name: u.name, email: u.email, createdAt: u.created_at, lastSeenAt: u.last_seen, admin: u.platform_admin, suspended: !!u.suspended_at,
+      items: users.map((u) => ({ id: u.id, name: u.name, email: u.email, createdAt: u.created_at, lastSeenAt: u.last_seen, suspended: !!u.suspended_at,
         workspaces: ws.filter((w) => w.user_id === u.id).map((w) => ({ id: w.id, name: w.name, role: w.role, plan: w.plan })) })),
     };
   });
 
   app.get('/api/admin/users/:id', cfg, async (req, reply) => {
     const p = Uuid.safeParse(req.params);
-    const u = p.success ? (await db.query<{ id: string; name: string; email: string; created_at: Date; platform_admin: boolean; suspended_at: Date | null }>('SELECT id, name, email, created_at, platform_admin, suspended_at FROM users WHERE id = $1', [p.data.id])).rows[0] : undefined;
+    const u = p.success ? (await db.query<{ id: string; name: string; email: string; created_at: Date; suspended_at: Date | null }>('SELECT id, name, email, created_at, suspended_at FROM users WHERE id = $1', [p.data.id])).rows[0] : undefined;
     if (!u) return reply.code(404).send({ error: 'utilisateur introuvable' });
     const ws = (await db.query<{ id: string; name: string; role: string }>('SELECT w.id, w.name, m.role FROM memberships m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = $1 ORDER BY m.created_at', [u.id])).rows;
     const workspaces = [];
     for (const w of ws) { const pl = await quota.of(w.id); workspaces.push({ ...w, plan: pl.plan, limits: pl.limits, overrides: pl.overrides, billing: pl.billing, usage: await quota.usage(w.id) }); }
     const count = async (sql: string) => Number((await db.query<{ n: string }>(sql, [u.id])).rows[0]!.n);
     return {
-      id: u.id, name: u.name, email: u.email, createdAt: u.created_at, admin: u.platform_admin, suspended: !!u.suspended_at, suspendedAt: u.suspended_at, workspaces,
+      id: u.id, name: u.name, email: u.email, createdAt: u.created_at, suspended: !!u.suspended_at, suspendedAt: u.suspended_at, workspaces,
       publications: await count('SELECT count(*) AS n FROM publications WHERE author_id = $1'),
-      sessions: await count(`SELECT count(*) AS n FROM sessions WHERE user_id = $1 AND scope = 'app' AND expires_at > now()`),
-      lastSeenAt: (await db.query<{ t: Date | null }>(`SELECT max(last_seen_at) AS t FROM sessions WHERE user_id = $1 AND scope = 'app'`, [u.id])).rows[0]?.t ?? null,
+      sessions: await count(`SELECT count(*) AS n FROM sessions WHERE user_id = $1 AND expires_at > now()`),
+      lastSeenAt: (await db.query<{ t: Date | null }>(`SELECT max(last_seen_at) AS t FROM sessions WHERE user_id = $1`, [u.id])).rows[0]?.t ?? null,
     };
   });
 
-  // suspend (the sessions end: signed out everywhere) or restore; name or remove a platform admin — never oneself
+  // suspend a user of the platform (the sessions end: signed out everywhere) or restore them
   app.patch('/api/admin/users/:id', cfg, async (req, reply) => {
-    const p = Uuid.safeParse(req.params), b = z.object({ suspended: z.boolean(), admin: z.boolean() }).partial().safeParse(req.body ?? {});
+    const p = Uuid.safeParse(req.params), b = z.object({ suspended: z.boolean() }).strict().safeParse(req.body ?? {});
     if (!p.success || !b.success) return reply.code(400).send({ error: 'requête invalide' });
-    if (p.data.id === userOf(req).id) return reply.code(400).send({ error: 'vous ne pouvez pas vous suspendre ni vous retirer vos propres droits' });
     const name = await nameOf('users', p.data.id);
     if (name == null) return reply.code(404).send({ error: 'utilisateur introuvable' });
-    if (b.data.suspended != null) {
+    {
       await db.query('UPDATE users SET suspended_at = $2 WHERE id = $1', [p.data.id, b.data.suspended ? new Date() : null]);
       if (b.data.suspended) await db.query('DELETE FROM sessions WHERE user_id = $1', [p.data.id]);
       await log(req, b.data.suspended ? 'suspend' : 'restore', 'user', p.data.id, `${b.data.suspended ? 'a suspendu' : 'a réactivé'} ${name}`);
-    }
-    if (b.data.admin != null) {
-      await db.query('UPDATE users SET platform_admin = $2 WHERE id = $1', [p.data.id, b.data.admin]);
-      if (!b.data.admin) await db.query(`DELETE FROM sessions WHERE user_id = $1 AND scope = 'admin'`, [p.data.id]);
-      await log(req, b.data.admin ? 'grant-admin' : 'revoke-admin', 'user', p.data.id, `${b.data.admin ? 'a nommé administrateur' : 'a retiré les droits d’administration à'} ${name}`);
     }
     return { ok: true };
   });
@@ -120,7 +113,7 @@ export function adminRoutes(app: FastifyInstance, db: Db, quota: Quotas, communi
   app.post('/api/admin/users/:id/signout', cfg, async (req, reply) => {
     const p = Uuid.safeParse(req.params), name = p.success ? await nameOf('users', p.data.id) : null;
     if (!p.success || name == null) return reply.code(404).send({ error: 'utilisateur introuvable' });
-    const r = await db.query(`DELETE FROM sessions WHERE user_id = $1 AND scope = 'app' RETURNING id`, [p.data.id]);
+    const r = await db.query(`DELETE FROM sessions WHERE user_id = $1 RETURNING id`, [p.data.id]);
     await log(req, 'signout', 'user', p.data.id, `a déconnecté ${name} partout (${r.rows.length} session(s))`);
     return { ended: r.rows.length };
   });
@@ -246,7 +239,7 @@ export function adminRoutes(app: FastifyInstance, db: Db, quota: Quotas, communi
     const rows = (await db.query<{ id: string; reason: string; message: string; status: string; created_at: Date; resolved_at: Date | null; publication_id: string; title: string; hidden_at: Date | null; author_id: string | null; author: string | null; reporter: string | null; resolver: string | null; reports: string }>(
       `SELECT r.id, r.reason, r.message, r.status, r.created_at, r.resolved_at, p.id AS publication_id, p.title, p.hidden_at, p.author_id, a.name AS author, u.name AS reporter, v.name AS resolver,
               (SELECT count(*) FROM reports x WHERE x.publication_id = p.id AND x.status = 'open') AS reports
-         FROM reports r JOIN publications p ON p.id = r.publication_id LEFT JOIN users a ON a.id = p.author_id LEFT JOIN users u ON u.id = r.reporter_id LEFT JOIN users v ON v.id = r.resolved_by
+         FROM reports r JOIN publications p ON p.id = r.publication_id LEFT JOIN users a ON a.id = p.author_id LEFT JOIN users u ON u.id = r.reporter_id LEFT JOIN staff v ON v.id = r.resolved_by
         ${status === 'all' ? '' : status === 'open' ? `WHERE r.status = 'open'` : `WHERE r.status <> 'open'`} ORDER BY r.created_at DESC LIMIT 200`)).rows;
     return rows.map((r) => ({ id: r.id, reason: r.reason, message: r.message, status: r.status, createdAt: r.created_at, resolvedAt: r.resolved_at, resolvedBy: r.resolver, reporter: r.reporter,
       publication: { id: r.publication_id, title: r.title, hidden: !!r.hidden_at, author: r.author_id ? { id: r.author_id, name: r.author ?? '' } : null, openReports: Number(r.reports) } }));

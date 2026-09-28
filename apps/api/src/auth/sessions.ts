@@ -28,19 +28,19 @@ export async function createSession(db: Db, userId: string, userAgent = ''): Pro
   return token;
 }
 
-export interface SessionUser { id: string; email: string; name: string; sessionId: string; admin: boolean }
+export interface SessionUser { id: string; email: string; name: string; sessionId: string }
 
 export async function sessionUser(db: Db, token: string | null): Promise<SessionUser | null> {
   if (!token || token.length > 200) return null;
   const id = hashToken(token);
   // a suspended account has no session
-  const { rows } = await db.query<{ id: string; email: string; name: string; last_seen_at: Date; platform_admin: boolean }>(
-    `SELECT u.id, u.email, u.name, u.platform_admin, s.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = $1 AND s.scope = 'app' AND s.expires_at > now() AND u.suspended_at IS NULL`, [id]);
+  const { rows } = await db.query<{ id: string; email: string; name: string; last_seen_at: Date }>(
+    `SELECT u.id, u.email, u.name, s.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = $1 AND s.expires_at > now() AND u.suspended_at IS NULL`, [id]);
   const r = rows[0];
   if (!r) return null;
   // sliding expiry, written at most once an hour
   if (Date.now() - new Date(r.last_seen_at).getTime() > 3600_000) void db.query(`UPDATE sessions SET last_seen_at = now(), expires_at = now() + make_interval(days => $2) WHERE id = $1`, [id, DAYS]).catch(() => undefined);
-  return { id: r.id, email: r.email, name: r.name, sessionId: id, admin: !!r.platform_admin };
+  return { id: r.id, email: r.email, name: r.name, sessionId: id };
 }
 
 export const endSession = (db: Db, sessionId: string) => db.query('DELETE FROM sessions WHERE id = $1', [sessionId]);

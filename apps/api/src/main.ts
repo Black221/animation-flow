@@ -4,6 +4,7 @@ import { migrate, openDb } from './db';
 import { startRunner, type Runner } from './render/runner';
 import { signer } from './render/sign';
 import { adoptLegacyVoices } from './routes/voices';
+import { join } from 'node:path';
 import { buildServer } from './server';
 import { buildAdminServer } from './admin/server';
 import { smtpMailer } from './mail';
@@ -44,13 +45,14 @@ if (config.role !== 'api') {
 let close = async () => { await runner?.stop(); await db.close(); };
 if (config.role !== 'worker') {
   const mail = config.mail ? { mailer: await smtpMailer(config.mail.smtpUrl, config.mail.from), appUrl: config.mail.appUrl } : null;
-  const app = await buildServer({ db, box: secretBox(config.encryptionKey), signer: signer(config.encryptionKey), signup: config.signup, webDist: config.webDist, voicesDir: config.voicesDir, imagesDir: config.imagesDir, communityDir: config.communityDir, logger: true, mail, trustProxy: config.trustProxy, fontsDir: config.fontsDir ?? undefined, plans: config.plans, stripe: config.stripe, adminUrl: config.admin?.url ?? null });
+  const app = await buildServer({ db, box: secretBox(config.encryptionKey), signer: signer(config.encryptionKey), signup: config.signup, webDist: config.webDist, voicesDir: config.voicesDir, imagesDir: config.imagesDir, communityDir: config.communityDir, logger: true, mail, trustProxy: config.trustProxy, fontsDir: config.fontsDir ?? undefined, plans: config.plans, stripe: config.stripe });
   await app.listen({ port: config.port, host: config.host });
   app.log.info(`animation-flow on http://${config.host}:${config.port} · database: ${config.databaseUrl ? 'postgres' : 'embedded (PGlite)'} · role: ${config.role}${applied ? ` · ${applied} migration(s) applied` : ''}${config.signup === 'open' ? ' · open sign-up' : ' · sign-up by invitation'}${config.webDist ? '' : ' · web app not built (pnpm build)'}${config.mail ? ` · e-mail via SMTP, links to ${config.mail.appUrl}` : ' · no e-mail (SMTP_URL)'}${config.plans ? ` · plans on${config.stripe ? ', payments via Stripe' : ', no payments (STRIPE_*)'}` : ' · plans off'}`);
   const base = close; close = async () => { await app.close(); await base(); };
   // the back office: a server of its own, on its own port (this machine only unless ADMIN_HOST says otherwise)
   if (config.admin) {
-    const admin = await buildAdminServer({ db, voicesDir: config.voicesDir, imagesDir: config.imagesDir, communityDir: config.communityDir, plans: config.plans, stripe: config.stripe, adminDist: config.admin.dist, logger: true, trustProxy: config.trustProxy, allowedIps: config.admin.allowedIps, appUrl: config.appUrl });
+    const admin = await buildAdminServer({ db, voicesDir: config.voicesDir, imagesDir: config.imagesDir, communityDir: config.communityDir, plans: config.plans, stripe: config.stripe, adminDist: config.admin.dist, logger: true, trustProxy: config.trustProxy, allowedIps: config.admin.allowedIps, appUrl: config.appUrl,
+      setupToken: config.admin.setupToken, setupTokenFile: join(config.dataDir, 'admin-setup-token'), publicUrl: `http://${config.admin.host === '0.0.0.0' ? 'localhost' : config.admin.host}:${config.admin.port}` });
     await admin.listen({ port: config.admin.port, host: config.admin.host });
     admin.log.info(`back office on http://${config.admin.host}:${config.admin.port}${config.admin.dist ? '' : ' · back-office app not built (pnpm build)'}${config.admin.allowedIps.length ? ` · for ${config.admin.allowedIps.join(', ')} only` : ''}`);
     const before = close; close = async () => { await admin.close(); await before(); };

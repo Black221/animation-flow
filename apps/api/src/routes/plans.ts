@@ -8,7 +8,7 @@ import type { Db } from '../db';
 import { PLAN_IDS, PLANS, planList, type PlanId, type Quotas } from '../plans';
 
 interface Sub { id: string; customer: string; status: string; metadata?: { workspace_id?: string; plan?: string }; current_period_end?: number; items?: { data?: { price?: { id?: string }; current_period_end?: number }[] } }
-const PAID = ['basic', 'premium', 'pro'] as const;
+const PAID = ['premium', 'pro'] as const;
 const isUuid = (s: unknown): s is string => typeof s === 'string' && z.string().uuid().safeParse(s).success;
 
 export function planRoutes(app: FastifyInstance, db: Db, quota: Quotas, billing: { stripe: Stripe; config: StripeConfig } | null = null) {

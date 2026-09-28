@@ -2,12 +2,12 @@
 // how each is said, a usage meter drawn like a clip on a track, the plan's badge.
 import { Icon, type IconName } from './Icon';
 
-export type PlanId = 'free' | 'basic' | 'premium' | 'pro';
+export type PlanId = 'free' | 'premium' | 'pro';
 export type Metric = 'projects' | 'members' | 'storageMb' | 'generations' | 'aiActions' | 'renderMinutes';
 export interface Limits { projects: number | null; members: number | null; storageMb: number | null; generations: number | null; aiActions: number | null; renderMinutes: number | null; maxWidth: number; decorImages: boolean; priority: boolean }
 export interface Plan { id: PlanId; label: string; price: number; tagline: string; limits: Limits }
-export const PLAN_LABEL: Record<PlanId, string> = { free: 'Gratuit', basic: 'Basique', premium: 'Premium', pro: 'Pro' };
-export const PLAN_IDS: PlanId[] = ['free', 'basic', 'premium', 'pro'];
+export const PLAN_LABEL: Record<PlanId, string> = { free: 'Gratuit', premium: 'Premium', pro: 'Pro' };
+export const PLAN_IDS: PlanId[] = ['free', 'premium', 'pro'];
 
 export const METRIC: Record<Metric, { label: string; icon: IconName; unit: (n: number) => string; monthly?: boolean }> = {
   projects: { label: 'Projets', icon: 'folder', unit: (n) => `${n}` },

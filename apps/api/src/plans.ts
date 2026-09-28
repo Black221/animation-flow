@@ -1,4 +1,4 @@
-// Plans and quotas. A workspace has a plan (free, basic, premium, pro); the platform admin may override any of its
+// Plans and quotas. A workspace has a plan (free, premium, pro); the platform admin may override any of its
 // limits for one workspace. What the month allows (films generated, AI touch-ups, minutes of video rendered) is
 // counted as usage events, given back when the job fails or is canceled; the rest (projects, members, storage) is
 // measured from what exists. With plans off (PLANS=off: a self-hosted server), nothing is limited.
@@ -7,8 +7,8 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Queryable } from './db';
 
-export type PlanId = 'free' | 'basic' | 'premium' | 'pro';
-export const PLAN_IDS: PlanId[] = ['free', 'basic', 'premium', 'pro'];
+export type PlanId = 'free' | 'premium' | 'pro';
+export const PLAN_IDS: PlanId[] = ['free', 'premium', 'pro'];
 /** what can be counted: null means no limit */
 export interface Limits {
   projects: number | null; members: number | null; storageMb: number | null;
@@ -27,10 +27,8 @@ export interface Plan { id: PlanId; label: string; price: number; tagline: strin
 export const PLANS: Record<PlanId, Plan> = {
   free: { id: 'free', label: 'Gratuit', price: 0, tagline: 'Pour découvrir : quelques films, en 720p.',
     limits: { projects: 3, members: 2, storageMb: 500, generations: 5, aiActions: 30, renderMinutes: 10, maxWidth: 1280, decorImages: false, priority: false } },
-  basic: { id: 'basic', label: 'Basique', price: 9, tagline: 'Pour créer régulièrement, en Full HD.',
-    limits: { projects: 15, members: 3, storageMb: 5_000, generations: 30, aiActions: 200, renderMinutes: 60, maxWidth: 1920, decorImages: false, priority: false } },
-  premium: { id: 'premium', label: 'Premium', price: 19, tagline: 'Pour les créateurs : décors peints, petite équipe.',
-    limits: { projects: 50, members: 10, storageMb: 20_000, generations: 100, aiActions: 1_000, renderMinutes: 180, maxWidth: 1920, decorImages: true, priority: false } },
+  premium: { id: 'premium', label: 'Premium', price: 15, tagline: 'Pour créer régulièrement : Full HD, décors peints, petite équipe.',
+    limits: { projects: 30, members: 5, storageMb: 10_000, generations: 50, aiActions: 500, renderMinutes: 120, maxWidth: 1920, decorImages: true, priority: false } },
   pro: { id: 'pro', label: 'Pro', price: 39, tagline: 'Pour les studios : projets illimités, rendus prioritaires.',
     limits: { projects: null, members: 50, storageMb: 100_000, generations: 400, aiActions: null, renderMinutes: 600, maxWidth: 1920, decorImages: true, priority: true } },
 };
@@ -141,7 +139,7 @@ export function quotas(db: Queryable, opts: { enabled: boolean; voicesDir: strin
     async width(ws, width) {
       if (!opts.enabled) return;
       const p = await of(ws);
-      if (width > p.limits.maxWidth) throw new QuotaError('maxWidth', p.plan, p.limits.maxWidth, width, `Le plan ${PLANS[p.plan].label} rend des vidéos jusqu'à ${p.limits.maxWidth} px de large : choisissez une largeur plus petite, ou passez au plan Basique.`);
+      if (width > p.limits.maxWidth) throw new QuotaError('maxWidth', p.plan, p.limits.maxWidth, width, `Le plan ${PLANS[p.plan].label} rend des vidéos jusqu'à ${p.limits.maxWidth} px de large : choisissez une largeur plus petite, ou passez au plan Premium.`);
     },
     async has(ws, f) { return !opts.enabled ? f !== 'priority' : !!(await of(ws)).limits[f]; },
     async record(ws, kind, amount, ref = null, userId = null) {

@@ -146,7 +146,7 @@ export function Team() {
           </div>
         </section>
       )}
-      {RANK[info.role] < RANK.admin && <div className="alert info"><Icon name="info" size={16} /><span>Pour inviter quelqu'un ou changer un rôle, demandez à un administrateur.</span></div>}
+      {RANK[info.role] < RANK.admin && <div className="alert info"><Icon name="info" size={16} /><span>Pour inviter quelqu'un ou changer un rôle, demandez à un administrateur de l'espace.</span></div>}
       {inviting && <InviteDialog onClose={() => setInviting(false)} onDone={() => void load()} />}
     </div>
   );

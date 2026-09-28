@@ -133,12 +133,6 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       )}
       {signedIn && workspace && plan?.enabled && <SideMeter />}
-      {me?.user?.admin && me.adminUrl && (
-        <div className="side-section">
-          <span className="side-label">Plateforme</span>
-          <a href={me.adminUrl} target="_blank" rel="noopener"><Icon name="shield" size={18} /> <span>Back-office</span></a>
-        </div>
-      )}
       <span className="spacer" />
       {signedIn ? (
         <div className="side-bottom">

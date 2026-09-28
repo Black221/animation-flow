@@ -1,28 +1,55 @@
 import { expect, test } from '@playwright/test';
 import { ADMIN } from '../playwright.config';
-import { backOffice, OWNER, signedIn } from './auth';
+import { backOffice, MANAGER, OWNER, signedIn } from './auth';
 
-test('the back office is an app of its own: its sign-in refuses non-admins; the app links platform admins to it', async ({ page, browser }) => {
+test('the back office is the platform manager’s: users of the platform — owners of their workspace included — cannot get in', async ({ page, browser }) => {
   await signedIn(page);
-  // the app has no administration page; its admin gets a link to the back office
+  // the app shows its users no way into the back office; they run their workspace from its Team page
   await page.goto('/');
-  await expect(page.getByRole('navigation', { name: 'navigation' }).getByRole('link', { name: 'Back-office' })).toHaveAttribute('href', ADMIN);
-  // a member without the rights cannot get in
-  const inv = await (await page.request.post('/api/workspace/invitations', { data: { role: 'viewer' } })).json();
-  const email = `zoe-${Date.now()}@example.org`;
-  const other = await browser.newContext();
-  expect((await other.request.post('/api/auth/signup', { data: { email, name: 'Zoé', password: 'mot-de-passe-solide-5', invitation: inv.path.split('/').pop() } })).status()).toBe(201);
+  await expect(page.getByRole('navigation', { name: 'navigation' }).getByRole('link', { name: 'Back-office' })).toHaveCount(0);
+  await page.goto('/team');
+  await expect(page.getByRole('button', { name: 'Inviter', exact: true })).toBeVisible();
+  // the owner of a workspace, with the right password, is no manager
   const ctx = await browser.newContext({ baseURL: ADMIN, extraHTTPHeaders: {} });
   const bo = await ctx.newPage();
   await bo.goto('/');
   const form = bo.getByRole('form', { name: 'connexion au back-office' });
-  await form.getByLabel('E-mail').fill(email);
-  await form.getByLabel('Mot de passe').fill('mot-de-passe-solide-5');
+  await form.getByLabel('E-mail').fill(OWNER.email);
+  await form.getByLabel('Mot de passe').fill(OWNER.password);
   await form.getByRole('button', { name: 'Se connecter' }).click();
   await expect(form.getByRole('alert')).toContainText('accès refusé');
-  // the app's session opens nothing there
-  expect((await other.request.get(`${ADMIN}/api/admin/overview`)).status()).toBe(401);
-  await ctx.close(); await other.close();
+  // nor does the app's session open anything there
+  expect((await page.request.get(`${ADMIN}/api/admin/overview`)).status()).toBe(401);
+  await ctx.close();
+});
+
+test('managers invite managers: the link, the new manager’s own account, the list', async ({ page, browser }) => {
+  await signedIn(page);
+  const bo = await backOffice(browser);
+  await bo.getByRole('navigation', { name: 'back-office' }).getByRole('link', { name: 'Gérants' }).click();
+  await expect(bo.getByRole('table', { name: 'gérants' })).toContainText(MANAGER.name);
+  const email = `aide-${Date.now()}@example.org`;
+  await bo.getByRole('button', { name: 'Inviter un gérant' }).click();
+  const dlg = bo.getByRole('dialog', { name: 'Inviter un gérant' });
+  await dlg.getByLabel('e-mail du gérant').fill(email);
+  await dlg.getByRole('button', { name: 'Créer le lien' }).click();
+  const link = await dlg.getByLabel("lien d'invitation").inputValue();
+  expect(link).toMatch(new RegExp(`^${ADMIN}/join/[\\w-]{20,}$`));
+  await dlg.getByRole('button', { name: 'Terminé' }).click();
+  await expect(bo.getByRole('list', { name: 'invitations de gérants' })).toContainText(email);
+  // the new manager opens the link in a browser of their own
+  const ctx = await browser.newContext({ extraHTTPHeaders: {} });
+  const them = await ctx.newPage();
+  await them.goto(link);
+  const join = them.getByRole('form', { name: 'rejoindre les gérants' });
+  await expect(join).toContainText(email);
+  await join.getByLabel('Nom').fill('Aïcha');
+  await join.getByLabel(/Mot de passe/).fill('mot-de-passe-aide-01');
+  await join.getByRole('button', { name: 'Créer mon compte' }).click();
+  await expect(them.getByRole('heading', { name: 'Tableau de bord' })).toBeVisible();
+  await bo.reload();
+  await expect(bo.getByRole('table', { name: 'gérants' })).toContainText('Aïcha');
+  await ctx.close(); await bo.context().close();
 });
 
 test('the back office: dashboard, a workspace’s custom limits, the films, the audit log', async ({ page, browser }) => {
@@ -66,6 +93,7 @@ test('the back office: dashboard, a workspace’s custom limits, the films, the 
   await expect(log).toContainText(`a masqué « ${title} »`);
   await expect(log).toContainText('members 80');
   await expect(log).toContainText('connexion au back-office');
+  await expect(log.getByText(MANAGER.name).first()).toBeVisible();
   // and back to the plan's limits
   await page.request.get('/api/health');
   await bo.goto('/workspaces');
@@ -85,7 +113,7 @@ test('on a phone, the back office’s sections are in a drawer and nothing is wi
   await bo.getByRole('button', { name: 'ouvrir le menu' }).click();
   await bo.getByRole('navigation', { name: 'back-office' }).getByRole('link', { name: 'Utilisateurs' }).click();
   await expect(bo).toHaveURL(/\/users$/);
-  for (const path of ['/', '/users', '/workspaces', '/subscriptions', '/plans', '/moderation', '/films', '/audit']) {
+  for (const path of ['/', '/users', '/workspaces', '/subscriptions', '/plans', '/moderation', '/films', '/staff', '/audit']) {
     await bo.goto(path);
     await bo.waitForLoadState('networkidle');
     expect(await bo.evaluate(() => Math.max(document.documentElement.scrollWidth, document.querySelector('.bo-main')?.scrollWidth ?? 0)), path).toBeLessThanOrEqual(390);

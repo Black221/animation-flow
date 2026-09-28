@@ -1,7 +1,6 @@
 // Who is asking, in which workspace, with which role. Every /api route declares what it needs in its config:
 //   { auth: 'public' }            no account needed (health, sign-in, signed media links)
 //   { auth: 'user' }              signed in, any workspace or none (profile, workspace list)
-//   { auth: 'admin' }             a platform administrator (users, plans, moderation), any workspace or none
 //   { role: 'viewer' | 'editor' | 'admin' | 'owner' }   member of the current workspace with at least that role
 // The default is { role: 'viewer' }: a route that forgets to say is closed, not open.
 // The current workspace comes from the x-workspace-id header (the editor sends the one picked in its switcher),
@@ -16,6 +15,7 @@ export type Role = 'owner' | 'admin' | 'editor' | 'viewer';
 export const RANK: Record<Role, number> = { viewer: 0, editor: 1, admin: 2, owner: 3 };
 export interface Ctx { user: SessionUser; workspace: { id: string; name: string; role: Role } | null }
 export interface RouteAuth { auth?: 'public' | 'user' | 'admin'; role?: Role; public?: boolean; csrf?: boolean }
+/** the back office's routes say { auth: 'admin' }: its own server checks them (a manager's session), never this one */
 
 declare module 'fastify' {
   interface FastifyRequest { ctx: Ctx | null }
@@ -37,7 +37,7 @@ export function installAuth(app: FastifyInstance, db: Db) {
     const user = await sessionUser(db, readCookie(req));
     if (!user) { if (isPublic) return; return reply.code(401).send({ error: 'connexion requise' }); }
     req.ctx = { user, workspace: null };
-    if (cfg.auth === 'admin') { if (!user.admin) return reply.code(403).send({ error: 'réservé aux administrateurs de la plateforme' }); return; }
+    if (cfg.auth === 'admin') return reply.code(404).send({ error: 'introuvable' });
     if (isPublic || cfg.auth === 'user') return;
     // a browser cannot set headers on a WebSocket: the workspace may come as ?ws= there
     const q = (req.query ?? {}) as { ws?: unknown };

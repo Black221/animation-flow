@@ -55,14 +55,12 @@ export interface ServerDeps {
   fontsDir?: string | undefined;
   /** behind a reverse proxy: which X-Forwarded-* to believe (client address, protocol, host) */
   trustProxy?: boolean | number | string;
-  /** plans and quotas (default on); off: nothing is limited (a self-hosted server) */
+  /** plans and quotas (the app's configuration turns them on: PLANS); off here, nothing is limited */
   plans?: boolean;
   /** paying for a plan (none: plans are changed by the platform admin) */
   stripe?: StripeConfig | null;
   /** for Stripe (tests) */
   stripeFetch?: StripeFetch;
-  /** the back office's public address: platform admins get a link to it (the back office is a server of its own) */
-  adminUrl?: string | null;
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
@@ -89,9 +87,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true }));
-  authRoutes(app, deps.db, deps.signup ?? 'invite', deps.mail ?? null, hub, deps.adminUrl ?? null);
+  authRoutes(app, deps.db, deps.signup ?? 'invite', deps.mail ?? null, hub);
   const imagesDir = deps.imagesDir ?? join(deps.voicesDir, '_images'), communityDir = deps.communityDir ?? join(deps.voicesDir, '_community');
-  const quota = quotas(deps.db, { enabled: deps.plans ?? true, voicesDir: deps.voicesDir, imagesDir });
+  const quota = quotas(deps.db, { enabled: deps.plans ?? false, voicesDir: deps.voicesDir, imagesDir });
   workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, hub, deps.mail ?? null, quota);
   projectRoutes(app, deps.db, hub, quota);
   liveRoutes(app, hub);

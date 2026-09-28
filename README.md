@@ -22,8 +22,14 @@ Sans `DATABASE_URL`, l'API utilise une base PostgreSQL embarquée (PGlite) dans 
 chiffrement de développement dans `.data/` (jamais versionnée). Rien d'autre à installer.
 
 Au premier lancement, l'éditeur demande de créer le **premier compte** : il devient propriétaire de l'espace de
-travail (et de tout ce qui existait avant les comptes) et administrateur de la plateforme, puis invite l'équipe
-depuis la page **Équipe**. Le back-office s'ouvre avec le même e-mail et le même mot de passe, sur sa propre adresse.
+travail (et de tout ce qui existait avant les comptes), puis invite l'équipe depuis la page **Équipe**. Il administre
+son espace, et seulement lui.
+
+Le **back-office** est pour le gérant de la plateforme, avec ses propres comptes (ce ne sont pas des utilisateurs de
+l'application). Tant qu'il n'a pas de gérant, le serveur écrit le lien qui crée le premier dans
+`.data/admin-setup-token` (fichier lisible par son seul propriétaire ; le journal ne donne que son chemin), ou prend
+le secret de `ADMIN_SETUP_TOKEN`. Ouvrez ce lien, créez le compte : le lien ne sert plus. Les gérants suivants
+arrivent par invitation, depuis la page **Gérants** du back-office.
 
 ### Avec Docker (application + PostgreSQL)
 
@@ -34,6 +40,8 @@ docker compose --profile workers up --build --scale worker=2   # avec deux machi
 # plusieurs processus d'API derrière un répartiteur de charge (nginx, deploy/nginx.conf), sans affinité :
 docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build --scale app=2
 ```
+
+Le lien qui crée le premier gérant du back-office : `docker compose exec app cat /data/admin-setup-token`.
 
 Vérifié ainsi : deux répliques de l'API derrière nginx, un worker de rendu, PostgreSQL ; quatre personnes sur le
 même projet, dont les connexions en direct se répartissent sur les deux répliques, voient les modifications des
@@ -89,8 +97,7 @@ part avec un lien construit sur `APP_URL`.
   voix) arrive dans son espace, avec le lien vers l'original, qui compte ses remix. Pour une plateforme publique,
   ouvrez les inscriptions (`SIGNUP=open`). On **signale** un film (motif, précisions) ; les administrateurs de la
   plateforme le laissent, le masquent (il sort de la communauté, son auteur le voit encore) ou le retirent.
-- **Plans** (page « Abonnement ») : chaque espace a un plan — Gratuit, Basique (9 €/mois), Premium (19 €/mois) ou Pro
-  (39 €/mois) — avec ses limites : projets, membres, stockage, films générés, retouches IA et minutes de rendu par
+- **Plans** (page « Abonnement ») : chaque espace a un plan — Gratuit, Premium (15 €/mois) ou Pro (39 €/mois) — avec ses limites : projets, membres, stockage, films générés, retouches IA et minutes de rendu par
   mois, largeur des vidéos (720p en Gratuit, 1080p ensuite), décors peints (Premium et Pro), rendus prioritaires
   (Pro). Des jauges montrent ce que le mois a utilisé ; une limite atteinte ouvre un dialogue qui dit laquelle et ce
   qu'un plan supérieur donne. Une génération ou un rendu qui échoue, ou qu'on annule, ne compte pas. Un plan qui
@@ -98,14 +105,16 @@ part avec un lien construit sur `APP_URL`.
   deux espaces gratuits. Le paiement passe par **Stripe** (Checkout pour s'abonner, espace client pour changer de
   plan, de carte ou résilier) : seul le propriétaire de l'espace paie. Sans Stripe, l'administrateur change les plans.
 - **Back-office** (`apps/admin`) : une **application à part**, servie par son propre serveur sur son propre port
-  (3001 ; par défaut joignable depuis la machine seulement), réservée aux administrateurs de la plateforme (le premier
-  compte, et ceux qu'il nomme). Tableau de bord (comptes, actifs, revenu mensuel, paiements en retard, inscriptions
+  (3001 ; par défaut joignable depuis la machine seulement), réservée aux **gérants** de la plateforme : des comptes à
+  part, qui ne sont pas des utilisateurs de l'application. Tableau de bord (comptes, actifs, revenu mensuel, paiements en retard, inscriptions
   des 30 derniers jours, espaces par plan, consommation du mois, ce qui attend), **utilisateurs** (recherche, fiche,
-  suspension, déconnexion partout, droits d'administration), **espaces** (plan, limites sur mesure, jauges, membres,
+  suspension, déconnexion partout), **espaces** (plan, limites sur mesure, jauges, membres,
   facturation avec les références Stripe, activité récente), **abonnements** (Stripe, offerts, terminés ; revenu par
   plan), **plans** (les limites côte à côte, les prix Stripe), **modération** des signalements, **films publiés**
-  (masquer, remettre, retirer) et **journal** de toutes les actions (qui, quoi, quand, d'où). L'application de
-  création n'a plus de page d'administration : ses administrateurs y trouvent un lien vers le back-office.
+  (masquer, remettre, retirer), **gérants** (inviter par un lien montré une fois et valable trois jours, désactiver,
+  retirer) et **journal** de toutes les actions (qui, quoi, quand, d'où). L'application de création n'a ni page
+  d'administration de la plateforme ni lien vers le back-office : un utilisateur administre son espace (membres,
+  invitations, rôles, clés, plan), rien de plus.
 - **Interface** : une barre latérale (recherche, communauté, créer, mon espace, compte) ; l'éditeur et les
   générations en plein écran ; création par l'IA sur sa propre page avec toutes ses options (ton, public, voix,
   musique, rythme, consignes) ; dialogues pour créer, confirmer et voir le détail, notifications ; une interface
@@ -155,13 +164,15 @@ part avec un lien construit sur `APP_URL`.
 - **Back-office** : un serveur à part, qui ne sert que l'administration (l'API de l'application n'a plus aucune route
   d'administration). Il n'écoute par défaut que sur la machine (tunnel SSH, VPN, ou proxy qui authentifie devant) et
   peut être limité à des adresses (`ADMIN_ALLOWED_IPS`). Ses sessions sont à part : cookie `af_admin`, `HttpOnly`,
-  `SameSite=Strict`, 12 heures sans prolongation ; la session de l'application n'y ouvre rien et inversement. Le
-  droit d'administrateur est revérifié à chaque requête : le retirer ferme l'accès. Une seule réponse pour un mauvais
+  `SameSite=Strict`, 12 heures sans prolongation ; ses comptes sont ceux des gérants (`staff`), jamais ceux des
+  utilisateurs : un compte de l'application n'y ouvre rien, même propriétaire d'un espace. Le gérant est revérifié à
+  chaque requête : le désactiver ferme l'accès tout de suite. Le premier gérant se crée une seule fois, avec un secret
+  comparé en temps constant (tentatives limitées) ; les suivants, par invitation. Une seule réponse pour un mauvais
   mot de passe et pour un compte sans accès ; tentatives limitées (5 par compte et adresse, 20 par adresse, sur 15
   minutes). Toute écriture exige son propre en-tête CSRF et s'inscrit au journal ; réponses jamais mises en cache ni
   affichables dans un cadre.
 - Un compte suspendu perd toutes ses sessions et ne peut plus se connecter ; seul qui connaît le mot de passe apprend
-  qu'il est suspendu. Un administrateur ne peut ni se suspendre ni se retirer ses propres droits.
+  qu'il est suspendu. Un gérant ne peut ni se désactiver ni se retirer lui-même.
 - Inscription : `SIGNUP=invite` (défaut : le premier compte, puis sur invitation) ou `SIGNUP=open` (chacun crée
   son compte et reçoit son propre espace).
 - **E-mail** (facultatif, `SMTP_URL` + `MAIL_FROM` + `APP_URL`) : l'invitation part directement à l'adresse saisie
@@ -205,12 +216,12 @@ part avec un lien construit sur `APP_URL`.
 | `PLANS` | `on` (défaut) : plans et limites ; `off` : rien n'est limité (un serveur privé) |
 | `ADMIN_PORT` | port du back-office, un serveur à part (défaut `3001` ; `off` : pas de back-office sur ce processus) |
 | `ADMIN_HOST` | où il écoute (défaut `127.0.0.1` : cette machine seulement ; `0.0.0.0` dans l'image Docker, que `docker-compose.yml` ne publie que sur `127.0.0.1`) |
-| `ADMIN_URL` | adresse publique du back-office : le lien donné aux administrateurs dans l'application |
+| `ADMIN_SETUP_TOKEN` | secret qui crée le premier gérant du back-office (sinon, un lien est écrit dans `DATA_DIR/admin-setup-token`) ; ne sert plus ensuite |
 | `ADMIN_ALLOWED_IPS` | adresses ou plages IPv4 (`10.0.0.0/8,203.0.113.7`) seules autorisées à joindre le back-office |
 | `ADMIN_DIST` | back-office construit à servir (défaut `../admin/dist`) |
-| `STRIPE_SECRET_KEY` | `sk_…` : active le paiement des plans. Avec elle, les quatre suivantes |
+| `STRIPE_SECRET_KEY` | `sk_…` : active le paiement des plans. Avec elle, les trois suivantes |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` : le secret de signature du webhook, à pointer sur `APP_URL/api/billing/webhook` (événements `checkout.session.completed`, `customer.subscription.*`, `invoice.payment_failed`) |
-| `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_PREMIUM`, `STRIPE_PRICE_PRO` | `price_…` : le prix mensuel de chaque plan payant, créé dans Stripe |
+| `STRIPE_PRICE_PREMIUM`, `STRIPE_PRICE_PRO` | `price_…` : le prix mensuel de chaque plan payant, créé dans Stripe |
 
 Derrière un proxy inverse (nginx, Caddy, Traefik), laisser passer les WebSocket (`Upgrade`) sur
 `/api/projects/<id>/live` et transmettre `Host` (ou `X-Forwarded-Host`) : le serveur compare l'origine de la page à

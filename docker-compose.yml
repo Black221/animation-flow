@@ -42,16 +42,16 @@ services:
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
       APP_URL: ${APP_URL:-}
-      # plans and quotas: on (Gratuit · Basique · Premium · Pro) or off (nothing limited, e.g. for a private server)
+      # plans and quotas: on (Gratuit · Premium · Pro) or off (nothing limited, e.g. for a private server)
       PLANS: ${PLANS:-on}
-      # the back office's public address (a link for platform admins), and the addresses allowed to reach it
+      # the back office (for the platform's managers), the secret that creates its first manager (otherwise a link is
+      # written to /data/admin-setup-token), and the addresses allowed to reach it
       ADMIN_PORT: ${ADMIN_PORT:-3001}
-      ADMIN_URL: ${ADMIN_URL:-}
+      ADMIN_SETUP_TOKEN: ${ADMIN_SETUP_TOKEN:-}
       ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-}
-      # paying for a plan, optional: all five together, with APP_URL; the webhook goes to APP_URL/api/billing/webhook
+      # paying for a plan, optional: all four together, with APP_URL; the webhook goes to APP_URL/api/billing/webhook
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-      STRIPE_PRICE_BASIC: ${STRIPE_PRICE_BASIC:-}
       STRIPE_PRICE_PREMIUM: ${STRIPE_PRICE_PREMIUM:-}
       STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
     volumes:
