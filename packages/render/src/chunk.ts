@@ -68,5 +68,6 @@ export async function renderChunk(job: ChunkJob, onFrame: (done: number) => void
     signal?.removeEventListener('abort', kill);
     renderer.dispose();
     if (enc.exitCode == null) enc.kill('SIGKILL');
+    await exited; // Windows keeps the segment locked until ffmpeg is gone, and the caller deletes it next
   }
 }

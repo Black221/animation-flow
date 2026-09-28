@@ -6,7 +6,7 @@ import { ASPECTS, timeProject, toSrt, type Aspect, type Framing } from '@af/engi
 import { parseProject } from '@af/schema';
 import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { renderChunk, type ChunkJob } from './chunk';
 import { AbortError, FFMPEG, run } from './ffmpeg';
@@ -122,7 +122,7 @@ export async function renderVideo(o: RenderVideoOptions): Promise<RenderResult> 
 
     // join the segments (no re-encoding) and add the narration as a subtitle track
     const list = join(parts, 'list.txt'), seconds = (total / fps).toFixed(3);
-    writeFileSync(list, jobs.map((j) => `file '${pathToFileURL(j.out).pathname.replace(/'/g, "'\\''")}'`).join('\n'));
+    writeFileSync(list, jobs.map((j) => `file '${j.out.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
     const concat = ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list];
     if (format === 'gif') {
       // one palette for the film, the frames dithered on it, repeating forever
