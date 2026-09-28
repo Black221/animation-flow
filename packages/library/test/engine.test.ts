@@ -145,6 +145,29 @@ describe('reframing (vertical, square, portrait outputs)', () => {
     expect(boxes[1]!.x1).toBeLessThanOrEqual(boxes[2]!.x0 + 0.5);
   });
 
+  it('looks at the one who matters most when the group does not fit, not at the empty middle', () => {
+    const f = { width: 1920, height: 1080, speakerId: null, subjects: [
+      { id: 'a', type: 'character' as const, ref: 'a', x0: 200, y0: 600, x1: 320, y1: 960 },
+      { id: 'b', type: 'character' as const, ref: 'b', x0: 1400, y0: 440, x1: 1600, y1: 980 },
+    ] };
+    expect(focusOf(f, 607.5, 1080)[0]).toBe(1500); // the larger one
+    expect(focusOf({ ...f, speakerId: 'a' }, 607.5, 1080)[0]).toBe(260); // the one speaking
+  });
+
+  it('places a vertical subtitle once per line, off the faces and the titles', () => {
+    const tall = planFraming(ev, 1920, 1080, ASPECTS['9:16'], 'follow'), lines = ev.timeline.scenes.flatMap((s) => s.lines.map((l) => ({ start: s.start + l.start, end: s.start + l.end })));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) {
+      const ys = [l.start + 0.01, (l.start + l.end) / 2, l.end - 0.01].map((t) => tall.at(t).caption);
+      expect([0.44, 0.78, 0.2]).toContain(ys[0]);
+      expect(new Set(ys).size).toBe(1); // it never jumps while the line is read
+    }
+    const t = (lines[0]!.start + lines[0]!.end) / 2, r = reframe(ev.frameAt(t), tall.at(t));
+    expect(r.subtitle?.y).toBe(tall.at(t).caption);
+    // no caption for a square or wide output: the line stays in the lower band
+    expect(planFraming(ev, 1920, 1080, 1, 'follow').at(t).caption).toBeUndefined();
+  });
+
   it('lays each overlay out again inside the window, whole, and shifts the world', () => {
     const f = ev.frameAt(2), c = { x: 600, y: 0, w: 607.5, h: 1080 }, r = reframe(f, c);
     expect(r.width).toBe(607.5);

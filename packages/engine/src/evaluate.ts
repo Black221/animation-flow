@@ -40,7 +40,8 @@ export interface Frame {
   items: Prim[];
   /** 0 = none … 1 = black, for fade transitions */
   fade: number;
-  subtitle: { speaker: string; text: string } | null;
+  /** `y`: where its last line sits, as a fraction of the height (set by reframing a tall output) */
+  subtitle: { speaker: string; text: string; y?: number } | null;
   /** the cast id of who speaks now (null: the narrator, or silence) */
   speakerId: string | null;
   /** where the characters and props of the world are on screen: what a reframed output follows */
