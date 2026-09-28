@@ -7,7 +7,7 @@ projet JSON ──► moteur ──► primitives (écran) ──► pack de sty
 (schema)        (engine)   chemins, textes,       (styles)          canvas du navigateur,
   ▲             + bibliothèque (library)          halos, dégradés                   ou Node sur un serveur
   │
-éditeur web · modèle d'IA · import
+éditeur web · modèle d'IA · modèles joints au prompt
 ```
 
 - Le **projet** décrit la scène : décor, personnages, accessoires, textes, caméra, narration. Aucune couleur de pinceau ni
@@ -212,42 +212,45 @@ propre feuille.
   l'inspecteur ne garde que Scène, Voix et Commentaires, l'export des sous-titres disparaît ; au doigt, pas de
   raccourcis clavier ; classes `hide-phone` et `hide-tablet` pour les colonnes secondaires des tableaux.
 
-## Fichiers importés (`apps/api/src/routes/uploads.ts`, `apps/web/src/components/ImportDialog.tsx`, `textfile.ts`)
+## Modèles pour l'IA (`apps/api/src/routes/uploads.ts`, `apps/web/src/components/ModelsForAI.tsx`, `textfile.ts`)
 
-- `POST /api/uploads/image` et `POST /api/uploads/audio?use=voice|music` prennent le fichier comme corps de la requête
-  (un analyseur de corps brut limité à ces deux routes ; `bodyLimit` par route). Le type vient des premiers octets
-  (`pictureType`, `audioType`), jamais de l'en-tête. Image : `normalizeUpload` (`@napi-rs/canvas`) redessine, détecte la
-  transparence et la couleur moyenne, écrit `IMAGES_DIR/<espace>/<id>.png|.jpg` ; `imageFile` trouve l'un ou l'autre et
-  les liens disent toujours `.jpg` (le fichier décide du type servi). Son : `decodeUpload` écrit une copie temporaire,
-  lance FFmpeg avec `-f <format> -protocol_whitelist file`, lit du PCM mono 48 kHz ; une voix passe par `trimSilence` et
-  `normalizeVoice` comme une voix synthétisée ; tout son est stocké en WAV 16 bits à côté des voix (`VOICES_DIR`), donc
-  lu par le même mixeur, les mêmes liens signés, la même copie à la publication et au remix.
-- Dans le format : une forme `image` dans un dessin (`{ type: 'image', asset, x, y, w, h }`) ; le moteur en fait une
-  primitive `image` qui garde sa matrice (`matrix`) quand l'élément tourne ou se retourne, et les styles la dessinent
-  sous cette transformation (le néon ne teinte que les décors peints). `soundtrack` au niveau du projet : la musique
-  importée, jouée depuis le début du film, en boucle ou non, fondu de 2 s à la fin, mesurée et ramenée au niveau de la
-  musique puis baissée sous les voix ; elle remplace les pièces composées des scènes. `pictureAssetsOf` et
-  `soundAssetsOf` (`packages/schema`) disent quels médias un projet utilise : rendu, vignettes, aperçu, publication et
-  export s'en servent.
+Tout fichier se joint au prompt et sert de **modèle** : l'IA s'en inspire, rien n'entre tel quel dans le projet.
+
+- `POST /api/uploads/image` prend l'image comme corps de la requête (analyseur de corps brut limité à ces routes,
+  `bodyLimit` par route). Le type vient des premiers octets (`pictureType`), jamais de l'en-tête. `normalizeUpload`
+  (`@napi-rs/canvas`) redessine, détecte la transparence et la couleur moyenne, écrit
+  `IMAGES_DIR/<espace>/<id>.png|.jpg` ; `imageFile` trouve l'un ou l'autre.
+- `POST /api/uploads/audio` : `decodeUpload` écrit une copie temporaire, lance FFmpeg avec `-f <format>
+  -protocol_whitelist file`, lit du PCM mono 11 025 Hz ; `musicFeatures` (`packages/audio/src/analyse.ts`) en tire le
+  tempo (autocorrélation de l'enveloppe des attaques, fenêtres de 46 ms tous les 128 échantillons, lue à des retards
+  fractionnaires et sommée sur les premiers multiples du temps, avec une préférence douce autour de 120 BPM), la
+  netteté du rythme (contraste de ce peigne), l'énergie (RMS), la brillance (passages par zéro) et la tonalité probable
+  (chroma par Goertzel de do3 à si5, corrélé aux profils de Krumhansl) ; `describeMusic` le dit en une phrase. Rien
+  n'est stocké.
+- Une génération reçoit `references` : `{ id, kind: character | prop | decor | style | music | project, name,
+  description?, asset?, summary? }` (une image pour les quatre premiers, une analyse pour une musique ou un projet ;
+  dix au plus, ids uniques, images de l'espace). `modelPicture` (`routes/images.ts`) relit l'image en PNG de 1024 px au
+  plus pour les modèles qui voient.
+- `referencesBrief` (`packages/ai/src/prompts.ts`) les décrit au storyboard, images numérotées et jointes au premier
+  message (`ask(…, images)`) : un personnage, un objet ou un décor doit y figurer sous son id, décrit d'après son image
+  (sinon le modèle corrige) ; une ambiance donne palette et humeur ; une musique, l'esprit de la musique de chaque
+  scène ; un projet, un plan à reprendre. `drawOne` joint l'image du modèle à la demande de dessin (`MODEL_NOTE` :
+  redessiner fidèlement en vectoriel articulé, jamais décalquer) et la relecture reçoit le modèle et le dessin côte à
+  côte. `composeScore` reçoit les musiques modèles (« dans son esprit, jamais une copie »).
+- Dans le navigateur, `ModelsForAI` trie ce qui est joint ou déposé : une image ouvre un dialogue (ce qu'elle montre,
+  nom, précisions) puis s'envoie ; une musique est écoutée par le serveur ; un `.json` donne son plan (`outline` :
+  titre, style, personnages, scènes et répliques, 4 000 caractères au plus) ; le reste est lu comme un texte
+  (`readTextFile` : DOCX et ODT depuis le XML de leur zip avec `DecompressionStream`, PDF avec pdf.js chargé à la
+  demande, SRT/VTT sans numéros ni temps) et remplit la zone du brief.
 - `GET /api/projects/:id/export` : `{ format: 'animation-flow', version: 1, project, media: { images, sounds } }`
-  (base64). `POST /api/projects/import` n'importe que les médias que le projet nomme, décode et stocke chacun à nouveau
-  (un nouvel id quand ses octets changent, et le projet est réécrit en conséquence) et dit ce qui manque.
-- Détourage (`apps/web/src/cutout.ts`, `usePictureEdit.ts`), dans le navigateur avant l'envoi : couleur médiane du
-  bord, et fond « uni » si 80 % du bord en est proche ; remplissage depuis les bords (ce qui a la couleur du fond et
-  touche le bord s'en va, le même blanc enfermé dans un contour reste) ; les pixels de la frontière deviennent en partie
-  transparents et perdent la teinte du fond (pas de liseré blanc). La gomme magique fait le même remplissage depuis le
-  point touché ; les effacements se rejouent depuis l'original (annulables).
-- `pictureAsset` (`packages/schema/src/picture.ts`) : le dessin d'une image, à la taille d'une personne (personnage,
-  pivot aux pieds) ou d'un objet (pivot au centre), avec ses poses (idle, talk, walk, jump, cheer, wave, dance ; float,
-  spin, wobble), et `flip: false` : le moteur ne le retourne jamais en miroir. Les images données à l'IA
-  (`media` d'une génération) sont listées dans le prompt du storyboard (id, liste, description), exigées dans le
-  storyboard (sinon le modèle corrige), retirées des dessins à faire (`toDraw`) et ajoutées telles quelles
-  (`providedDrawings`).
+  (base64). Il n'y a pas d'import direct : un projet exporté se joint au prompt comme modèle.
+- Le format garde la forme `image` d'un dessin (décors peints par un modèle d'images) et, pour les projets plus
+  anciens, `soundtrack` (une musique de fichier sous tout le film) et `pictureAsset` (`packages/schema/src/picture.ts` :
+  une image qui joue, `flip: false`, jamais retournée en miroir) ; `pictureAssetsOf` et `soundAssetsOf` disent quels
+  médias un projet utilise (rendu, vignettes, aperçu, publication, export).
 - Recadrage : les titres d'une même ligne (boîtes qui se recouvrent verticalement) sont replacés ensemble, comme un
   bloc ; en vertical, les sous-titres incrustés passent au milieu de l'image (les personnages occupent le bas), sur un
   fond sombre translucide.
-- Les textes pour l'IA ne partent pas comme fichiers : `readTextFile` les lit dans le navigateur (DOCX et ODT depuis le
-  XML de leur zip avec `DecompressionStream`, PDF avec pdf.js chargé à la demande, SRT/VTT sans numéros ni temps).
 
 ## Rendu vidéo (`packages/render`, `apps/api/src/render`)
 

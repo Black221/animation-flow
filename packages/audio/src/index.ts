@@ -5,3 +5,4 @@ export { renderMusic, pieceFor, pieceNotes, chordNotes, MOODS, MOOD_NAMES, type 
 export { sound, soundFor, recipeSound, SOUND_KINDS, soundCatalog } from './sfx';
 export { mixSoundtrack, normalizeVoice, DEFAULT_LEVELS, VOICE_LUFS, MUSIC_LUFS, type MixInput, type MixResult, type Levels } from './mix';
 export { trimSilence } from './trim';
+export { musicFeatures, describeMusic, type MusicFeatures } from './analyse';

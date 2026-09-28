@@ -129,29 +129,26 @@ part avec un lien construit sur `APP_URL`.
   leurs colonnes secondaires.
 - **Musique** (onglet « Musique ») : la partition composée pour le film et ses bruitages, à écouter, à recomposer
   avec une direction (« plus joyeux ») ou à reconcevoir un par un.
-- **Importer ses fichiers** (bouton « Importer » de l'éditeur, ou un fichier déposé sur l'éditeur) :
-  - une **image** (PNG, JPEG, WebP, GIF, BMP) devient un **objet** (un logo, un produit, placé dans la scène, qui se
-    déplace, grandit et tourne), le **décor** d'une scène (une photo, une illustration) ou un **personnage** (une image
-    fixe qui entre, se déplace, parle). La transparence est gardée ; l'image se dessine telle quelle dans tous les styles
-    et dans les rendus ;
-  - un **son** (MP3, WAV, M4A, OGG, FLAC, AIFF, WebM) devient la **musique du film** (sous tout le film, baissée quand
-    quelqu'un parle, en boucle ou une fois avec un fondu final ; elle remplace la musique composée, qui revient si on la
-    retire ; niveau réglable dans l'onglet « Musique ») ou la **voix d'une réplique** (son propre enregistrement, depuis
-    l'onglet « Voix » : silences coupés, volume égalisé, la scène suit sa durée) ;
-  - un **projet** : « Exporter le projet » (onglet « Projet », ou le menu d'une carte de « Mes projets ») donne un
-    fichier `.animation.json` avec ses images et ses sons ; « Importer un projet » (ou le fichier déposé sur « Mes
-    projets ») le recrée dans n'importe quel espace, médias compris. Un JSON de projet seul s'importe aussi ;
-  - une image sur **fond uni** (une mascotte sur blanc, un logo sur un carré de couleur) est **détourée** d'office :
-    le fond qui touche les bords s'en va, le même blanc à l'intérieur du sujet (un t-shirt) reste ; ce qui reste de
-    fond (un morceau enfermé entre les jambes, une ombre) s'efface d'un **clic** sur l'aperçu (gomme magique,
-    annulable). Une image n'est jamais retournée en miroir (le texte d'un t-shirt ou d'un logo resterait lisible), et un
-    personnage fait d'une image bouge quand même : respiration, parole, marche, saut, joie, salut, danse ;
-  - des **images pour l'IA** (« Créer avec l'IA » → « Mascotte, logo, produit… ») : chacune avec son rôle (personnage,
-    objet, décor), son nom et ce qu'elle est. L'IA doit les mettre dans le storyboard sous leur identifiant (elle est
-    reprise sinon), ne les redessine pas et les fait jouer ; la relecture du storyboard les montre telles quelles ;
-  - un **texte** pour l'IA (« Importer un texte » dans « Créer avec l'IA », ou déposé sur la zone de texte) : TXT,
-    Markdown, Word (DOCX), OpenDocument (ODT), PDF, sous-titres (SRT, VTT) ou page web. Il est lu dans le navigateur ;
-    seul le texte part vers l'IA (20 000 caractères au plus).
+- **Des modèles pour l'IA, dans le prompt** (« Créer avec l'IA » → « Joindre », ou les fichiers déposés sur la zone
+  de texte). Tout fichier se donne au moment du prompt, et **sert de modèle** : rien n'est mis tel quel dans le film,
+  l'IA s'en inspire pour écrire, dessiner et composer.
+  - une **image** (PNG, JPEG, WebP, GIF) avec ce qu'elle montre : un **personnage** (une mascotte), un **objet** (un
+    logo, un produit), un **décor** (la photo d'un lieu) ou une **ambiance** (le rendu voulu), un nom et, si l'on veut,
+    quelques mots. Le modèle du storyboard la voit et doit mettre le personnage, l'objet ou le lieu dans le film sous
+    son identifiant (il est repris sinon), décrit d'après l'image ; le modèle des dessins le **redessine d'après elle**,
+    en vectoriel articulé dans le style du film (il marche, parle, saute, danse, change d'expression), et sa relecture
+    compare le dessin au modèle. Une ambiance donne la palette, la lumière et l'humeur. La relecture du storyboard
+    montre chaque modèle à côté de ce qui sera dessiné d'après lui ;
+  - une **musique** (MP3, WAV, M4A, OGG, FLAC, AIFF) : écoutée par le serveur (tempo, netteté du rythme, énergie,
+    brillance, tonalité probable), puis oubliée ; ce qui en a été entendu guide le storyboard et le compositeur, qui
+    écrit la musique du film **dans son esprit**, sans la copier ;
+  - un **projet** exporté d'ici (`.animation.json`, ou son JSON seul) : son plan (titre, personnages, scènes et
+    répliques) sert de base au nouveau film ;
+  - un **texte** (TXT, Markdown, Word DOCX, OpenDocument ODT, PDF, sous-titres SRT/VTT, page web) : c'est le brief
+    lui-même, lu dans le navigateur ; seul le texte part vers l'IA (20 000 caractères au plus).
+  Dix modèles au plus par génération. Un projet s'**exporte** toujours (onglet « Projet », ou le menu d'une carte de
+  « Mes projets ») en un fichier avec ses images et ses sons ; il ne s'importe plus directement : il se joint au
+  prompt, comme modèle.
 - **Son dans l'aperçu** : voix, musique et bruitages mixés dans le navigateur avec le même code que le rendu.
 - **Styles** : six façons de dessiner le même film, à choisir en les voyant (une carte par style, le film d'exemple
   dessiné dedans, qui bouge au survol) et à changer à tout moment : *vectoriel plat* (rapide), *aquarelle* (lavis, grain
@@ -199,13 +196,12 @@ part avec un lien construit sur `APP_URL`.
   accordé que par le webhook, dont la signature (HMAC SHA-256 du corps brut, horodatage de moins de 5 minutes) est
   vérifiée en temps constant ; chaque événement n'est appliqué qu'une fois. Le webhook est la seule route d'écriture
   sans l'en-tête CSRF : elle prouve son origine par cette signature.
-- **Fichiers importés** : rien n'est gardé tel quel. Une image est reconnue à ses premiers octets (PNG, JPEG, WebP, GIF,
-  BMP ; SVG refusé), décodée et redessinée (PNG seulement si elle a de la transparence, sinon JPEG, 2560 px au plus) :
-  ni métadonnées ni contenu caché. Un son est reconnu de même, puis décodé par FFmpeg depuis une copie locale avec son
-  format nommé et `-protocol_whitelist file` : une liste de lecture ou un lien qu'il contiendrait n'est jamais suivi ;
-  il est stocké en WAV. Chaque fichier est nommé par son contenu dans le dossier de l'espace, compté dans le stockage du
-  plan, et servi par lien signé. Tailles : 15 Mo par image, 60 Mo par son (3 min pour une voix, 10 min pour une
-  musique), 200 Mo pour un projet avec ses médias, dont chaque image et chaque son est décodé à nouveau.
+- **Modèles joints au prompt** : rien n'est gardé tel quel. Une image est reconnue à ses premiers octets (PNG, JPEG,
+  WebP, GIF, BMP ; SVG refusé), décodée et redessinée (PNG seulement si elle a de la transparence, sinon JPEG, 2560 px
+  au plus) : ni métadonnées ni contenu caché ; elle est montrée aux modèles réduite à 1024 px. Une musique est reconnue
+  de même, décodée par FFmpeg depuis une copie locale avec son format nommé et `-protocol_whitelist file` (une liste de
+  lecture ou un lien qu'elle contiendrait n'est jamais suivi), analysée puis effacée : seule sa description est
+  renvoyée. Tailles : 15 Mo par image, 60 Mo par musique (10 premières minutes écoutées).
 - **Back-office** : un serveur à part, qui ne sert que l'administration (l'API de l'application n'a plus aucune route
   d'administration). Il n'écoute par défaut que sur la machine (tunnel SSH, VPN, ou proxy qui authentifie devant) et
   peut être limité à des adresses (`ADMIN_ALLOWED_IPS`). Ses sessions sont à part : cookie `af_admin`, `HttpOnly`,

@@ -1,22 +1,21 @@
-// Files people bring into a workspace: pictures (a logo, a product, a photo for a decor) and sounds (their own voice
-// for a line, a music for the film), and whole projects exported from here with their media.
+// Files people bring to the AI with their prompt, as MODELS: a picture (a character, an object, a place, a look) the
+// AI draws after, a music it listens to and composes in the spirit of. Nothing brought is put in a film as it is.
+// And a project as one file, to keep or to give (its export).
 //
 // Nothing is kept as it came. A picture is decoded and drawn again (PNG when it has transparency, JPEG otherwise, at
-// most 2560 px): no metadata, nothing hidden. A sound is recognised by its first bytes, decoded by FFmpeg from a
-// local copy with that format named (a playlist or a link inside it is never followed) and stored as the 48 kHz WAV
-// the mixer reads; a voice is trimmed of its silences and brought to the voices' loudness, like a synthesized one.
-// Every file is named by its content in the workspace's folder, and counts in the plan's storage.
-import { decodeWav, encodeWav, normalizeVoice, SR, trimSilence } from '@af/audio';
-import { checkAgainstLibrary } from '@af/engine';
-import { catalog, registry } from '@af/library';
+// most 2560 px): no metadata, nothing hidden; it is kept in the workspace's folder, named by its content, for the
+// generation to show it to the models. A music is recognised by its first bytes, decoded by FFmpeg from a local copy
+// with that format named (a playlist or a link inside it is never followed), described (tempo, key, energy) and
+// forgotten: only the description is returned.
+import { describeMusic, musicFeatures } from '@af/audio';
 import { decodeUpload, normalizeUpload } from '@af/render';
-import { parseProject, pictureAssetsOf, soundAssetsOf, type Project } from '@af/schema';
+import { parseProject, pictureAssetsOf, soundAssetsOf } from '@af/schema';
 import type { FastifyInstance } from 'fastify';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { userOf, wsOf } from '../auth/context';
+import { wsOf } from '../auth/context';
 import type { Db } from '../db';
 import type { Quotas } from '../plans';
 import type { Signer } from '../render/sign';
@@ -26,46 +25,15 @@ import { voiceFile } from './voices';
 export const LIMITS = {
   imageBytes: 15 * 1024 * 1024,
   audioBytes: 60 * 1024 * 1024,
-  voiceSeconds: 180,
+  /** how much of a music is listened to */
   musicSeconds: 600,
-  /** a project file with its media */
-  projectBytes: 200 * 1024 * 1024,
 };
-const Use = z.object({ use: z.enum(['voice', 'music']).default('voice') });
-const Hex = z.string().regex(/^[0-9a-f]{32}$/);
 const idOf = (ws: string, kind: string, data: Uint8Array) => createHash('sha256').update(kind).update(ws).update(data).digest('hex').slice(0, 32);
 const mb = (bytes: number) => bytes / 1e6;
 const put = (file: string, data: Uint8Array) => { if (existsSync(file)) return; const tmp = `${file}.${process.pid}.tmp`; writeFileSync(tmp, data); renameSync(tmp, file); };
 
-/** the export file: the project and, optionally, the pictures and recordings it uses */
-const ExportFile = z.object({
-  format: z.literal('animation-flow'),
-  version: z.literal(1),
-  project: z.unknown(),
-  media: z.object({
-    images: z.record(Hex, z.string().max(30_000_000)).default({}),
-    sounds: z.record(Hex, z.string().max(80_000_000)).default({}),
-  }).default({ images: {}, sounds: {} }),
-});
-
-/** a project with its media ids changed (media imported again get new ids: they are named by their content) */
-function remap(p: Project, ids: Map<string, string>): Project {
-  const m = (a: string) => ids.get(a) ?? a;
-  const assets = Object.fromEntries(Object.entries(p.assets).map(([k, a]) => [k, {
-    ...a,
-    ...(a.image ? { image: { ...a.image, asset: m(a.image.asset) } } : {}),
-    parts: a.parts.map((part) => ({ ...part, shapes: part.shapes.map((s) => (s.type === 'image' ? { ...s, asset: m(s.asset) } : s)) })),
-  }]));
-  return {
-    ...p, assets,
-    scenes: p.scenes.map((s) => ({ ...s, narration: s.narration.map((l) => (l.audio ? { ...l, audio: { ...l.audio, asset: m(l.audio.asset) } } : l)) })),
-    ...(p.soundtrack ? { soundtrack: { ...p.soundtrack, asset: m(p.soundtrack.asset) } } : {}),
-  };
-}
-
 export function uploadRoutes(app: FastifyInstance, db: Db, sign: Signer, dirs: { voicesDir: string; imagesDir: string }, quota: Quotas) {
   const imageLink = (ws: string, asset: string) => `/api/images/${ws}/${asset}.jpg?${sign.sign(`image:${ws}:${asset}`)}`;
-  const voiceLink = (ws: string, asset: string) => `/api/voices/${ws}/${asset}.wav?${sign.sign(`voice:${ws}:${asset}`)}`;
 
   /** store a picture; returns its id */
   const storeImage = async (ws: string, bytes: Uint8Array) => {
@@ -73,12 +41,6 @@ export function uploadRoutes(app: FastifyInstance, db: Db, sign: Signer, dirs: {
     mkdirSync(join(dirs.imagesDir, ws), { recursive: true });
     if (!existsSync(imageFile(dirs.imagesDir, ws, asset))) put(join(dirs.imagesDir, ws, `${asset}.${pic.ext}`), pic.data);
     return { asset, pic };
-  };
-  const storeSound = (ws: string, samples: Float32Array) => {
-    const wav = encodeWav({ sampleRate: SR, channels: [samples] }, 16), asset = idOf(ws, 'sound', wav);
-    mkdirSync(join(dirs.voicesDir, ws), { recursive: true });
-    put(voiceFile(dirs.voicesDir, ws, asset), wav);
-    return asset;
   };
 
   app.register(async (s) => {
@@ -95,19 +57,15 @@ export function uploadRoutes(app: FastifyInstance, db: Db, sign: Signer, dirs: {
       return reply.code(201).send({ asset: r.asset, width: r.pic.width, height: r.pic.height, alpha: r.pic.alpha, color: r.pic.color, url: imageLink(ws, r.asset) });
     });
 
+    // a music brought as a model for the AI: listened to, described, not kept
     s.post('/api/uploads/audio', { config: { role: 'editor' }, bodyLimit: LIMITS.audioBytes }, async (req, reply) => {
-      const body = req.body, ws = wsOf(req).id, q = Use.safeParse(req.query ?? {});
-      if (!q.success) return reply.code(400).send({ error: 'usage : voice ou music' });
+      const body = req.body;
       if (!Buffer.isBuffer(body) || !body.length) return reply.code(400).send({ error: 'aucun fichier reçu' });
-      const voice = q.data.use === 'voice', max = voice ? LIMITS.voiceSeconds : LIMITS.musicSeconds;
-      let decoded: Awaited<ReturnType<typeof decodeUpload>>;
-      try { decoded = await decodeUpload(body, { rate: SR, maxSeconds: max }); } catch (e) { return reply.code(415).send({ error: (e as Error).message }); }
-      const samples = voice ? normalizeVoice(trimSilence(decoded.samples)) : decoded.samples;
-      if (samples.length < SR * 0.2) return reply.code(422).send({ error: 'le son est vide ou trop court' });
-      await quota.ensure(ws, 'storageMb', mb(samples.length * 2));
-      const asset = storeSound(ws, samples);
-      quota.touched(ws);
-      return reply.code(201).send({ asset, duration: Math.round((samples.length / SR) * 1000) / 1000, truncated: decoded.truncated, maxSeconds: max, url: voiceLink(ws, asset) });
+      let d: Awaited<ReturnType<typeof decodeUpload>>;
+      try { d = await decodeUpload(body, { rate: 11025, maxSeconds: LIMITS.musicSeconds }); } catch (e) { return reply.code(415).send({ error: (e as Error).message }); }
+      if (d.samples.length < 11025 * 2) return reply.code(422).send({ error: 'le son est vide ou trop court' });
+      const features = musicFeatures(d.samples, 11025);
+      return { duration: Math.round(features.seconds * 10) / 10, features, summary: describeMusic(features) };
     });
   });
 
@@ -127,45 +85,4 @@ export function uploadRoutes(app: FastifyInstance, db: Db, sign: Signer, dirs: {
     reply.header('content-disposition', `attachment; filename="${name}.animation.json"`);
     return { format: 'animation-flow', version: 1, exportedAt: new Date().toISOString(), project: parsed.project, media: { images, sounds } };
   });
-
-  app.post('/api/projects/import', { config: { role: 'editor' }, bodyLimit: LIMITS.projectBytes }, async (req, reply) => {
-    const ws = wsOf(req).id, by = userOf(req).id;
-    // a bare project JSON is welcome too
-    const raw = req.body as { format?: unknown } | null, file = raw && raw.format === 'animation-flow' ? ExportFile.safeParse(raw) : ExportFile.safeParse({ format: 'animation-flow', version: 1, project: raw });
-    if (!file.success) return reply.code(400).send({ error: 'fichier de projet invalide' });
-    const parsed = parseProject(file.data.project);
-    if (!parsed.ok) return reply.code(422).send({ error: 'projet invalide', issues: parsed.issues.slice(0, 20) });
-    await quota.ensure(ws, 'projects');
-    // only the media the project uses, each decoded and stored again (a new id when its bytes change)
-    const wantedImages = new Set(pictureAssetsOf(parsed.project)), wantedSounds = new Set(soundAssetsOf(parsed.project)), ids = new Map<string, string>(), skipped: string[] = [];
-    let bytes = 0;
-    for (const v of [...Object.values(file.data.media.images), ...Object.values(file.data.media.sounds)]) bytes += (v.length * 3) / 4;
-    await quota.ensure(ws, 'storageMb', mb(bytes));
-    for (const [id, b64] of Object.entries(file.data.media.images)) {
-      if (!wantedImages.has(id)) continue;
-      try { ids.set(id, (await storeImage(ws, Buffer.from(b64, 'base64'))).asset); } catch { skipped.push(id); }
-    }
-    for (const [id, b64] of Object.entries(file.data.media.sounds)) {
-      if (!wantedSounds.has(id)) continue;
-      try {
-        const wav = decodeWav(Buffer.from(b64, 'base64'));
-        if (wav.sampleRate !== SR || !wav.channels[0]) throw new Error('format');
-        ids.set(id, storeSound(ws, wav.channels[0]));
-      } catch { skipped.push(id); }
-    }
-    quota.touched(ws);
-    const project = remap(parsed.project, ids), again = parseProject(project);
-    if (!again.ok) return reply.code(422).send({ error: 'projet invalide', issues: again.issues.slice(0, 20) });
-    const id = randomUUID(), data = JSON.stringify(again.project);
-    await db.tx(async (q) => {
-      await q.query('INSERT INTO projects (id, title, data, workspace_id, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $5)', [id, again.project.title, data, ws, by]);
-      await q.query('INSERT INTO project_versions (project_id, version, data, created_by) VALUES ($1, 1, $2, $3)', [id, data, by]);
-    });
-    // what the project names but this workspace does not have (a file exported without its media): drawn or
-    // spoken without it, until recorded or imported again
-    const missing = [...wantedImages].filter((a) => !existsSync(imageFile(dirs.imagesDir, ws, ids.get(a) ?? a))).length + [...wantedSounds].filter((a) => !existsSync(voiceFile(dirs.voicesDir, ws, ids.get(a) ?? a))).length;
-    const count = (w: Set<string>) => [...ids.keys()].filter((k) => w.has(k)).length;
-    return reply.code(201).send({ id, title: again.project.title, media: { images: count(wantedImages), sounds: count(wantedSounds), missing, skipped: skipped.length }, warnings: checkAgainstLibrary(again.project, registry, catalog) });
-  });
 }
-

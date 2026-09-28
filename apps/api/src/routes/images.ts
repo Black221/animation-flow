@@ -7,7 +7,7 @@ import type { JsonPost } from '@af/providers';
 import { pictureAssetsOf, type Project } from '@af/schema';
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { imageModel, NotConfigured, type ImageModel } from '../ai/models';
@@ -90,4 +90,15 @@ export function imageRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: 
     if (!existsSync(file)) return reply.code(404).send({ error: 'image introuvable' });
     return sendFile(req, reply, file, imageMime(file));
   });
+}
+
+/** a picture of the workspace as a model sees it: at most 1024 px on its longer side, PNG (transparency kept) */
+export async function modelPicture(dir: string, ws: string, asset: string): Promise<{ mediaType: 'image/png'; data: string } | null> {
+  const file = imageFile(dir, ws, asset);
+  if (!existsSync(file)) return null;
+  const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+  const img = await loadImage(readFileSync(file)), k = Math.min(1, 1024 / Math.max(img.width, img.height));
+  const c = createCanvas(Math.max(1, Math.round(img.width * k)), Math.max(1, Math.round(img.height * k)));
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return { mediaType: 'image/png', data: c.toBuffer('image/png').toString('base64') };
 }

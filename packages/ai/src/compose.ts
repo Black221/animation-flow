@@ -69,7 +69,7 @@ export function checkRecipe(v: unknown, path: string): { recipe: SoundRecipeT | 
 // ---------- the score ----------
 const ScoreAnswer = z.object({ pieces: z.record(z.string(), z.unknown()), music: z.record(z.string(), z.string()) });
 
-export async function composeScore(model: Model, sb: Storyboard, onStep: OnStep = () => undefined): Promise<Score & { fallback: boolean; issues: Issue[] }> {
+export async function composeScore(model: Model, sb: Storyboard, onStep: OnStep = () => undefined, models: readonly { name: string; summary?: string | undefined }[] = []): Promise<Score & { fallback: boolean; issues: Issue[] }> {
   const check: Check<Score> = (v) => {
     const a = ScoreAnswer.safeParse(v);
     if (!a.success) return { ok: false, issues: zIssues(a.error) };
@@ -88,7 +88,7 @@ export async function composeScore(model: Model, sb: Storyboard, onStep: OnStep 
     }
     return issues.length ? { ok: false, issues } : { ok: true, value: { score, music } };
   };
-  const request = `Film: ${sb.title} (${sb.language}). Scenes, with the music asked for each:\n${sb.scenes.map((s) => `- ${s.id} "${s.title}", ${s.duration} s: ${s.music}`).join('\n')}`;
+  const request = `Film: ${sb.title} (${sb.language}). Scenes, with the music asked for each:\n${sb.scenes.map((s) => `- ${s.id} "${s.title}", ${s.duration} s: ${s.music}`).join('\n')}${models.length ? `\n\nThe user brought this music as a MODEL: compose in its spirit (tempo, key, energy, groove), never a copy of it:\n${models.map((m) => `- "${m.name}": ${m.summary ?? ''}`).join('\n')}` : ''}`;
   const schema = z.toJSONSchema(z.object({ pieces: z.record(z.string(), Piece), music: z.record(z.string(), z.string()) }), { io: 'input' }) as Record<string, unknown>;
   const { value, issues } = await ask(model, SCORE_PROMPT, request, { name: 'score', schema }, check, 'music', 'score', onStep, 12_000);
   if (value) return { ...value, fallback: false, issues: [] };

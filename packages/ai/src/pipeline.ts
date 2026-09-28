@@ -10,8 +10,7 @@ import { z } from 'zod';
 import { ask, InvalidAnswer, ModelError, zIssues, type Check, type Model, type OnStep } from './ask';
 import { composeScore, designSounds, moodFromWords } from './compose';
 import { drawAll, type AssetBrief, type AssetResult, type DrawOptions } from './drawing';
-import { drawingsBrief, editRequest, PLAN_PROMPT, planRequest, sceneRequest, scenePrompt, storyboardPrompt, type ProvidedPicture, type StoryboardOptions } from './prompts';
-import { Asset as AssetSchema, pictureAsset } from '@af/schema';
+import { drawingsBrief, drawnFrom, editRequest, PLAN_PROMPT, planRequest, referenceImages, sceneRequest, scenePrompt, storyboardPrompt, type Reference, type StoryboardOptions } from './prompts';
 import { briefsOf, Storyboard, storyboardJsonSchema, type StoryScene } from './storyboard';
 
 export { InvalidAnswer, ModelError, type Model, type OnStep, type Step } from './ask';
@@ -21,36 +20,29 @@ export async function generateStoryboard(model: Model, text: string, o: Storyboa
   const check: Check<Storyboard> = (v) => {
     const r = Storyboard.safeParse(v);
     if (!r.success) return { ok: false, issues: zIssues(r.error) };
-    // the pictures the user brought are in the right list, under their own id
+    // what the user brought a model of is in the film, in the right list, under its id
     const lists = { character: r.data.cast, prop: r.data.props, decor: r.data.decors } as const;
-    const missing = (o.provided ?? []).filter((p) => !lists[p.kind].some((x) => x.id === p.id));
-    return missing.length ? { ok: false, issues: missing.map((p) => ({ path: p.kind === 'character' ? 'cast' : `${p.kind}s`, message: `l'image fournie « ${p.id} » (${p.name}) doit y figurer, avec cet id` })) } : { ok: true, value: r.data };
+    const missing = (o.references ?? []).filter(drawnFrom).filter((p) => !lists[p.kind].some((x) => x.id === p.id));
+    return missing.length ? { ok: false, issues: missing.map((p) => ({ path: p.kind === 'character' ? 'cast' : `${p.kind}s`, message: `le modèle « ${p.id} » (${p.name}) doit y figurer, avec cet id, décrit d'après son image` })) } : { ok: true, value: r.data };
   };
-  const { value, issues } = await ask(model, storyboardPrompt(o), `The user's text:\n<<<\n${text}\n>>>`, { name: 'storyboard', schema: storyboardJsonSchema() }, check, 'storyboard', 'storyboard', onStep);
+  const { value, issues } = await ask(model, storyboardPrompt(o), `The user's text:\n<<<\n${text}\n>>>`, { name: 'storyboard', schema: storyboardJsonSchema() }, check, 'storyboard', 'storyboard', onStep, 8000, referenceImages(o.references ?? []));
   if (!value) throw new InvalidAnswer("le modèle n'a pas produit de storyboard valide", issues);
   return { ...value, language: o.language, style: o.style };
 }
 
 // ---------- drawings ----------
 export type Drawings = Record<string, Asset>;
-/** the drawings of the pictures the user brought (not drawn: the picture, with poses) */
-export const providedDrawings = (provided: readonly ProvidedPicture[]): Drawings =>
-  Object.fromEntries(provided.map((p) => [p.id, AssetSchema.parse(pictureAsset(p.kind, p, p.name, p.description, 'image fournie'))]));
-/** what the storyboard needs drawn: everything but the pictures the user brought */
-export const toDraw = (sb: Storyboard, provided: readonly ProvidedPicture[] = []) => briefsOf(sb).filter((b) => !provided.some((p) => p.id === b.id));
-
-/** draw everything the storyboard needs (the pictures the user brought are used as they are) */
-export async function generateDrawings(model: Model, sb: Storyboard, o: DrawOptions & { concurrency?: number; signal?: AbortSignal; onAsset?: (r: AssetResult) => void; provided?: ProvidedPicture[] } = {}): Promise<{ assets: Drawings; results: AssetResult[] }> {
-  const others = (o.provided ?? []).map((p) => ({ id: p.id, kind: p.kind, name: p.name, description: p.description }));
-  const results = await drawAll(model, toDraw(sb, o.provided), { title: sb.title, style: sb.style, palette: sb.palette, ...(others.length ? { others } : {}) }, o);
-  return { assets: { ...Object.fromEntries(results.map((r) => [r.id, r.asset])), ...providedDrawings(o.provided ?? []) }, results };
+/** draw everything the storyboard needs; what the user brought a model of is drawn after its picture */
+export async function generateDrawings(model: Model, sb: Storyboard, o: DrawOptions & { concurrency?: number; signal?: AbortSignal; onAsset?: (r: AssetResult) => void } = {}): Promise<{ assets: Drawings; results: AssetResult[] }> {
+  const results = await drawAll(model, briefsOf(sb), { title: sb.title, style: sb.style, palette: sb.palette }, o);
+  return { assets: Object.fromEntries(results.map((r) => [r.id, r.asset])), results };
 }
 
 // ---------- music and sounds ----------
 /** the film's sound, composed for it: the score, which piece each scene plays, the sound effects */
 export interface FilmSound { score: Record<string, Piece>; music: Record<string, string>; sounds: Record<string, SoundRecipe> }
-export async function generateSound(model: Model, sb: Storyboard, onStep: OnStep = () => undefined): Promise<FilmSound & { fallbacks: string[] }> {
-  const [score, sfx] = await Promise.all([composeScore(model, sb, onStep), designSounds(model, sb.sounds, sb.title, onStep)]);
+export async function generateSound(model: Model, sb: Storyboard, onStep: OnStep = () => undefined, references: readonly Reference[] = []): Promise<FilmSound & { fallbacks: string[] }> {
+  const [score, sfx] = await Promise.all([composeScore(model, sb, onStep, references.filter((r) => r.kind === 'music')), designSounds(model, sb.sounds, sb.title, onStep)]);
   return { score: score.score, music: score.music, sounds: sfx.sounds, fallbacks: [...(score.fallback ? ['musique'] : []), ...sfx.fallbacks] };
 }
 /** without a composed score (older jobs): the built-in mood the scene's words point to */

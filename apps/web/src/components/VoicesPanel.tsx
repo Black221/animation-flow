@@ -4,7 +4,6 @@ import { textHash, voiceIsCurrent, type Project } from '@af/schema';
 import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { Api } from '../api';
-import { Icon } from '@af/ui';
 
 type Status = 'current' | 'stale' | 'none';
 const statusOf = (l: Project['scenes'][number]['narration'][number]): Status => (voiceIsCurrent(l) ? 'current' : l.audio ? 'stale' : 'none');
@@ -38,19 +37,6 @@ export function VoicesPanel({ project, onChange, readOnly = false }: { project: 
     setBusy(null);
   };
 
-  // one's own recording for a line: trimmed and levelled by the server like a synthesized one
-  const file = useRef<HTMLInputElement>(null), target = useRef<[number, number] | null>(null), [uploading, setUploading] = useState('');
-  const importVoice = async (f: File) => {
-    const t = target.current;
-    if (!t) return;
-    const key = `${latest.current.scenes[t[0]]?.id}/${latest.current.scenes[t[0]]?.narration[t[1]]?.id}`;
-    setError(''); setUploading(key);
-    try {
-      const r = await Api.uploadAudio(f, 'voice'), p = structuredClone(latest.current), line = p.scenes[t[0]]?.narration[t[1]];
-      if (line) { line.audio = { asset: r.asset, textHash: textHash(line.text) }; line.duration = r.duration; onChange(p); }
-    } catch (e) { setError(`${f.name} : ${(e as Error).message}`); } finally { setUploading(''); }
-  };
-
   const play = async (asset: string) => {
     const links = await Api.voiceLinks([asset]).catch(() => ({} as Record<string, string>));
     if (links[asset]) void new Audio(links[asset]).play();
@@ -67,17 +53,15 @@ export function VoicesPanel({ project, onChange, readOnly = false }: { project: 
       <p className="muted small">Voix et modèle : <Link to="/settings">Réglages → Fournisseurs → Narration</Link>. Une voix par personnage : champ <code>voice</code> dans la distribution. Chaque réplique n'est payée qu'une fois.</p>
       {error && <p className="error small" role="alert">{error}</p>}
       <ol className="voice-list">
-        {all.map(({ s, l, status, si, li }) => (
+        {all.map(({ s, l, status }) => (
           <li key={`${s.id}/${l.id}`} className={status} data-testid="voice-line">
             <span className="sid">{s.id}/{l.id}</span>
             <span className="text" title={l.text}>{l.speaker !== 'narrator' ? <strong>{project.cast[l.speaker]?.name ?? l.speaker} : </strong> : null}{l.text}</span>
             <span className={`badge ${status === 'current' ? 'ok' : status === 'stale' ? 'warn' : ''}`}>{LABEL[status]}{status === 'current' && l.duration ? ` · ${l.duration.toFixed(1)} s` : ''}</span>
             {l.audio && <button className="icon" onClick={() => void play(l.audio!.asset)} aria-label={`écouter ${l.id}`} title="écouter">▶</button>}
-            {!readOnly && <button className="icon ghost" onClick={() => { target.current = [si, li]; file.current?.click(); }} disabled={!!uploading} aria-label={`importer la voix de ${s.id}/${l.id}`} title="importer votre enregistrement (MP3, WAV, M4A…)">{uploading === `${s.id}/${l.id}` ? '…' : <Icon name="upload" size={14} />}</button>}
           </li>
         ))}
       </ol>
-      <input ref={file} type="file" hidden accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.opus,.flac,.aif,.aiff,.webm" aria-label="enregistrement à importer" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importVoice(f); }} />
     </div>
   );
 }

@@ -845,10 +845,7 @@ button.like.on { color: var(--accent-2); border-color: color-mix(in srgb, var(--
 .render-list .aspect-icon { margin-right: 4px; }
 @media (max-width: 700px) { .render-panel .field-row .opt-label { min-width: 0; width: 100%; } .seg { width: 100%; } .seg button { flex: 1; justify-content: center; } }
 
-/* importing files: the veil over the editor while a file is dragged, the dialog, the drop targets */
-.editor { position: relative; }
-.drop-veil { position: absolute; inset: 10px; z-index: 50; display: grid; place-content: center; justify-items: center; gap: 6px; border: 2.5px dashed var(--accent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent-soft) 88%, transparent); color: var(--accent); pointer-events: none; text-align: center; }
-.drop-veil span { color: var(--muted); font-size: 0.9rem; }
+/* models for the AI, joined to the prompt: the drop target, the dialog of a picture, the chips */
 .drop-over { outline: 2.5px dashed var(--accent); outline-offset: -6px; border-radius: var(--radius); }
 .import-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 18px; align-items: start; }
 .import-preview { display: grid; place-items: center; min-height: 180px; max-height: 320px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--line); }
@@ -857,16 +854,14 @@ button.like.on { color: var(--accent-2); border-color: color-mix(in srgb, var(--
 .stack { display: grid; gap: 10px; }
 .seg.wide { display: flex; width: 100%; }
 .seg.wide button { flex: 1; justify-content: center; }
-.import-audio { width: 100%; }
 .doc-note { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 2px 0; }
 .soundtrack { display: grid; gap: 8px; padding: 12px; margin-bottom: 12px; }
 .soundtrack strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 .soundtrack label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: var(--muted); }
-.import-hint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 700px) { .import-grid { grid-template-columns: 1fr; } }
 .provided { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 2px 0; }
 .provided-chip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 4px 3px 3px; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); font-size: 0.86rem; }
+.provided-chip .chip-ico { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
 .provided-chip img { width: 28px; height: 28px; object-fit: contain; border-radius: 50%; background: repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 8px 8px; }
-.import-preview img.erasable { cursor: crosshair; }
 .provided-thing { align-items: center; }
 .provided-thumb { width: 56px; height: 56px; object-fit: contain; border-radius: 10px; background: repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 10px 10px; }

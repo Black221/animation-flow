@@ -2,7 +2,7 @@
 // once the user has reviewed it (or at once with review: false), a drawing of every character, prop and decor it
 // needs (each looked at by the model and corrected), then every scene, and a new project at the end.
 // Progress, token counts and every model call (with the problems found in its answer) are kept on the job.
-import { composeScore, designSounds, drawOne, toDraw, type ProvidedPicture, editScene, generateDrawings, generateScenes, generateSound, generateStoryboard, InvalidAnswer, ModelError, PREVIEW_TIME, Storyboard, type DrawOptions, type Drawings, type FilmSound, type Step } from '@af/ai';
+import { briefsOf, composeScore, designSounds, drawOne, type Reference, editScene, generateDrawings, generateScenes, generateSound, generateStoryboard, InvalidAnswer, ModelError, PREVIEW_TIME, Storyboard, type DrawOptions, type Drawings, type FilmSound, type Step } from '@af/ai';
 import { renderStill } from '@af/render';
 import { timeProject } from '@af/engine';
 import type { JsonPost } from '@af/providers';
@@ -15,18 +15,19 @@ import { drawingModel, modelFor, musicModel, NotConfigured } from '../ai/models'
 import type { SecretBox } from '../crypto';
 import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
-import { imageFile, painterOf } from './images';
+import { imageFile, modelPicture, painterOf } from './images';
 import { existsSync } from 'node:fs';
 import type { Quotas } from '../plans';
 
 type Status = 'storyboard' | 'review' | 'assets' | 'music' | 'scenes' | 'done' | 'failed' | 'canceled';
 interface Row {
-  id: string; workspace_id: string; created_by: string | null; status: Status; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean; media?: ProvidedPicture[] };
+  id: string; workspace_id: string; created_by: string | null; status: Status; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean; references?: RefInput[] };
   storyboard: unknown; project_id: string | null; scenes_done: number; scenes_total: number; steps: unknown[]; fallbacks: string[];
   assets: Drawings | null; assets_done: number; assets_total: number; audio: (FilmSound & { fallbacks: string[] }) | null;
   models: Record<string, string>; input_tokens: number; output_tokens: number; error: string | null; created_at: Date; updated_at: Date;
 }
 const Uuid = z.object({ id: z.string().uuid() });
+type RefInput = z.output<typeof Input>['references'][number];
 const Input = z.object({
   text: z.string().trim().min(10, 'texte trop court').max(20000),
   language: z.string().max(12).default('fr'),
@@ -34,16 +35,18 @@ const Input = z.object({
   targetSeconds: z.number().int().min(10).max(1800).optional(),
   instructions: z.string().max(2000).optional(),
   review: z.boolean().default(true),
-  /** pictures of the workspace to use as they are (a mascot, a logo, a place), never drawn again */
-  media: z.array(z.object({
+  /** files the user brought as MODELS for the AI (never put in the film as they are): a picture of a character, an
+   *  object or a place to draw after it, a picture of the look wanted, a music analysed, a project's outline */
+  references: z.array(z.object({
     id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/, 'identifiant : minuscules, chiffres, - et _'),
-    kind: z.enum(['character', 'prop', 'decor']),
-    name: z.string().trim().min(1).max(80),
-    description: z.string().trim().min(3).max(600),
-    asset: z.string().regex(/^[0-9a-f]{32}$/),
-    width: z.number().int().positive().max(10_000), height: z.number().int().positive().max(10_000),
-    color: z.string().regex(/^#[0-9a-f]{6}$/i).optional(),
-  })).max(8).default([]),
+    kind: z.enum(['character', 'prop', 'decor', 'style', 'music', 'project']),
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(600).optional(),
+    /** a picture of the workspace (uploaded with the prompt) */
+    asset: z.string().regex(/^[0-9a-f]{32}$/).optional(),
+    /** what was read from the file: a music's tempo, key and energy; a project's outline */
+    summary: z.string().max(4000).optional(),
+  }).refine((r) => (['music', 'project'].includes(r.kind) ? !!r.summary : !!r.asset), 'une image pour un personnage, un objet, un décor ou une ambiance ; une analyse pour une musique ou un projet')).max(10).default([]),
 });
 
 export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl: JsonPost | undefined, fontsDir: string | undefined, imagesDir: string, quota: Quotas) {
@@ -74,14 +77,18 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
   void db.query(`DELETE FROM usage_events WHERE ref IN (SELECT id::text FROM generations WHERE status IN ('storyboard', 'assets', 'music', 'scenes'))`)
     .then(() => db.query(`UPDATE generations SET status = 'failed', error = 'interrompue par un redémarrage du serveur', updated_at = now() WHERE status IN ('storyboard', 'assets', 'music', 'scenes')`)).catch(() => undefined);
 
+  /** the user's models, their pictures read for a model that sees */
+  const references = async (ws: string, refs: RefInput[] | undefined): Promise<Reference[]> =>
+    Promise.all((refs ?? []).map(async (r) => ({ id: r.id, kind: r.kind, name: r.name, description: r.description, summary: r.summary, image: r.asset ? (await modelPicture(imagesDir, ws, r.asset)) ?? undefined : undefined })));
+
   const runStoryboard = (id: string, ws: string, input: Row['input']) => {
     const ctrl = new AbortController(); running.set(id, ctrl);
     void (async () => {
       try {
         const model = await modelFor(db, box, ws, 'storyboard', fetchImpl);
         await set(id, { models: { storyboard: model.label } });
-        // the pictures the user brought go into the storyboard as they are
-        const sb = await generateStoryboard(model, input.text, { ...input, provided: input.media ?? [] }, logStep(id));
+        // the user's models: the storyboard is written looking at their pictures
+        const sb = await generateStoryboard(model, input.text, { ...input, references: await references(ws, input.references) }, logStep(id));
         if (ctrl.signal.aborted) return;
         await set(id, { storyboard: sb, status: 'review', scenes_total: sb.scenes.length });
         if (!input.review) runScenes(id, ws, sb);
@@ -96,14 +103,14 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
       try {
         // 1. the drawings (kept on the job: a retry after a failure does not draw them again)
         let assets = (await load(id))?.assets ?? null;
-        const provided = (await load(id))?.input.media ?? [], briefs = toDraw(sb, provided), drawnFallbacks: string[] = [];
+        const refs = await references(ws, (await load(id))?.input.references), briefs = briefsOf(sb), drawnFallbacks: string[] = [];
         if (!assets || briefs.some((b) => !assets![b.id])) {
           await set(id, { status: 'assets', assets_done: 0, assets_total: briefs.length, fallbacks: [] });
           const painter = await drawingModel(db, box, ws, fetchImpl), pictures = await paintersOf(ws);
           await set(id, { models: { ...((await load(id))?.models ?? {}), assets: painter.label, ...(pictures ? { images: pictures.label } : {}) } });
           let drawnCount = 0, progress: Promise<unknown> = Promise.resolve();
           const r = await generateDrawings(painter, sb, {
-            ...draw, provided, ...(pictures ? { paint: pictures.paint } : {}), concurrency: 2, signal: ctrl.signal, onStep: logStep(id),
+            ...draw, references: refs, ...(pictures ? { paint: pictures.paint } : {}), concurrency: 2, signal: ctrl.signal, onStep: logStep(id),
             onAsset: (a) => { drawnCount++; if (a.fallback) drawnFallbacks.push(`dessin ${a.id}`); const now = { assets_done: drawnCount, fallbacks: [...drawnFallbacks] }; progress = progress.then(() => set(id, now)).catch(() => undefined); },
           });
           await progress;
@@ -117,7 +124,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
           await set(id, { status: 'music', fallbacks: drawnFallbacks });
           const composer = await musicModel(db, box, ws, fetchImpl);
           await set(id, { models: { ...((await load(id))?.models ?? {}), music: composer.label } });
-          audio = await generateSound(composer, sb, logStep(id));
+          audio = await generateSound(composer, sb, logStep(id), refs);
           if (ctrl.signal.aborted) return;
           await set(id, { audio });
         }
@@ -155,11 +162,11 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (!b.success) return reply.code(400).send({ error: b.error.issues[0]?.message ?? 'requête invalide' });
     if (!stylePacks[b.data.style]) return reply.code(400).send({ error: `style inconnu : ${b.data.style}` });
     const ws = wsOf(req).id;
-    // the pictures to use are the workspace's own, each once
-    const ids = b.data.media.map((m) => m.id);
-    if (new Set(ids).size !== ids.length) return reply.code(400).send({ error: 'deux images fournies ont le même identifiant' });
-    const lost = b.data.media.find((m) => !existsSync(imageFile(imagesDir, ws, m.asset)));
-    if (lost) return reply.code(400).send({ error: `image « ${lost.name} » introuvable : importez-la de nouveau` });
+    // the models are the workspace's own pictures, each under its own id
+    const ids = b.data.references.map((m) => m.id);
+    if (new Set(ids).size !== ids.length) return reply.code(400).send({ error: 'deux modèles ont le même identifiant' });
+    const lost = b.data.references.find((m) => m.asset && !existsSync(imageFile(imagesDir, ws, m.asset)));
+    if (lost) return reply.code(400).send({ error: `image « ${lost.name} » introuvable : joignez-la de nouveau` });
     // a film generated this month more, and room for the project it makes
     await quota.ensure(ws, 'generations'); await quota.ensure(ws, 'projects');
     try { await modelFor(db, box, ws, 'storyboard', fetchImpl); await modelFor(db, box, ws, 'scenes', fetchImpl); }
@@ -184,7 +191,7 @@ export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, f
     if (r.status !== 'review') return reply.code(409).send({ error: 'le storyboard ne se modifie qu\'en relecture' });
     const sb = Storyboard.safeParse((req.body as { storyboard?: unknown })?.storyboard);
     if (!sb.success) return reply.code(422).send({ error: 'storyboard invalide', issues: sb.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) });
-    await set(r.id, { storyboard: sb.data, scenes_total: sb.data.scenes.length, assets: null, audio: null, assets_total: toDraw(sb.data, r.input.media ?? []).length }); // changed: draw and compose again
+    await set(r.id, { storyboard: sb.data, scenes_total: sb.data.scenes.length, assets: null, audio: null, assets_total: briefsOf(sb.data).length }); // changed: draw and compose again
     return view((await load(r.id))!);
   });
 

@@ -10,6 +10,7 @@ import { exampleCharacter, exampleDecor, exampleProp } from './examples';
 import { extractJson } from './json';
 import { ModelError, ask, zIssues, type Check, type Model, type OnStep } from './ask';
 import { previewProject, PREVIEW_TIME } from './preview';
+import type { Reference } from './prompts';
 
 export type AssetKind = AssetT['kind'];
 /** what to draw: from the storyboard (or an edit), in the story's words */
@@ -32,7 +33,10 @@ export interface DrawOptions {
   onStep?: OnStep | undefined;
   /** paints a decor as a picture with an image model (the "images" task); without it, decors stay vector drawings */
   paint?: ((b: AssetBrief, prompt: string) => Promise<Picture>) | undefined;
+  /** the user's models: a drawing whose id has one is drawn after its picture, and reviewed against it */
+  references?: readonly Reference[] | undefined;
 }
+const MODEL_NOTE = 'A MODEL picture of it is attached, brought by the user: draw it faithfully after it (silhouette and proportions, colours, clothes and patterns, accessories, any writing on it), as flat vector shapes rigged for animation (parts, pivots, poses, expressions). It is a model to redraw, never a picture to trace pixel by pixel.';
 export type Picture = { ok: true; image: NonNullable<AssetT['image']> } | { ok: false; error: string };
 export interface AssetResult { id: string; asset: AssetT; fallback: boolean; rounds: number; issues: Issue[]; review: string[] }
 
@@ -186,9 +190,10 @@ export async function drawOne(model: Model, b: AssetBrief, c: DrawContext, o: Dr
     if (!pic.ok) return { ...r, review: [...r.review, `pas d'image : ${pic.error}`] };
     return { ...r, asset: { ...r.asset, image: pic.image }, review: [...r.review, 'peint en image'] };
   }
-  const onStep = o.onStep ?? (() => undefined), check = checkAsset(b);
-  const first = current ? `${drawRequest(b, c, instruction)}\n\nThe current drawing, to change:\n${compact(current)}` : drawRequest(b, c, instruction);
-  const { value, issues } = await ask(model, drawPrompt(b.kind), first, { name: 'drawing', schema: assetSchema() }, check, 'asset', b.id, onStep, 16_000);
+  const onStep = o.onStep ?? (() => undefined), check = checkAsset(b), modelPic = o.references?.find((r) => r.id === b.id && r.image)?.image;
+  const request = `${drawRequest(b, c, instruction)}${modelPic ? `\n\n${MODEL_NOTE}` : ''}`;
+  const first = current ? `${request}\n\nThe current drawing, to change:\n${compact(current)}` : request;
+  const { value, issues } = await ask(model, drawPrompt(b.kind), first, { name: 'drawing', schema: assetSchema() }, check, 'asset', b.id, onStep, 16_000, modelPic ? [modelPic] : undefined);
   if (!value) return { id: b.id, asset: fallbackAsset(b, c.palette), fallback: true, rounds: 0, issues, review: [] };
   let asset = value, rounds = 0;
   const review: string[] = [];
@@ -197,9 +202,10 @@ export async function drawOne(model: Model, b: AssetBrief, c: DrawContext, o: Dr
     let png: string;
     try { png = await o.preview(previewProject(b.id, asset, 'flat')); }
     catch (e) { review.push(`aperçu impossible : ${(e as Error).message}`); break; }
-    const images: ChatImage[] = [{ mediaType: 'image/png', data: png }];
-    const t0 = Date.now();
-    const res = await model.call({ system: REVIEW_PROMPT, messages: [{ role: 'user', content: `${drawRequest(b, c, instruction)}\n\n${SHEET[b.kind]} (Rendered at t = ${PREVIEW_TIME} s.)\n\nThe drawing:\n${compact(asset)}`, images }], json: { name: 'review', schema: z.toJSONSchema(Review, { io: 'input' }) as Record<string, unknown> }, maxTokens: 16_000 });
+    // with a model picture: the model first, then the drawing as it renders, to compare
+    const images: ChatImage[] = [...(modelPic ? [modelPic] : []), { mediaType: 'image/png', data: png }];
+    const t0 = Date.now(), compare = modelPic ? '\n\nThe FIRST image is the model it must look like (the user brought it); the SECOND is the drawing as it renders. Check that it is recognisably the same (shapes, colours, clothes, writing); if not, correct it.' : '';
+    const res = await model.call({ system: REVIEW_PROMPT, messages: [{ role: 'user', content: `${drawRequest(b, c, instruction)}\n\n${SHEET[b.kind]} (Rendered at t = ${PREVIEW_TIME} s.)${compare}\n\nThe drawing:\n${compact(asset)}`, images }], json: { name: 'review', schema: z.toJSONSchema(Review, { io: 'input' }) as Record<string, unknown> }, maxTokens: 16_000 });
     if (!res.ok) {
       // most often a model that does not take images: stop looking for the rest of the job
       if (res.status && res.status >= 400 && res.status < 500) { if (o.vision) o.vision.unavailable = res.error; review.push(`pas de relecture visuelle : ${res.error}`); }

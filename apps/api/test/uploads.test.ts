@@ -1,12 +1,12 @@
-// Files people import: pictures (redrawn, PNG only with transparency), sounds (decoded by FFmpeg from a named
-// format, stored as the mixer's WAV), and projects exported with their media, then imported into another workspace.
+// Files brought with the prompt as models: pictures (redrawn, PNG only with transparency) and music (decoded by
+// FFmpeg from a named format, listened to, described, not kept); and a project exported as one file.
 import { encodeWav, SR } from '@af/audio';
-import { exampleProject, parseProject, textHash } from '@af/schema';
+import { exampleProject, parseProject } from '@af/schema';
 import { createCanvas } from '@napi-rs/canvas';
 import type { FastifyInstance } from 'fastify';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -67,42 +67,43 @@ describe('importing pictures', () => {
   });
 });
 
-describe('importing sounds', () => {
-  it('takes a recorded voice: silences trimmed, stored as the mixer’s WAV', async () => {
-    const r = await up(ana, '/api/uploads/audio?use=voice', tone(2, 1), 'audio/wav');
-    expect(r.statusCode).toBe(201);
-    expect(r.json().duration).toBeGreaterThan(1.8);
-    expect(r.json().duration).toBeLessThan(2.3); // the second of silence before it is gone
-    const wav = await ana.inject({ url: r.json().url });
-    expect(wav.headers['content-type']).toBe('audio/wav');
-  });
+/** a beat: a kick on every beat over an A major chord (a model music to listen to) */
+const beat = (seconds: number, bpm: number) => {
+  const n = Math.round(seconds * SR), x = new Float32Array(n), period = Math.round((60 / bpm) * SR);
+  for (let i = 0; i < n; i++) x[i] = 0.15 * Math.sin((2 * Math.PI * 220 * i) / SR) + 0.1 * Math.sin((2 * Math.PI * 277.18 * i) / SR) + 0.1 * Math.sin((2 * Math.PI * 329.63 * i) / SR);
+  for (let b = 0; b < n; b += period) for (let k = 0; k < SR / 4 && b + k < n; k++) x[b + k]! += 0.6 * Math.sin((2 * Math.PI * 60 * k) / SR) * Math.exp(-k / (0.06 * SR));
+  return Buffer.from(encodeWav({ sampleRate: SR, channels: [x] }, 16));
+};
 
-  it('takes a music as MP3, whole', async () => {
-    const r = await up(ana, '/api/uploads/audio?use=music', mp3(4), 'audio/mpeg');
-    expect(r.statusCode).toBe(201);
-    expect(r.json().duration).toBeCloseTo(4, 0);
-    expect(r.json().truncated).toBe(false);
+describe('a music as a model', () => {
+  it('is listened to and described (tempo, key, energy), and not kept', async () => {
+    const before = existsSync(voicesDir) ? readdirSync(voicesDir, { recursive: true }).length : 0;
+    const r = await up(ana, '/api/uploads/audio', beat(12, 120), 'audio/wav');
+    expect(r.statusCode).toBe(200);
+    expect(r.json().duration).toBeCloseTo(12, 0);
+    expect(r.json().features.bpm).toBeGreaterThanOrEqual(116);
+    expect(r.json().features.bpm).toBeLessThanOrEqual(124);
+    expect(r.json().features).toMatchObject({ key: 'la', mode: 'major' });
+    expect(r.json().summary).toMatch(/BPM.*tonalité probable la majeur/);
+    expect(readdirSync(voicesDir, { recursive: true }).length).toBe(before);
+    // an MP3 too
+    expect((await up(ana, '/api/uploads/audio', mp3(4), 'audio/mpeg')).json().duration).toBeCloseTo(4, 0);
   });
 
   it('refuses a playlist or anything FFmpeg would follow elsewhere, and silence', async () => {
     const hls = Buffer.from('#EXTM3U\n#EXTINF:1,\nfile:///etc/passwd\n');
-    expect((await up(ana, '/api/uploads/audio?use=music', hls, 'audio/mpegurl')).statusCode).toBe(415);
-    expect((await up(ana, '/api/uploads/audio?use=voice', Buffer.from(encodeWav({ sampleRate: SR, channels: [new Float32Array(SR)] }, 16)), 'audio/wav')).statusCode).toBe(422);
-    expect((await up(ana, '/api/uploads/audio?use=other', tone(1), 'audio/wav')).statusCode).toBe(400);
+    expect((await up(ana, '/api/uploads/audio', hls, 'audio/mpegurl')).statusCode).toBe(415);
+    expect((await up(ana, '/api/uploads/audio', Buffer.from(encodeWav({ sampleRate: SR, channels: [new Float32Array(SR)] }, 16)), 'audio/wav')).statusCode).toBe(422);
+    expect((await up(ana, '/api/uploads/audio', Buffer.alloc(0), 'audio/wav')).statusCode).toBe(400);
   });
 });
 
 describe('a project as a file', () => {
-  it('exports a project with its imported media, and imports it into another workspace', async () => {
+  it('exports a project with its pictures; nothing imports a project straight into a workspace', async () => {
     const pic = (await up(ana, '/api/uploads/image', logo(), 'image/png')).json();
-    const music = (await up(ana, '/api/uploads/audio?use=music', mp3(3), 'audio/mpeg')).json();
-    const voice = (await up(ana, '/api/uploads/audio?use=voice', tone(1.5), 'audio/wav')).json();
     const base = structuredClone(exampleProject) as Record<string, any>;
     base.title = 'Avec un logo';
     base.assets = { ...(base.assets ?? {}), logo: { kind: 'prop', name: 'Logo', parts: [{ id: 'image', shapes: [{ type: 'image', asset: pic.asset, x: -150, y: -150, w: 300, h: 150 }] }] } };
-    base.soundtrack = { asset: music.asset, name: 'ma musique.mp3', duration: music.duration, gain: -3, loop: true };
-    const first = base.scenes[0].narration[0];
-    first.audio = { asset: voice.asset, textHash: textHash(first.text) };
     base.scenes[0].elements.push({ id: 'logo', type: 'prop', ref: 'logo', layer: 9, keys: [{ t: 0, x: 960, y: 500 }] });
     expect(parseProject(base).ok).toBe(true);
     const made = await ana.inject({ method: 'POST', url: '/api/projects', payload: { project: base } });
@@ -112,28 +113,12 @@ describe('a project as a file', () => {
     expect(exp.statusCode).toBe(200);
     expect(exp.headers['content-disposition']).toContain('avec-un-logo.animation.json');
     const file = exp.json();
+    expect(file).toMatchObject({ format: 'animation-flow', version: 1 });
     expect(Object.keys(file.media.images)).toEqual([pic.asset]);
-    expect(Object.keys(file.media.sounds).sort()).toEqual([music.asset, voice.asset].sort());
+    expect(Object.keys((await ana.inject({ url: `/api/projects/${made.json().id}/export?media=0` })).json().media.images)).toEqual([]);
     // viewers of another workspace cannot export it
     expect((await ben.inject({ url: `/api/projects/${made.json().id}/export` })).statusCode).toBe(404);
-
-    const imp = await ben.inject({ method: 'POST', url: '/api/projects/import', payload: file });
-    expect(imp.statusCode).toBe(201);
-    expect(imp.json()).toMatchObject({ title: 'Avec un logo', media: { images: 1, sounds: 2, missing: 0, skipped: 0 } });
-    const got = (await ben.inject({ url: `/api/projects/${imp.json().id}` })).json().project;
-    const benWs = ben.workspaces[0]!.id, shape = got.assets.logo.parts[0].shapes[0];
-    expect(existsSync(join(imagesDir, benWs, `${shape.asset}.png`))).toBe(true);
-    expect(existsSync(join(voicesDir, benWs, `${got.soundtrack.asset}.wav`))).toBe(true);
-    expect(existsSync(join(voicesDir, benWs, `${got.scenes[0].narration[0].audio.asset}.wav`))).toBe(true);
-  });
-
-  it('imports a bare project JSON, says what media it lacks, and refuses what is not a project', async () => {
-    const p = structuredClone(exampleProject) as Record<string, any>;
-    p.soundtrack = { asset: 'f'.repeat(32), name: 'absente', duration: 10, gain: 0, loop: true };
-    const r = await ben.inject({ method: 'POST', url: '/api/projects/import', payload: p });
-    expect(r.statusCode).toBe(201);
-    expect(r.json().media).toMatchObject({ missing: 1 });
-    expect((await ben.inject({ method: 'POST', url: '/api/projects/import', payload: { format: 'animation-flow', version: 1, project: { title: 'x' } } })).statusCode).toBe(422);
-    expect((await ben.inject({ method: 'POST', url: '/api/projects/import', payload: { format: 'animation-flow', version: 7 } })).statusCode).toBe(400);
+    // a project file is a model for the AI now (its outline, with the prompt), not something to import
+    expect((await ben.inject({ method: 'POST', url: '/api/projects/import', payload: file })).statusCode).toBe(404);
   });
 });

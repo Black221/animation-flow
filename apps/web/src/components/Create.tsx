@@ -6,9 +6,8 @@ import { Api } from '../api';
 import { Icon, type IconName } from '@af/ui';
 import { Pipeline, timecode } from './Motion';
 import { StyleButton } from './StylePicker';
-import { readTextFile, TEXT_ACCEPT } from '../textfile';
-import { ProvideMedia } from './ProvideMedia';
-import type { ProvidedMedia } from '../api';
+import { readTextFile } from '../textfile';
+import { ModelsForAI, type ModelItem, type ModelsHandle } from './ModelsForAI';
 import { Dialog, useUI } from '@af/ui';
 
 export const TEMPLATE_INFO: Record<string, { label: string; hint: string; icon: IconName }> = {
@@ -85,8 +84,8 @@ export function AiPrompt({ autoFocus = false, full = false, onStarted }: { autoF
   const [error, setError] = useState('');
   // a document brought in: its text fills the box (the AI reads 20 000 characters at most)
   const [doc, setDoc] = useState<{ name: string; chars: number; cut: boolean } | null>(null), [reading, setReading] = useState(false), [over, setOver] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [media, setMedia] = useState<(ProvidedMedia & { url: string })[]>([]);
+  // the files brought with the prompt: models the AI works after (a text is the brief itself)
+  const models = useRef<ModelsHandle>(null), [refs, setRefs] = useState<ModelItem[]>([]);
   const importText = async (f: File) => {
     setError(''); setReading(true);
     try {
@@ -105,7 +104,7 @@ export function AiPrompt({ autoFocus = false, full = false, onStarted }: { autoF
   const generate = async () => {
     setError(''); setBusy(true);
     try {
-      const g = await Api.generate({ text: text.trim(), language, style, review, ...(target > 0 ? { targetSeconds: target } : {}), ...(instructions ? { instructions: instructions.slice(0, 2000) } : {}), ...(media.length ? { media: media.map(({ url: _u, ...m }) => m) } : {}) });
+      const g = await Api.generate({ text: text.trim(), language, style, review, ...(target > 0 ? { targetSeconds: target } : {}), ...(instructions ? { instructions: instructions.slice(0, 2000) } : {}), ...(refs.length ? { references: refs.map(({ url: _u, ...m }) => m) } : {}) });
       onStarted?.(); nav(`/g/${g.id}`);
     } catch (e) { setError((e as Error).message); setBusy(false); }
   };
@@ -119,16 +118,15 @@ export function AiPrompt({ autoFocus = false, full = false, onStarted }: { autoF
         </div>
         <div className={`safe-frame${over ? ' drop-over' : ''}`}
           onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setOver(true); } }} onDragLeave={() => setOver(false)}
-          onDrop={(e) => { const f = e.dataTransfer.files[0]; setOver(false); if (f) { e.preventDefault(); void importText(f); } }}>
+          onDrop={(e) => { const fs = e.dataTransfer.files; setOver(false); if (fs.length) { e.preventDefault(); models.current?.take(fs); } }}>
           <textarea rows={full ? 7 : 4} value={text} onChange={(e) => setText(e.target.value)} autoFocus={autoFocus} aria-label="texte source"
-            placeholder="Ex. : une pub de 30 secondes pour une boulangerie de quartier, chaleureuse et drôle… ou collez un script, un article, un cours — ou glissez-y un fichier (Word, PDF, texte)."
+            placeholder="Ex. : une pub de 30 secondes pour une boulangerie de quartier, chaleureuse et drôle… ou collez un script, un article, un cours — ou glissez-y vos modèles : une image de votre mascotte, de votre produit, d’un lieu, une musique, un texte (Word, PDF…), un projet."
             onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && ready) void generate(); }} />
         </div>
         <div className="bar">
           <span className="opt">Langue <select value={language} onChange={(e) => setLanguage(e.target.value)} aria-label="langue">{LANGS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></span>
           <span className="opt">Style <StyleButton value={style} onChange={setStyle} /></span>
-          <button type="button" className="ghost small" onClick={() => fileInput.current?.click()} disabled={reading} title="un script, un article, un cours : TXT, Markdown, Word, OpenDocument, PDF, sous-titres ou page web"><Icon name="upload" size={15} /> {reading ? 'Lecture…' : 'Importer un texte'}</button>
-          <input ref={fileInput} type="file" hidden accept={TEXT_ACCEPT} aria-label="fichier texte à importer" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importText(f); }} />
+          <button type="button" className="ghost small" onClick={() => models.current?.pick()} disabled={reading} title="une image (personnage, objet, lieu, ambiance), une musique, un texte ou un projet : l’IA s’en inspire"><Icon name="upload" size={15} /> {reading ? 'Lecture…' : 'Joindre'}</button>
           <label className="switch opt" title="vous relisez et corrigez le storyboard avant que l'IA ne dessine et n'anime"><input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} /> Relire le storyboard</label>
           {!full && <button type="button" className="ghost small" aria-expanded={more} onClick={() => setMore((m) => !m)}><Icon name="sliders" size={15} /> {more ? 'Moins d’options' : 'Plus d’options'}{chosen > 0 && !more ? ` (${chosen})` : ''}</button>}
           <span className="spacer" />
@@ -148,7 +146,7 @@ export function AiPrompt({ autoFocus = false, full = false, onStarted }: { autoF
           </div>
         )}
       </div>
-      <ProvideMedia media={media} onChange={setMedia} />
+      <ModelsForAI ref={models} items={refs} onChange={setRefs} onText={(f) => void importText(f)} onError={setError} />
       {doc && text && <p className="muted small doc-note" data-testid="imported-text"><Icon name="file" size={14} /> {doc.name} · {doc.chars.toLocaleString('fr-FR')} caractères{doc.cut ? ' — l’IA en lit 20 000 : le début est gardé, coupez ce qui compte moins' : ''} <button type="button" className="ghost small" onClick={() => { setDoc(null); setText(''); }}>Retirer</button></p>}
       {!text && <div className="chips ideas" aria-label="idées"><span className="opt-label">Idées</span>{IDEAS.map((i) => <button key={i} type="button" className="chip" onClick={() => setText(i)}>{i.length > 58 ? `${i.slice(0, 56)}…` : i}</button>)}</div>}
       {error && <div className="alert error" role="alert"><Icon name="alert" size={16} /><span>{error}</span>{/Fournisseurs/.test(error) && <Link to="/settings" onClick={onStarted}>Ouvrir les fournisseurs</Link>}</div>}

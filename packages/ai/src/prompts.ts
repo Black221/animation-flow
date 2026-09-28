@@ -2,6 +2,7 @@
 // in the project's language. Nothing is taken from a fixed catalogue: the storyboard says what the film needs, each
 // thing is drawn for it, and scenes are written with those drawings (their poses, expressions and sizes).
 import { assetBounds } from '@af/engine';
+import type { ChatImage } from '@af/providers';
 import { assetExpressions, assetPoses, type Asset, type Project } from '@af/schema';
 import type { Storyboard, StoryScene } from './storyboard';
 
@@ -29,16 +30,39 @@ export const STYLE_BRIEF: Record<string, string> = {
   neon: 'neon lights at night; every colour becomes a glowing tube on a dark background: choose vivid pinks, cyans, violets and yellows, avoid browns and greys',
 };
 
-/** a picture the user brings (a mascot, a logo, a place): used as it is, never drawn again */
-export interface ProvidedPicture { id: string; kind: 'character' | 'prop' | 'decor'; name: string; description: string; asset: string; width: number; height: number; color?: string | undefined }
-export interface StoryboardOptions { language: string; style: string; targetSeconds?: number | undefined; instructions?: string | undefined; provided?: ProvidedPicture[] | undefined }
+/** a file the user brings as a MODEL for the AI (never put in the film as it is): a picture of a character, an object
+ *  or a place to draw after it, a picture of the look wanted (palette, mood), a music to compose in the spirit of, a
+ *  film (an exported project) to build on */
+export interface Reference {
+  id: string;
+  kind: 'character' | 'prop' | 'decor' | 'style' | 'music' | 'project';
+  name: string;
+  description?: string | undefined;
+  /** the picture, for a model that sees (loaded by the server) */
+  image?: ChatImage | undefined;
+  /** what was read from the file: a music's tempo, key and energy; a project's outline */
+  summary?: string | undefined;
+}
+export interface StoryboardOptions { language: string; style: string; targetSeconds?: number | undefined; instructions?: string | undefined; references?: Reference[] | undefined }
 
 const LIST = { character: 'cast', prop: 'props', decor: 'decors' } as const;
-/** what the storyboard is told of the pictures the user brings */
-export function providedBrief(provided: readonly ProvidedPicture[]): string {
-  if (!provided.length) return '';
-  return `\nThe user brings these pictures. They are used as they are (not drawn again): put each in the list named, with exactly this id, name and description, and give it a real part in the film (a mascot is a main character; a logo is shown, not described):
-${provided.map((p) => `- id "${p.id}" in "${LIST[p.kind]}": ${p.name} — ${p.description}${p.kind === 'character' ? ' (a still picture that moves as a whole: idle, talk, walk, jump, cheer, wave, dance)' : p.kind === 'prop' ? ' (a still picture: it can float, spin or wobble)' : ''}`).join('\n')}\n`;
+export const drawnFrom = (r: Reference): r is Reference & { kind: 'character' | 'prop' | 'decor' } => r.kind === 'character' || r.kind === 'prop' || r.kind === 'decor';
+/** the pictures among the references, in the order the brief numbers them */
+export const referenceImages = (refs: readonly Reference[]): ChatImage[] => refs.flatMap((r) => (r.image ? [r.image] : []));
+
+/** what the storyboard is told of the user's models; their pictures are attached in the same order */
+export function referencesBrief(refs: readonly Reference[]): string {
+  if (!refs.length) return '';
+  let n = 0;
+  const line = (r: Reference) => {
+    const pic = r.image ? `picture ${++n} attached` : 'no picture (describe it from its name)';
+    const said = r.description ? ` The user says: "${r.description}".` : '';
+    if (drawnFrom(r)) return `- MODEL of a ${r.kind === 'prop' ? 'prop' : r.kind} "${r.name}" (${pic}): put it in "${LIST[r.kind]}" with id "${r.id}" and give it a real part in the film (a mascot is the main character). Write its "description" from the picture, precisely enough for an illustrator to redraw it faithfully in vector: silhouette and proportions, colours, clothes and patterns, accessories, any writing on it (word for word).${said}`;
+    if (r.kind === 'style') return `- MODEL of the look wanted "${r.name}" (${pic}): take the palette, the light and the mood from it (not its content).${said}`;
+    if (r.kind === 'music') return `- MODEL of the music wanted "${r.name}": ${r.summary ?? 'no analysis'}. Describe each scene's music in that spirit (tempo, energy, instruments); it is composed for the film, not copied.${said}`;
+    return `- MODEL film "${r.name}", to build on (its spirit, structure and characters, rewritten for this text):\n${(r.summary ?? '').slice(0, 3000)}${said}`;
+  };
+  return `\nThe user brings these files as MODELS. Nothing of them is put in the film as it is: everything is drawn, composed and animated after them.\n${refs.map(line).join('\n')}\n`;
 }
 
 export function storyboardPrompt(o: StoryboardOptions): string {
@@ -57,7 +81,7 @@ Rules:
 - ids are short (letters, digits, - and _) and unique across cast, props, decors and sounds.
 - "palette": 5 to 8 colours ("#rrggbb") shared by the whole film, harmonious and readable.
 - The film's style is "${o.style}"${STYLE_BRIEF[o.style] ? `: ${STYLE_BRIEF[o.style]}. Choose the palette for it` : ''}.
-${o.instructions ? `\nThe user adds: ${o.instructions}\n` : ''}${providedBrief(o.provided ?? [])}
+${o.instructions ? `\nThe user adds: ${o.instructions}\n` : ''}${referencesBrief(o.references ?? [])}
 Answer with the storyboard JSON only: { "title", "language": "${o.language}", "style": "${o.style}", "palette": [...], "cast": [...], "props": [...], "decors": [...], "sounds": [...], "scenes": [...] }.`;
 }
 

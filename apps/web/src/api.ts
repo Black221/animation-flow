@@ -53,8 +53,8 @@ export async function upload<T>(path: string, file: Blob): Promise<T> {
   return body as T;
 }
 export interface UploadedImage { asset: string; width: number; height: number; alpha: boolean; color: string; url: string }
-export interface UploadedSound { asset: string; duration: number; truncated: boolean; maxSeconds: number; url: string }
-export interface ImportResult { id: string; title: string; media: { images: number; sounds: number; missing: number; skipped: number }; warnings: Warning[] }
+/** a music brought as a model: what was heard in it (the file is not kept) */
+export interface HeardMusic { duration: number; summary: string; features: { bpm: number | null; key: string | null; mode: 'major' | 'minor' | null } }
 
 /** download what a GET returns as a file (the export needs the workspace header, a plain link cannot send it) */
 export async function download(path: string, fallbackName: string) {
@@ -131,15 +131,17 @@ export interface StoryThing { id: string; name: string; description: string }
 export interface StoryboardT { title: string; language: string; style: string; palette: string[]; cast: (StoryThing & { voice?: string })[]; props: StoryThing[]; decors: StoryThing[]; sounds: StoryThing[]; scenes: StorySceneT[] }
 export interface GenStep { stage: string; target: string; attempt: number; ok: boolean; issues: Issue[]; usage: { inputTokens: number; outputTokens: number }; ms: number }
 export interface Generation {
-  id: string; status: GenerationStatus; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean; media?: ProvidedMedia[] };
+  id: string; status: GenerationStatus; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean; references?: Reference[] };
   storyboard: StoryboardT | null; projectId: string | null; scenesDone: number; scenesTotal: number; steps: GenStep[]; fallbacks: string[];
   assetsDone: number; assetsTotal: number; drawings: string[]; composed: { pieces: string[]; sounds: string[] } | null;
   models: { storyboard?: string; scenes?: string; assets?: string; music?: string }; usage: { inputTokens: number; outputTokens: number }; error: string | null; createdAt: string; updatedAt: string;
 }
 export interface DrawnInfo { id: string; fallback: boolean; rounds: number; review: string[] }
-/** a picture of the workspace the AI uses as it is (a mascot, a logo, a place) */
-export interface ProvidedMedia { id: string; kind: 'character' | 'prop' | 'decor'; name: string; description: string; asset: string; width: number; height: number; color?: string }
-export interface GenerationRequest { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean; media?: ProvidedMedia[] }
+/** a file brought with the prompt as a MODEL for the AI, never put in the film as it is: a picture of a character,
+ *  an object or a place it draws after, a picture of the look wanted, a music it composes in the spirit of (what was
+ *  heard in it), a project whose outline it builds on */
+export interface Reference { id: string; kind: 'character' | 'prop' | 'decor' | 'style' | 'music' | 'project'; name: string; description?: string; asset?: string; summary?: string }
+export interface GenerationRequest { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean; references?: Reference[] }
 export interface Comment {
   id: string; projectId: string; parentId: string | null; sceneId: string; elementId: string | null; t: number | null; body: string;
   author: { id: string; name: string } | null; createdAt: string; editedAt: string | null; resolvedAt: string | null; resolvedBy: string | null;
@@ -189,9 +191,9 @@ export const Api = {
   testCredential: (id: string) => api<TestResult>(`/api/credentials/${id}/test`, { method: 'POST' }),
   assignments: () => api<Assignment[]>('/api/assignments'),
   uploadImage: (f: Blob) => upload<UploadedImage>('/api/uploads/image', f),
-  uploadAudio: (f: Blob, use: 'voice' | 'music') => upload<UploadedSound>(`/api/uploads/audio?use=${use}`, f),
+  /** listen to a music brought as a model: its tempo, key, energy in words */
+  hearMusic: (f: Blob) => upload<HeardMusic>('/api/uploads/audio', f),
   exportProject: (id: string, media = true) => download(`/api/projects/${id}/export?media=${media ? 1 : 0}`, 'projet.animation.json'),
-  importProject: (file: unknown) => api<ImportResult>('/api/projects/import', { method: 'POST', body: file }),
   renders: (projectId: string) => api<RenderJob[]>(`/api/projects/${projectId}/renders`),
   startRender: (projectId: string, r: RenderRequest) => api<RenderJob>(`/api/projects/${projectId}/renders`, { method: 'POST', body: r }),
   cancelRender: (id: string) => api<RenderJob>(`/api/renders/${id}/cancel`, { method: 'POST' }),

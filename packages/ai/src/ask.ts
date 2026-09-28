@@ -1,6 +1,6 @@
 // Asking a model for JSON and holding it to a check: when the answer fails, the model gets the list of problems,
 // with their paths, and tries again (twice at most).
-import type { ChatMessage, CompletionResult, Usage } from '@af/providers';
+import type { ChatImage, ChatMessage, CompletionResult, Usage } from '@af/providers';
 import type { Issue } from '@af/schema';
 import { z } from 'zod';
 import { extractJson } from './json';
@@ -22,8 +22,9 @@ export type Check<T> = (v: unknown) => { ok: true; value: T } | { ok: false; iss
 export const MAX_REPAIRS = 2;
 export const zIssues = (e: z.ZodError): Issue[] => e.issues.map((i) => ({ path: i.path.map(String).join('.') || '(racine)', message: i.message }));
 
-export async function ask<T>(model: Model, system: string, first: string, json: { name: string; schema: Record<string, unknown> }, check: Check<T>, stage: Step['stage'], target: string, onStep: OnStep, maxTokens = 8000): Promise<{ value: T | null; issues: Issue[] }> {
-  const messages: ChatMessage[] = [{ role: 'user', content: first }];
+/** `images`: pictures sent with the first message (the models the user brought, for a model that sees) */
+export async function ask<T>(model: Model, system: string, first: string, json: { name: string; schema: Record<string, unknown> }, check: Check<T>, stage: Step['stage'], target: string, onStep: OnStep, maxTokens = 8000, images?: ChatImage[]): Promise<{ value: T | null; issues: Issue[] }> {
+  const messages: ChatMessage[] = [{ role: 'user', content: first, ...(images?.length ? { images } : {}) }];
   let issues: Issue[] = [];
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
     const t0 = Date.now(), r = await model.call({ system, messages, json, maxTokens });
