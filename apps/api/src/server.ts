@@ -14,6 +14,7 @@ import { renderRoutes } from './routes/renders';
 import { voiceRoutes } from './routes/voices';
 import { generationRoutes } from './routes/generations';
 import { imageRoutes } from './routes/images';
+import { uploadRoutes } from './routes/uploads';
 import { thumbnailRoutes } from './routes/thumbnails';
 import { communityRoutes } from './routes/community';
 import { authRoutes, type SignupMode } from './routes/auth';
@@ -100,6 +101,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch, quota);
   generationRoutes(app, deps.db, deps.box, deps.llmFetch, deps.fontsDir, imagesDir, quota);
   imageRoutes(app, deps.db, deps.box, sign, imagesDir, deps.llmFetch, quota);
+  uploadRoutes(app, deps.db, sign, { voicesDir: deps.voicesDir, imagesDir }, quota);
   const thumbnail = thumbnailRoutes(app, deps.db, imagesDir, deps.fontsDir);
   communityRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, thumbnail, quota);
   planRoutes(app, deps.db, quota, deps.stripe ? { stripe: stripeClient(deps.stripe, deps.stripeFetch), config: deps.stripe } : null);

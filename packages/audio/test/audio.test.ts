@@ -178,3 +178,35 @@ describe('mix', { timeout: 30_000 }, () => {
     expect(under / free).toBeLessThan(0.3); // −8 dB of ducking is 0.16 in energy
   }, 30_000);
 });
+
+describe('imported music (soundtrack)', () => {
+  const base = parseProject(exampleProject);
+  if (!base.ok) throw new Error('bad example');
+  const tl = timeProject(base.project), asset = 'a'.repeat(32);
+  // two seconds of a tone: looped under a longer film
+  const tone = new Float32Array(2 * SR).map((_, i) => 0.3 * Math.sin((2 * Math.PI * 440 * i) / SR));
+  const withTrack = (loop: boolean): Project => ({ ...base.project, soundtrack: { asset, name: 't.mp3', duration: 2, gain: 0, loop } });
+  const rms = (x: Float32Array, a: number, b: number) => { let s = 0; for (let i = Math.round(a * SR); i < Math.round(b * SR); i++) s += x[i]! ** 2; return Math.sqrt(s / Math.max(1, Math.round((b - a) * SR))); };
+
+  it('plays for the whole film when looped, once otherwise, and fades out at the end', () => {
+    const range = { from: 0, to: 8 };
+    const looped = mixSoundtrack({ project: withTrack(true), voices: new Map([[asset, tone]]), range, include: { voices: false, sfx: false }, targetLufs: null });
+    expect(looped.missingSoundtrack).toBe(false);
+    expect(rms(looped.left, 5, 6)).toBeGreaterThan(0.01);
+    const once = mixSoundtrack({ project: withTrack(false), voices: new Map([[asset, tone]]), range, include: { voices: false, sfx: false }, targetLufs: null });
+    expect(rms(once.left, 0.5, 1.5)).toBeGreaterThan(0.01);
+    expect(rms(once.left, 5, 6)).toBeLessThan(1e-4);
+    const end = mixSoundtrack({ project: withTrack(true), voices: new Map([[asset, tone]]), range: { from: tl.duration - 3, to: tl.duration }, include: { voices: false, sfx: false }, targetLufs: null });
+    expect(rms(end.left, 2.9, 3)).toBeLessThan(rms(end.left, 0, 0.5) * 0.2);
+  });
+
+  it('replaces the composed music, and says when its file is missing (the composed music plays)', () => {
+    const range = { from: 0, to: 4 };
+    const composed = mixSoundtrack({ project: base.project, voices: new Map(), range, include: { voices: false, sfx: false }, targetLufs: null });
+    const missing = mixSoundtrack({ project: withTrack(true), voices: new Map(), range, include: { voices: false, sfx: false }, targetLufs: null });
+    expect(missing.missingSoundtrack).toBe(true);
+    expect(Buffer.from(missing.left.buffer).equals(Buffer.from(composed.left.buffer))).toBe(true);
+    const track = mixSoundtrack({ project: withTrack(true), voices: new Map([[asset, tone]]), range, include: { voices: false, sfx: false }, targetLufs: null });
+    expect(Buffer.from(track.left.buffer).equals(Buffer.from(composed.left.buffer))).toBe(false);
+  });
+});

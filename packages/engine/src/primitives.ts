@@ -1,7 +1,7 @@
 // What the engine hands to a style pack: a flat list of drawing primitives, already in screen pixels. Primitives say
 // what a shape IS (a filled body, an ink line, a glow, a text) and a style decides how it looks. `id` is stable from
 // frame to frame, so a style can seed its randomness on it (brush wobble, paper blooms) and stay deterministic.
-import type { Pt } from './geometry';
+import type { Mat, Pt } from './geometry';
 
 /** A filled and/or outlined shape. `width` on an open path makes a thick stroke (limbs, stalks, ribbons). */
 /** set by the engine on the primitives of a `screen` element (a title, a caption): the element's id. A reframed
@@ -53,6 +53,11 @@ export interface GradientPrim extends Overlay { kind: 'gradient'; id: string; x:
 
 /** A picture over a rectangle (a decor made by an image model). `src` names the image; the style gets it from the
  *  renderer's image source, and draws nothing until it is there. */
-export interface ImagePrim extends Overlay { kind: 'image'; id: string; src: string; x: number; y: number; w: number; h: number; opacity?: number }
+export interface ImagePrim extends Overlay {
+  kind: 'image'; id: string; src: string; x: number; y: number; w: number; h: number; opacity?: number;
+  /** set when the picture turns or flips with its element (an imported logo): x, y, w, h are then in the space this
+   *  matrix maps to the screen */
+  matrix?: Mat;
+}
 
 export type Prim = PathPrim | TextPrim | GlowPrim | GradientPrim | ImagePrim;

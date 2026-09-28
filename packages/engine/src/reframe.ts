@@ -9,7 +9,8 @@
 // every frame of every render chunk gets the same window.
 import type { Evaluator, Frame, Subject } from './evaluate';
 import { mul, translate, scaleM, type Mat } from './geometry';
-import { transformPrim, primsBox } from './evaluate';
+import { transformPrim } from './evaluate';
+import { primsBox } from './boxes';
 import type { Prim } from './primitives';
 
 export const ASPECTS = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 } as const;

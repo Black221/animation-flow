@@ -206,6 +206,8 @@ export const AssetShape = z.discriminatedUnion('type', [
   /** vertical gradient over a rectangle (skies, water) */
   z.object({ type: z.literal('gradient'), x: N, y: N, w: z.number().positive().max(10_000), h: z.number().positive().max(10_000), stops: z.array(z.tuple([z.number().min(0).max(1), Color])).min(2).max(8), opacity: z.number().min(0).max(1).optional() }),
   z.object({ type: z.literal('text'), x: N, y: N, text: z.string().min(1).max(200), size: z.number().positive().max(400), color: Color, font: z.enum(['display', 'body', 'marker', 'hand']).default('display'), weight: z.number().int().min(100).max(900).default(600), align: z.enum(['left', 'center', 'right']).default('center') }),
+  /** a picture imported into the workspace (a logo, a product, a photo), over a rectangle of the drawing */
+  z.object({ type: z.literal('image'), asset: z.string().regex(/^[0-9a-f]{32}$/, "identifiant d'image"), x: N, y: N, w: z.number().positive().max(10_000), h: z.number().positive().max(10_000), opacity: z.number().min(0).max(1).optional() }),
 ]);
 export const AssetPart = z.object({
   id: Id,
@@ -288,6 +290,16 @@ export const ProjectBase = z.object({
   score: z.record(Id, Piece).default({}),
   /** sound effects designed for this project: a sfx kind may name one */
   sounds: z.record(Id, SoundRecipe).default({}),
+  /** a music file imported for the whole film: it plays from the start under the voices (lowered while someone
+   *  speaks) and replaces the composed music of the scenes; looped, or once, fading out at the end of the film */
+  soundtrack: z.object({
+    asset: z.string().regex(/^[0-9a-f]{32}$/, 'identifiant de fichier audio'),
+    name: z.string().min(1).max(120),
+    /** seconds, measured when imported */
+    duration: z.number().positive().max(3600),
+    gain: z.number().min(-40).max(12).default(0),
+    loop: z.boolean().default(true),
+  }).optional(),
 });
 
 /** Cross-references a single object schema cannot express: unique ids, lines and cast members that exist. */
@@ -372,6 +384,24 @@ export function textHash(text: string): string {
 }
 /** has this line a recording that says its current text? */
 export const voiceIsCurrent = (l: Pick<Line, 'text' | 'audio'>) => !!l.audio && l.audio.textHash === textHash(l.text);
+
+/** the recordings a project plays: its lines' up-to-date voices and its imported music (asset ids, once each) */
+export function soundAssetsOf(p: Pick<Project, 'scenes'> & { soundtrack?: Project['soundtrack'] | undefined }): string[] {
+  const out = new Set<string>();
+  for (const s of p.scenes) for (const l of s.narration) if (voiceIsCurrent(l)) out.add(l.audio!.asset);
+  if (p.soundtrack) out.add(p.soundtrack.asset);
+  return [...out];
+}
+
+/** the pictures a project shows: decors painted by an image model and pictures imported into its drawings */
+export function pictureAssetsOf(p: { assets?: Project['assets'] | undefined }): string[] {
+  const out = new Set<string>();
+  for (const a of Object.values(p.assets ?? {})) {
+    if (a.image) out.add(a.image.asset);
+    for (const part of a.parts) for (const sh of part.shapes) if (sh.type === 'image') out.add(sh.asset);
+  }
+  return [...out];
+}
 
 export { exampleProject } from './example';
 export { diffJson, applyOps, OpConflict, OpInvalid, type Op, type PathSeg } from './ops';

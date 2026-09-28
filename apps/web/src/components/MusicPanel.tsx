@@ -3,7 +3,7 @@
 // or edit them as JSON.
 import { pieceFor, recipeSound, renderMusic, SR } from '@af/audio';
 import { parseProject, type Project } from '@af/schema';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Api } from '../api';
 import { JsonEditor, type JsonIssue } from './JsonEditor';
 import { Icon } from '@af/ui';
@@ -46,9 +46,42 @@ export function MusicPanel({ project, onChange, readOnly, resetKey, remoteKey }:
   });
   const soundTaken = !!project.sounds[newSound.id];
 
+  const musicFile = useRef<HTMLInputElement>(null), [uploading, setUploading] = useState(false), [trackUrl, setTrackUrl] = useState('');
+  const track = project.soundtrack;
+  const importMusic = async (f: File) => {
+    setUploading(true); setNote('');
+    try {
+      const r = await Api.uploadAudio(f, 'music');
+      onChange({ ...project, soundtrack: { asset: r.asset, name: f.name.slice(0, 120), duration: r.duration, gain: track?.gain ?? 0, loop: track?.loop ?? true } });
+      setTrackUrl(r.url); ui.toast(`Musique « ${f.name} » importée${r.truncated ? ` (coupée à ${Math.round(r.maxSeconds / 60)} min)` : ''}`);
+    } catch (e) { ui.toast((e as Error).message, 'error'); } finally { setUploading(false); }
+  };
+  const listenTrack = async () => {
+    if (!track) return;
+    const url = trackUrl || (await Api.voiceLinks([track.asset]).catch(() => ({} as Record<string, string>)))[track.asset];
+    if (url) { setTrackUrl(url); stop(); void new Audio(url).play(); }
+  };
   return (
     <div className="music">
-      <h4>Musique</h4>
+      <h4>Musique importée</h4>
+      {track ? (
+        <div className="card soundtrack" data-testid="soundtrack">
+          <div className="row wrap"><Icon name="music" size={16} /><strong title={track.name}>{track.name}</strong><span className="muted small">{Math.floor(track.duration / 60)}:{String(Math.round(track.duration % 60)).padStart(2, '0')} · joue tout le film, sous les voix</span></div>
+          {!readOnly && <div className="row wrap">
+            <button type="button" onClick={() => void listenTrack()}><Icon name="play" size={14} /> Écouter</button>
+            <label>Niveau <input type="range" min={-24} max={6} step={1} value={track.gain} onChange={(e) => onChange({ ...project, soundtrack: { ...track, gain: +e.target.value } })} aria-label="niveau de la musique importée" /> <span className="muted small">{track.gain > 0 ? '+' : ''}{track.gain} dB</span></label>
+            <label className="check"><input type="checkbox" checked={track.loop} onChange={(e) => onChange({ ...project, soundtrack: { ...track, loop: e.target.checked } })} /> en boucle</label>
+            <button type="button" onClick={() => musicFile.current?.click()} disabled={uploading}>Remplacer</button>
+            <button type="button" className="ghost" onClick={() => { const { soundtrack: _drop, ...rest } = project; onChange(rest as Project); }}>Retirer</button>
+          </div>}
+          <p className="muted small">Elle remplace la musique composée ci-dessous, qui revient si vous la retirez.</p>
+        </div>
+      ) : (
+        <p className="muted small">Votre propre musique (MP3, WAV, M4A, OGG, FLAC…, 10 min au plus) joue sous tout le film, baissée quand quelqu’un parle.
+          {!readOnly && <> <button type="button" onClick={() => musicFile.current?.click()} disabled={uploading}><Icon name="upload" size={14} /> {uploading ? 'Import…' : 'Importer une musique'}</button></>}</p>
+      )}
+      <input ref={musicFile} type="file" hidden accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.opus,.flac,.aif,.aiff,.webm" aria-label="musique à importer" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importMusic(f); }} />
+      <h4>{track ? 'Musique composée (remplacée)' : 'Musique'}</h4>
       <ul className="piece-list">
         {project.scenes.filter((s) => s.music.mood !== 'none' && !project.score[s.music.mood]).length > 0 && <li className="muted small">Des scènes jouent une ambiance intégrée : {[...new Set(project.scenes.map((s) => s.music.mood).filter((m) => m !== 'none' && !project.score[m]))].join(', ')}</li>}
         {pieces.map(([id, p]) => (

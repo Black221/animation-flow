@@ -4,7 +4,7 @@
 import { picturePrompt, type AssetBrief, type Picture } from '@af/ai';
 import { normalizePicture } from '@af/render';
 import type { JsonPost } from '@af/providers';
-import type { Project } from '@af/schema';
+import { pictureAssetsOf, type Project } from '@af/schema';
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
@@ -19,15 +19,16 @@ import { sendFile } from '../files';
 import type { Signer } from '../render/sign';
 
 const AssetId = z.string().regex(/^[0-9a-f]{32}$/);
-export const imageFile = (dir: string, ws: string, asset: string) => join(dir, ws, `${asset}.jpg`);
+/** where a picture is: JPEG, or PNG for an imported one with transparency (links always say .jpg: the file decides) */
+export const imageFile = (dir: string, ws: string, asset: string) => { const png = join(dir, ws, `${asset}.png`); return existsSync(png) ? png : join(dir, ws, `${asset}.jpg`); };
+export const imageMime = (file: string) => (file.endsWith('.png') ? 'image/png' : 'image/jpeg');
 
 /** the stored pictures a project shows (asset id → file), for the server renderers */
 export function imagesOf(dir: string, ws: string, project: Pick<Project, 'assets'>): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const a of Object.values(project.assets ?? {})) {
-    if (!a.image) continue;
-    const f = imageFile(dir, ws, a.image.asset);
-    if (existsSync(f)) out[a.image.asset] = f;
+  for (const a of pictureAssetsOf(project)) {
+    const f = imageFile(dir, ws, a);
+    if (existsSync(f)) out[a] = f;
   }
   return out;
 }
@@ -83,10 +84,10 @@ export function imageRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: 
 
   app.get('/api/images/:ws/:file', { config: { auth: 'public' } }, async (req, reply) => {
     const { ws, file: name } = req.params as { ws: string; file: string };
-    const m = /^([0-9a-f]{32})\.jpg$/.exec(name), q = req.query as { exp?: string; sig?: string };
+    const m = /^([0-9a-f]{32})\.(?:jpg|png)$/.exec(name), q = req.query as { exp?: string; sig?: string };
     if (!m || !z.string().uuid().safeParse(ws).success || !sign.verify(`image:${ws}:${m[1]}`, q.exp, q.sig)) return reply.code(403).send({ error: 'lien expiré ou invalide' });
     const file = imageFile(dir, ws, m[1]!);
     if (!existsSync(file)) return reply.code(404).send({ error: 'image introuvable' });
-    return sendFile(req, reply, file, 'image/jpeg');
+    return sendFile(req, reply, file, imageMime(file));
   });
 }

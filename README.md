@@ -129,6 +129,21 @@ part avec un lien construit sur `APP_URL`.
   leurs colonnes secondaires.
 - **Musique** (onglet « Musique ») : la partition composée pour le film et ses bruitages, à écouter, à recomposer
   avec une direction (« plus joyeux ») ou à reconcevoir un par un.
+- **Importer ses fichiers** (bouton « Importer » de l'éditeur, ou un fichier déposé sur l'éditeur) :
+  - une **image** (PNG, JPEG, WebP, GIF, BMP) devient un **objet** (un logo, un produit, placé dans la scène, qui se
+    déplace, grandit et tourne), le **décor** d'une scène (une photo, une illustration) ou un **personnage** (une image
+    fixe qui entre, se déplace, parle). La transparence est gardée ; l'image se dessine telle quelle dans tous les styles
+    et dans les rendus ;
+  - un **son** (MP3, WAV, M4A, OGG, FLAC, AIFF, WebM) devient la **musique du film** (sous tout le film, baissée quand
+    quelqu'un parle, en boucle ou une fois avec un fondu final ; elle remplace la musique composée, qui revient si on la
+    retire ; niveau réglable dans l'onglet « Musique ») ou la **voix d'une réplique** (son propre enregistrement, depuis
+    l'onglet « Voix » : silences coupés, volume égalisé, la scène suit sa durée) ;
+  - un **projet** : « Exporter le projet » (onglet « Projet », ou le menu d'une carte de « Mes projets ») donne un
+    fichier `.animation.json` avec ses images et ses sons ; « Importer un projet » (ou le fichier déposé sur « Mes
+    projets ») le recrée dans n'importe quel espace, médias compris. Un JSON de projet seul s'importe aussi ;
+  - un **texte** pour l'IA (« Importer un texte » dans « Créer avec l'IA », ou déposé sur la zone de texte) : TXT,
+    Markdown, Word (DOCX), OpenDocument (ODT), PDF, sous-titres (SRT, VTT) ou page web. Il est lu dans le navigateur ;
+    seul le texte part vers l'IA (20 000 caractères au plus).
 - **Son dans l'aperçu** : voix, musique et bruitages mixés dans le navigateur avec le même code que le rendu.
 - **Styles** : six façons de dessiner le même film, à choisir en les voyant (une carte par style, le film d'exemple
   dessiné dedans, qui bouge au survol) et à changer à tout moment : *vectoriel plat* (rapide), *aquarelle* (lavis, grain
@@ -176,6 +191,13 @@ part avec un lien construit sur `APP_URL`.
   accordé que par le webhook, dont la signature (HMAC SHA-256 du corps brut, horodatage de moins de 5 minutes) est
   vérifiée en temps constant ; chaque événement n'est appliqué qu'une fois. Le webhook est la seule route d'écriture
   sans l'en-tête CSRF : elle prouve son origine par cette signature.
+- **Fichiers importés** : rien n'est gardé tel quel. Une image est reconnue à ses premiers octets (PNG, JPEG, WebP, GIF,
+  BMP ; SVG refusé), décodée et redessinée (PNG seulement si elle a de la transparence, sinon JPEG, 2560 px au plus) :
+  ni métadonnées ni contenu caché. Un son est reconnu de même, puis décodé par FFmpeg depuis une copie locale avec son
+  format nommé et `-protocol_whitelist file` : une liste de lecture ou un lien qu'il contiendrait n'est jamais suivi ;
+  il est stocké en WAV. Chaque fichier est nommé par son contenu dans le dossier de l'espace, compté dans le stockage du
+  plan, et servi par lien signé. Tailles : 15 Mo par image, 60 Mo par son (3 min pour une voix, 10 min pour une
+  musique), 200 Mo pour un projet avec ses médias, dont chaque image et chaque son est décodé à nouveau.
 - **Back-office** : un serveur à part, qui ne sert que l'administration (l'API de l'application n'a plus aucune route
   d'administration). Il n'écoute par défaut que sur la machine (tunnel SSH, VPN, ou proxy qui authentifie devant) et
   peut être limité à des adresses (`ADMIN_ALLOWED_IPS`). Ses sessions sont à part : cookie `af_admin`, `HttpOnly`,

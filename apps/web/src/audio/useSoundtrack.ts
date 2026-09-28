@@ -2,7 +2,7 @@
 // Only what changes the sound triggers a new mix (timing of lines, recordings, music, effects), not every edit.
 import { decodeWav } from '@af/audio';
 import { timeProject } from '@af/engine';
-import { voiceIsCurrent, type Project } from '@af/schema';
+import { soundAssetsOf, voiceIsCurrent, type Project } from '@af/schema';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Api } from '../api';
 
@@ -11,7 +11,7 @@ const decoded = new Map<string, Float32Array>();
 /** what the soundtrack depends on */
 function soundKey(p: Project): string {
   const tl = timeProject(p);
-  return JSON.stringify(p.scenes.map((s, i) => [tl.scenes[i]!.start, tl.scenes[i]!.duration, s.music, s.sfx, tl.scenes[i]!.lines.map((l, k) => [l.start, voiceIsCurrent(s.narration[k]!) ? s.narration[k]!.audio!.asset : null])]));
+  return JSON.stringify([p.soundtrack ?? null, p.scenes.map((s, i) => [tl.scenes[i]!.start, tl.scenes[i]!.duration, s.music, s.sfx, tl.scenes[i]!.lines.map((l, k) => [l.start, voiceIsCurrent(s.narration[k]!) ? s.narration[k]!.audio!.asset : null])])]);
 }
 
 export interface Soundtrack { buffer: AudioBuffer | null; mixing: boolean; missing: string[]; lufs: number | null; error: string }
@@ -32,7 +32,7 @@ export function useSoundtrack(project: Project, enabled: boolean, links?: (asset
       const p = latest.current;
       setState((s) => ({ ...s, mixing: true, error: '' }));
       try {
-        const need = [...new Set(p.scenes.flatMap((s) => s.narration.filter(voiceIsCurrent).map((l) => l.audio!.asset)))].filter((a) => !decoded.has(a));
+        const need = soundAssetsOf(p).filter((a) => !decoded.has(a));
         if (need.length) {
           const found = await (linksRef.current ?? Api.voiceLinks)(need);
           await Promise.all(Object.entries(found).map(async ([asset, url]) => {
@@ -42,7 +42,7 @@ export function useSoundtrack(project: Project, enabled: boolean, links?: (asset
         }
         if (id !== seq.current) return;
         const voices: Record<string, Float32Array> = {};
-        for (const s of p.scenes) for (const l of s.narration) if (voiceIsCurrent(l) && decoded.has(l.audio!.asset)) voices[l.audio!.asset] = decoded.get(l.audio!.asset)!.slice();
+        for (const a of soundAssetsOf(p)) if (decoded.has(a)) voices[a] = decoded.get(a)!.slice();
         worker.current ??= new Worker(new URL('./mix.worker.ts', import.meta.url), { type: 'module' });
         const w = worker.current;
         const res = await new Promise<{ id: number; left?: Float32Array; right?: Float32Array; sampleRate?: number; lufs?: number; missing?: string[]; error?: string }>((ok) => {

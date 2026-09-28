@@ -1,6 +1,6 @@
 // My projects: every project of the workspace, as cards with a frame of each; search, and a menu per card
 // (open, rename, duplicate, delete — each with a dialog).
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Api, getWorkspace, type ProjectSummary } from '../api';
 import { useCreate } from '../components/Create';
@@ -56,6 +56,7 @@ export function ProjectCard({ p, onChange }: { p: ProjectSummary; onChange: () =
           <Link to={`/p/${p.id}`} role="menuitem" onClick={close}><Icon name="edit" /> Ouvrir</Link>
           {editable && <button role="menuitem" onClick={() => { close(); void rename(); }}><Icon name="sliders" /> Renommer</button>}
           {editable && <button role="menuitem" onClick={() => { close(); void duplicate(); }}><Icon name="copy" /> Dupliquer</button>}
+          <button role="menuitem" onClick={() => { close(); void Api.exportProject(p.id).catch((e) => ui.toast((e as Error).message, 'error')); }}><Icon name="download" /> Exporter (avec ses médias)</button>
           {p.publicationId && <Link to={`/c/${p.publicationId}`} role="menuitem" onClick={close}><Icon name="globe" /> Voir dans la communauté</Link>}
           {editable && <button role="menuitem" className="danger-item" onClick={() => { close(); void remove(); }}><Icon name="trash" /> Supprimer</button>}
         </>}</Menu>
@@ -71,15 +72,33 @@ export function Projects() {
   const editable = useSession().can('editor'), create = useCreate();
   const refresh = () => Api.projects().then(setList).catch((e) => setError(e.message));
   useEffect(() => { void refresh(); }, []);
+  // a project file (.animation.json, exported from here, or a bare project JSON): a new project, its media with it
+  const ui = useUI(), nav = useNavigate(), fileInput = useRef<HTMLInputElement>(null), [importing, setImporting] = useState(false), [over, setOver] = useState(false);
+  const importFile = async (f: File) => {
+    if (f.size > 200 * 1024 * 1024) { ui.toast('fichier trop gros (200 Mo au plus)', 'error'); return; }
+    setImporting(true);
+    try {
+      let json: unknown;
+      try { json = JSON.parse(await f.text()); } catch { throw new Error(`${f.name} n’est pas un fichier de projet (JSON)`); }
+      const r = await Api.importProject(json), m = r.media;
+      const media = [m.images && `${m.images} image(s)`, m.sounds && `${m.sounds} son(s)`].filter(Boolean).join(' et ');
+      ui.toast(`« ${r.title} » importé${media ? ` avec ${media}` : ''}${m.missing ? ` · ${m.missing} média(s) absent(s) du fichier` : ''}`, m.missing ? 'info' : 'success', { label: 'Ouvrir', run: () => nav(`/p/${r.id}`) });
+      void refresh();
+    } catch (e) { ui.toast((e as Error).message, 'error'); } finally { setImporting(false); }
+  };
   const shown = list?.filter((p) => !q.trim() || p.title.toLowerCase().includes(q.trim().toLowerCase())) ?? null;
 
   return (
-    <div className="page">
+    <div className={`page${over ? ' drop-over' : ''}`}
+      onDragOver={(e) => { if (editable && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setOver(true); } }} onDragLeave={(e) => { if (e.currentTarget === e.target) setOver(false); }}
+      onDrop={(e) => { setOver(false); const f = e.dataTransfer.files[0]; if (editable && f) { e.preventDefault(); void importFile(f); } }}>
       <div className="page-head">
         <div><h2>Mes projets</h2><p className="muted">Les films de votre espace, à plusieurs si vous voulez.</p></div>
         <span className="spacer" />
         {list && list.length > 3 && <label className="search small-search"><Icon name="search" size={16} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrer…" aria-label="filtrer les projets" /></label>}
         {editable && <>
+          <button onClick={() => fileInput.current?.click()} disabled={importing} title="un projet exporté (.animation.json), avec ses images et ses sons — ou déposez-le sur la page"><Icon name="upload" size={16} /> {importing ? 'Import…' : 'Importer un projet'}</button>
+          <input ref={fileInput} type="file" hidden accept=".json,application/json" aria-label="projet à importer" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importFile(f); }} />
           <button onClick={create.withAI}><Icon name="sparkles" size={16} /> Avec l'IA</button>
           <button className="primary" onClick={create.newProject}><Icon name="plus" size={16} /> Nouveau projet</button>
         </>}

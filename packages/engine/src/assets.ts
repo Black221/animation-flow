@@ -5,6 +5,7 @@ import type { Asset, AssetMotion, AssetPart, AssetShape, Project } from '@af/sch
 import type { ComponentFn, DecorFn, Registry } from './components';
 import { apply, ellipse, mul, roundRect, scaleOf, type Mat, type Pt } from './geometry';
 import type { Prim } from './primitives';
+import { primBox } from './boxes';
 
 const I: Mat = [1, 0, 0, 1, 0, 0];
 /** turn by `deg` around (px, py), then shift by (dx, dy) */
@@ -93,6 +94,7 @@ function shapePrims(s: AssetShape, m: Mat, id: string): Prim[] {
     const xs = c.map((p) => p[0]), ys = c.map((p) => p[1]), x = Math.min(...xs), y = Math.min(...ys);
     return [{ kind: 'gradient', id, x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y, stops: s.stops, ...(s.opacity != null ? { opacity: s.opacity } : {}) }];
   }
+  if (s.type === 'image') return [{ kind: 'image', id, src: s.asset, x: s.x, y: s.y, w: s.w, h: s.h, matrix: m, ...(s.opacity != null ? { opacity: s.opacity } : {}) }];
   if (s.type === 'text') {
     const [x, y] = apply(m, [s.x, s.y]), rot = Math.atan2(m[1], m[0]);
     return [{ kind: 'text', id, x, y, text: s.text, size: s.size * scaleOf(m), color: s.color, font: s.font, weight: s.weight, align: s.align, rotation: rot, opacity: 1 }];
@@ -203,6 +205,7 @@ export function assetBounds(a: Asset): { x: number; y: number; w: number; h: num
     if (p.kind === 'path') { const r = (p.width ?? 0) / 2; for (const [x, y] of p.points) { add(x - r, y - r); add(x + r, y + r); } points += p.points.length; }
     else if (p.kind === 'glow') { add(p.x, p.y); } // a halo is not the drawing's size
     else if (p.kind === 'gradient') { add(p.x, p.y); add(p.x + p.w, p.y + p.h); }
+    else if (p.kind === 'image') { const b = primBox(p); add(b.x0, b.y0); add(b.x1, b.y1); }
     else { add(p.x, p.y); }
   }
   if (x0 === Infinity) return { x: 0, y: 0, w: 0, h: 0, shapes: 0, points: 0 };

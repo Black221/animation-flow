@@ -74,6 +74,7 @@ export function drawImage(ctx: Ctx2D, p: ImagePrim, images?: RenderOptions['imag
   const iw = Number((img as { width?: unknown }).width) || p.w, ih = Number((img as { height?: unknown }).height) || p.h;
   const s = Math.max(p.w / iw, p.h / ih), sw = p.w / s, sh = p.h / s;
   ctx.save(); ctx.globalAlpha = Math.min(1, p.opacity ?? 1); ctx.imageSmoothingEnabled = true;
+  if (p.matrix) { const m = p.matrix; ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]); }
   ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, p.x, p.y, p.w, p.h); ctx.restore();
 }
 /** which of a decor's pictures are there: part of the plate's key, so it is painted again when one arrives */

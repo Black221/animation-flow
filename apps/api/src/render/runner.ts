@@ -3,7 +3,7 @@
 // PostgreSQL and a shared RENDERS_DIR, to add rendering machines.
 import { decodeWav, encodeWav, mixSoundtrack, SR } from '@af/audio';
 import { renderVideo, AbortError } from '@af/render';
-import { parseProject, voiceIsCurrent } from '@af/schema';
+import { parseProject, soundAssetsOf } from '@af/schema';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { loadVoices } from '../routes/voices';
 import { imagesOf } from '../routes/images';
@@ -45,10 +45,11 @@ export function startRunner(o: RunnerOptions): Runner {
       let withAudio = false;
       const parsed = parseProject(rows[0].data);
       if (opt.audio !== false && format !== 'gif' && parsed.ok) {
-        const assets = parsed.project.scenes.flatMap((s) => s.narration.filter(voiceIsCurrent).map((l) => l.audio!.asset));
+        const assets = soundAssetsOf(parsed.project);
         const voices = loadVoices(o.voicesDir, rows[0].workspace_id, new Set(assets), (b) => decodeWav(b).channels[0]!);
         const mix = mixSoundtrack({ project: parsed.project, voices, ...(range ? { range } : {}) });
         if (mix.missing.length) warnings.push(`${mix.missing.length} réplique(s) sans voix enregistrée : ${mix.missing.slice(0, 6).join(', ')}${mix.missing.length > 6 ? '…' : ''}`);
+        if (mix.missingSoundtrack) warnings.push(`musique importée introuvable (« ${parsed.project.soundtrack!.name} ») : la musique composée la remplace`);
         if (mix.unknownSounds.length) warnings.push(`bruitages inconnus : ${mix.unknownSounds.join(', ')}`);
         writeFileSync(audioFile, encodeWav({ sampleRate: SR, channels: [mix.left, mix.right] }, 16));
         withAudio = true;

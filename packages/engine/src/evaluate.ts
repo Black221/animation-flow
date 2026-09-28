@@ -10,6 +10,7 @@ import { sampleCamera, sampleElement, type CameraSample } from './animate';
 import type { ComponentFn, DecorOut, Registry } from './components';
 import { apply, bounds, mul, rotationOf, scaleM, scaleOf, translate, trs, rotate, type Mat } from './geometry';
 import { hashString, seg } from './math';
+import { primBox, primsBox } from './boxes';
 import type { Prim } from './primitives';
 import { sceneAt, timeProject, type Timeline, type TimedScene } from './timing';
 
@@ -72,24 +73,15 @@ export function transformPrim(p: Prim, m: Mat, opacity = 1): Prim {
     }
     case 'text': { const [x, y] = apply(m, [p.x, p.y]); return { ...p, x, y, size: p.size * s, rotation: p.rotation + textRotation(m), opacity: p.opacity * opacity }; }
     case 'glow': { const [x, y] = apply(m, [p.x, p.y]); return { ...p, x, y, radius: p.radius * s, opacity: p.opacity * opacity }; }
-    case 'gradient': case 'image': {
+    case 'image':
+      // a picture that turns or flips keeps its matrix; an upright one stays a plain box
+      if (p.matrix || Math.abs(m[1]) > 1e-9 || Math.abs(m[2]) > 1e-9 || m[0] < 0 || m[3] < 0) return { ...p, matrix: mul(m, p.matrix ?? [1, 0, 0, 1, 0, 0]), opacity: (p.opacity ?? 1) * opacity };
+    // falls through
+    case 'gradient': {
       const c = [apply(m, [p.x, p.y]), apply(m, [p.x + p.w, p.y + p.h])], b = bounds(c);
       return { ...p, x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0, opacity: (p.opacity ?? 1) * opacity };
     }
   }
-}
-
-/** the screen box of a primitive (texts and glows approximately) */
-export function primBox(p: Prim): { x0: number; y0: number; x1: number; y1: number } {
-  if (p.kind === 'path') { const b = bounds(p.points), pad = (p.width ?? 0) / 2 + (p.strokeWidth ?? 0); return { x0: b.x0 - pad, y0: b.y0 - pad, x1: b.x1 + pad, y1: b.y1 + pad }; }
-  if (p.kind === 'text') { const lines = p.text.split('\n'), half = (Math.max(...lines.map((l) => l.length)) * p.size * 0.55) / 2, hh = (lines.length * p.size * 1.15) / 2; const x = p.align === 'left' ? p.x + half : p.align === 'right' ? p.x - half : p.x; return { x0: x - half, y0: p.y - hh, x1: x + half, y1: p.y + hh }; }
-  if (p.kind === 'glow') return { x0: p.x - p.radius * 0.5, y0: p.y - p.radius * 0.5, x1: p.x + p.radius * 0.5, y1: p.y + p.radius * 0.5 };
-  return { x0: p.x, y0: p.y, x1: p.x + p.w, y1: p.y + p.h };
-}
-export function primsBox(ps: readonly Prim[]) {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const p of ps) { const b = primBox(p); if (b.x0 < x0) x0 = b.x0; if (b.y0 < y0) y0 = b.y0; if (b.x1 > x1) x1 = b.x1; if (b.y1 > y1) y1 = b.y1; }
-  return { x0, y0, x1, y1 };
 }
 
 function visibleBox(p: Prim, w: number, h: number): boolean {
@@ -97,7 +89,7 @@ function visibleBox(p: Prim, w: number, h: number): boolean {
   if (p.kind === 'path') { const b = bounds(p.points), pad = (p.width ?? 0) / 2 + (p.strokeWidth ?? 0); x0 = b.x0 - pad; y0 = b.y0 - pad; x1 = b.x1 + pad; y1 = b.y1 + pad; }
   else if (p.kind === 'text') { const half = (p.text.length * p.size) / 2; x0 = p.x - half; x1 = p.x + half; y0 = p.y - p.size * 2; y1 = p.y + p.size * 2; }
   else if (p.kind === 'glow') { x0 = p.x - p.radius; x1 = p.x + p.radius; y0 = p.y - p.radius; y1 = p.y + p.radius; }
-  else { x0 = p.x; y0 = p.y; x1 = p.x + p.w; y1 = p.y + p.h; }
+  else ({ x0, y0, x1, y1 } = primBox(p));
   return !(x1 < -CULL_PAD || x0 > w + CULL_PAD || y1 < -CULL_PAD || y0 > h + CULL_PAD);
 }
 

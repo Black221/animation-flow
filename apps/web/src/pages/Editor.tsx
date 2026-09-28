@@ -10,6 +10,7 @@ import { RenderPanel } from '../components/RenderPanel';
 import { VoicesPanel } from '../components/VoicesPanel';
 import { DrawingsPanel } from '../components/DrawingsPanel';
 import { MusicPanel } from '../components/MusicPanel';
+import { ImportDialog, MEDIA_ACCEPT } from '../components/ImportDialog';
 import { Icon, type IconName } from '@af/ui';
 import { Loading } from '../components/Motion';
 import { PHONE, TOUCH, useMedia } from '../media';
@@ -55,6 +56,9 @@ export function Editor() {
   // turned to a phone on a tab it does not show: back to the scene
   useEffect(() => { if (phone && DESK_ONLY.includes(tab)) setTab('scene'); }, [phone, tab]);
   const [resetN, setResetN] = useState(0);
+  // a file to bring in (picked, or dropped on the editor), and whether one is being dragged over it
+  const [importing, setImporting] = useState<File | null>(null), [dragging, setDragging] = useState(false);
+  const pick = useRef<HTMLInputElement>(null), drags = useRef(0);
   const [ask, setAsk] = useState('');
   const [asking, setAsking] = useState(false);
   const [aiNote, setAiNote] = useState('');
@@ -177,8 +181,17 @@ export function Editor() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `${draft.title}.srt`; a.click(); URL.revokeObjectURL(a.href);
   };
 
+  const dropProps = editable ? {
+    onDragEnter: (e: React.DragEvent) => { if (e.dataTransfer.types.includes('Files')) { drags.current++; setDragging(true); } },
+    onDragLeave: () => { drags.current = Math.max(0, drags.current - 1); if (!drags.current) setDragging(false); },
+    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); },
+    onDrop: (e: React.DragEvent) => { drags.current = 0; setDragging(false); const f = e.dataTransfer.files[0]; if (f && !(e.target as HTMLElement).closest('textarea, input')) { e.preventDefault(); setImporting(f); } },
+  } : {};
   return (
-    <div className="editor">
+    <div className={`editor${dragging ? ' dragging' : ''}`} {...dropProps}>
+      {dragging && <div className="drop-veil" aria-hidden><Icon name="upload" size={30} /><strong>Déposez pour importer</strong><span>une image (logo, décor, personnage) ou un son (musique, voix)</span></div>}
+      <ImportDialog file={importing} project={draft} sceneIndex={i} onClose={() => setImporting(null)}
+        onDone={(p, note) => { update(p); setResetN((x) => x + 1); setImporting(null); ui.toast(note); }} />
       <div className="editor-bar">
         <Link to="/projects" className="back" title="Mes projets"><span className="logo small" aria-hidden><Icon name="play" /></span><Icon name="back" size={16} /> Projets</Link>
         <h1 title={draft.title}>{draft.title}{doc.remixOf && <Link to={`/c/${doc.remixOf.id}`} className="origin" title="le film d'origine, dans la communauté"><Icon name="remix" size={13} /> remix de « {doc.remixOf.title} »</Link>}</h1>
@@ -194,6 +207,10 @@ export function Editor() {
         {editable ? <button onClick={() => setPublishing(true)} className={publication ? 'published' : ''} title={publication ? 'publié dans la communauté : republier, voir ou retirer' : 'partager ce film avec la communauté'}><Icon name="globe" size={16} /> {publication ? 'Publié' : 'Publier'}</button>
           : publication && <Link to={`/c/${publication.id}`} className="button"><Icon name="globe" size={16} /> Voir dans la communauté</Link>}
         {!touch && <button className="icon ghost" onClick={showKeys} aria-label="raccourcis clavier" title="raccourcis clavier (?)"><Icon name="keyboard" size={17} /></button>}
+        {editable && <>
+          <button onClick={() => pick.current?.click()} title="une image (logo, décor, personnage) ou un son (musique, voix) — ou déposez le fichier sur l’éditeur"><Icon name="upload" size={16} /> Importer</button>
+          <input ref={pick} type="file" hidden accept={MEDIA_ACCEPT} aria-label="fichier à importer" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setImporting(f); }} />
+        </>}
         {!phone && <button onClick={downloadSrt} title="télécharger les sous-titres"><Icon name="subtitles" size={16} /> Sous-titres .srt</button>}
         {editable ? (liveOn
           ? <button className="primary" onClick={() => void save()} disabled={liveSaving} title="enregistré automatiquement ; ceci clôt la version en cours (Ctrl+S)"><Icon name="save" size={16} />{liveSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
@@ -298,7 +315,7 @@ export function Editor() {
           </details>
         )}
         {tab === 'voices' && <VoicesPanel project={draft} onChange={update} readOnly={!editable} />}
-        {tab === 'drawings' && <DrawingsPanel project={draft} onChange={update} readOnly={!editable} resetKey={String(resetN)} remoteKey={live.remoteN} />}
+        {tab === 'drawings' && <DrawingsPanel project={draft} onChange={update} readOnly={!editable} resetKey={String(resetN)} remoteKey={live.remoteN} onImport={() => pick.current?.click()} />}
         {tab === 'music' && <MusicPanel project={draft} onChange={update} readOnly={!editable} resetKey={String(resetN)} remoteKey={live.remoteN} />}
         {tab === 'project' && (
           <div className="form">
@@ -309,6 +326,10 @@ export function Editor() {
             <label>Langue <input value={draft.language} onChange={(e) => update({ ...draft, language: e.target.value || 'fr' })} /></label>
             <p className="muted small">{draft.width} × {draft.height} · {timeline.duration.toFixed(1)} s · {timeline.frames} images · {draft.scenes.length} scène(s)
               {timeline.scenes.some((s) => s.lines.some((l) => l.estimated)) && ' · durées des répliques estimées (pas encore de voix enregistrée)'}</p>
+            <div className="row wrap">
+              <button type="button" onClick={() => void Api.exportProject(doc.id).catch((e) => ui.toast((e as Error).message, 'error'))} title="le projet enregistré, avec ses images et ses sons : à importer dans un autre espace"><Icon name="download" size={16} /> Exporter le projet</button>
+              <button type="button" className="ghost" onClick={() => void Api.exportProject(doc.id, false).catch((e) => ui.toast((e as Error).message, 'error'))} title="le projet seul (JSON), sans ses médias : léger">JSON seul</button>
+            </div>
           </div>
         )}
         {tab === 'comments' && (

@@ -1,6 +1,6 @@
 // Pictures of a project (decors painted by an image model), loaded through signed links for the previews. One
 // image element per picture for the whole page; every preview showing it is told when it arrives.
-import type { Project } from '@af/schema';
+import { pictureAssetsOf, type Project } from '@af/schema';
 import { useEffect, useMemo } from 'react';
 import { Api } from './api';
 
@@ -23,7 +23,7 @@ export type LinksFn = (assets: string[]) => Promise<Record<string, string>>;
 /** loads the project's pictures; `onReady` asks for a repaint when one arrives. Without them, decors show their drawing.
  *  `links`: where to get them (the workspace's signed links by default; a publication's public ones) */
 export function usePictures(project: Pick<Project, 'assets'>, onReady: () => void, links?: LinksFn) {
-  const wanted = useMemo(() => [...new Set(Object.values(project.assets ?? {}).flatMap((a) => (a.image ? [a.image.asset] : [])))].sort().join(','), [project.assets]);
+  const wanted = useMemo(() => pictureAssetsOf(project).sort().join(','), [project.assets]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { listeners.add(onReady); return () => { listeners.delete(onReady); }; }, [onReady]);
   useEffect(() => {
     const need = wanted ? wanted.split(',').filter((a) => !images.has(a)) : [];

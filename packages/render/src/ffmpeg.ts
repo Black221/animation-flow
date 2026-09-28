@@ -1,5 +1,9 @@
 // FFmpeg and ffprobe as child processes. FFMPEG_PATH / FFPROBE_PATH override the binaries found on PATH.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 export const FFPROBE = process.env.FFPROBE_PATH || 'ffprobe';
@@ -77,4 +81,48 @@ export function decodeAudio(bytes: Uint8Array, rate = 48000, signal?: AbortSigna
     p.stdin.on('error', () => undefined); // the process may exit before reading everything (corrupt input)
     p.stdin.end(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
   });
+}
+
+/** what an audio file is, from its first bytes, as FFmpeg names the format (anything else: not accepted) */
+export function audioType(b: Uint8Array): 'wav' | 'mp3' | 'ogg' | 'flac' | 'mov' | 'matroska' | 'aac' | 'aiff' | null {
+  const s = (i: number, n: number) => String.fromCharCode(...b.subarray(i, i + n));
+  if (s(0, 4) === 'RIFF' && s(8, 4) === 'WAVE') return 'wav';
+  if (s(0, 3) === 'ID3' || (b[0] === 0xff && (b[1]! & 0xe6) === 0xe2)) return 'mp3';
+  if (s(0, 4) === 'OggS') return 'ogg';
+  if (s(0, 4) === 'fLaC') return 'flac';
+  if (s(4, 4) === 'ftyp') return 'mov';
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return 'matroska';
+  if (b[0] === 0xff && (b[1]! & 0xf6) === 0xf0) return 'aac';
+  if (s(0, 4) === 'FORM' && (s(8, 4) === 'AIFF' || s(8, 4) === 'AIFC')) return 'aiff';
+  return null;
+}
+
+/** decode an imported sound (a recorded voice, a music) to mono 32-bit float at `rate` Hz, `maxSeconds` at most.
+ *  The format is named from the file's first bytes and given to FFmpeg, which reads only that local copy: a
+ *  playlist or a reference to another file or address is never followed. */
+export async function decodeUpload(bytes: Uint8Array, o: { rate?: number; maxSeconds: number; signal?: AbortSignal }): Promise<{ samples: Float32Array; truncated: boolean }> {
+  const fmt = audioType(bytes);
+  if (!fmt) throw new Error('format audio non pris en charge (WAV, MP3, OGG, FLAC, M4A, WebM, AAC ou AIFF)');
+  const rate = o.rate ?? 48000, tmp = join(tmpdir(), `af-upload-${randomUUID()}`);
+  writeFileSync(tmp, bytes);
+  try {
+    const samples = await new Promise<Float32Array>((ok, bad) => {
+      const p = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file', '-f', fmt, '-i', tmp, '-vn', '-t', String(o.maxSeconds + 0.5), '-ac', '1', '-ar', String(rate), '-f', 'f32le', 'pipe:1'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const chunks: Buffer[] = []; let err = '';
+      p.stdout.on('data', (d: Buffer) => chunks.push(d));
+      p.stderr.on('data', (d: Buffer) => { err = (err + d.toString()).slice(-2000); });
+      const abort = () => p.kill('SIGKILL');
+      o.signal?.addEventListener('abort', abort, { once: true });
+      p.on('error', bad);
+      p.on('close', (code) => {
+        o.signal?.removeEventListener('abort', abort);
+        if (code !== 0) return bad(new Error(`son illisible : ${err.trim().split('\n').pop() ?? code}`));
+        const buf = Buffer.concat(chunks), out = new Float32Array(buf.length >> 2);
+        for (let i = 0; i < out.length; i++) out[i] = buf.readFloatLE(i * 4);
+        ok(out);
+      });
+    });
+    const max = Math.round(o.maxSeconds * rate);
+    return samples.length > max ? { samples: samples.subarray(0, max), truncated: true } : { samples, truncated: false };
+  } finally { rmSync(tmp, { force: true }); }
 }

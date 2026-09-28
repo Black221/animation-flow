@@ -65,7 +65,11 @@ function drawPrim(ctx: Ctx2D, p: Prim, fonts: ReturnType<typeof resolveFonts>, i
     ctx.save(); ctx.shadowColor = c; ctx.shadowBlur = p.size * 0.35 * pxOf(ctx);
     drawText(ctx, { ...p, color: lighten(c, 0.45), outline: undefined }, fonts); ctx.restore();
   } else if (p.kind === 'glow') { drawGlow(ctx, { ...p, radius: p.radius * 1.3 }); drawGlow(ctx, { ...p, opacity: p.opacity * 0.6 }); }
-  else if (p.kind === 'image') { ctx.save(); drawImage(ctx, p, images); ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = rgba('#2A1F5C', 0.75); ctx.fillRect(p.x, p.y, p.w, p.h); ctx.restore(); }
+  else if (p.kind === 'image') {
+    // a painted decor turns to night; an imported picture (a logo, a product) keeps its colours
+    drawImage(ctx, p, images);
+    if (!p.matrix && images?.(p.src)) { ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = rgba('#2A1F5C', 0.75); ctx.fillRect(p.x, p.y, p.w, p.h); ctx.restore(); }
+  }
   else nightSky(ctx, p);
 }
 

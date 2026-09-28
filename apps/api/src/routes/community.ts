@@ -7,17 +7,17 @@
 // published, shows its origin, and the origin counts its remixes. Only names are ever shown of people, never e-mails.
 import type { Quotas } from '../plans';
 import { timeProject } from '@af/engine';
-import { parseProject, voiceIsCurrent, type Project } from '@af/schema';
+import { parseProject, pictureAssetsOf, soundAssetsOf, type Project } from '@af/schema';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { z } from 'zod';
 import { RANK, type Role } from '../auth/context';
 import { userOf, wsOf } from '../auth/context';
 import type { Db } from '../db';
 import { sendFile } from '../files';
-import { imageFile } from './images';
+import { imageFile, imageMime } from './images';
 import { sendPng, type Thumbnailer } from './thumbnails';
 import { voiceFile } from './voices';
 
@@ -57,14 +57,11 @@ const summary = (r: PubRow) => ({
 });
 
 /** the media a project needs to be played (current recordings, painted decors) */
-const mediaOf = (p: Project) => ({
-  voices: [...new Set(p.scenes.flatMap((s) => s.narration.filter(voiceIsCurrent).map((l) => l.audio!.asset)))],
-  images: [...new Set(Object.values(p.assets).flatMap((a) => (a.image ? [a.image.asset] : [])))],
-});
+const mediaOf = (p: Project) => ({ voices: soundAssetsOf(p), images: pictureAssetsOf(p) });
 const dirOf = (root: string, id: string) => join(root, id);
 const listMedia = (root: string, id: string, kind: 'voices' | 'images') => {
   const d = join(dirOf(root, id), kind);
-  return existsSync(d) ? readdirSync(d).map((f) => f.replace(/\.(wav|jpg)$/, '')) : [];
+  return existsSync(d) ? readdirSync(d).map((f) => f.replace(/\.(wav|jpg|png)$/, '')) : [];
 };
 
 export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir: string; imagesDir: string; communityDir: string }, thumbnail: Thumbnailer, quota: Quotas) {
@@ -90,13 +87,14 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     return !!m && RANK[m.role] >= RANK.admin;
   };
 
+  const pubImage = (pub: string, a: string) => { const png = join(dirOf(dirs.communityDir, pub), 'images', `${a}.png`); return existsSync(png) ? png : join(dirOf(dirs.communityDir, pub), 'images', `${a}.jpg`); };
   /** copy what a project needs to be played into the publication's folder */
   const copyMedia = (ws: string, pub: string, p: Project) => {
     const root = dirOf(dirs.communityDir, pub), m = mediaOf(p);
     rmSync(root, { recursive: true, force: true });
     mkdirSync(join(root, 'voices'), { recursive: true }); mkdirSync(join(root, 'images'), { recursive: true });
     for (const a of m.voices) { const f = voiceFile(dirs.voicesDir, ws, a); if (existsSync(f)) copyFileSync(f, join(root, 'voices', `${a}.wav`)); }
-    for (const a of m.images) { const f = imageFile(dirs.imagesDir, ws, a); if (existsSync(f)) copyFileSync(f, join(root, 'images', `${a}.jpg`)); }
+    for (const a of m.images) { const f = imageFile(dirs.imagesDir, ws, a); if (existsSync(f)) copyFileSync(f, join(root, 'images', basename(f))); }
   };
 
   // ---------------------------------------------------------------- publishing (from a project of the workspace)
@@ -227,12 +225,13 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
   // ---------------------------------------------------------------- media and thumbnails (anyone)
   app.get('/api/community/:id/:kind/:file', { config: { auth: 'public' } }, async (req, reply) => {
     const { id, kind, file } = req.params as { id: string; kind: string; file: string };
-    const m = kind === 'voices' ? /^([0-9a-f]{32})\.wav$/.exec(file) : kind === 'images' ? /^([0-9a-f]{32})\.jpg$/.exec(file) : null;
+    const m = kind === 'voices' ? /^([0-9a-f]{32})\.wav$/.exec(file) : kind === 'images' ? /^([0-9a-f]{32})\.(?:jpg|png)$/.exec(file) : null;
     if (!m || !Uuid.safeParse({ id }).success) return reply.code(404).send({ error: 'introuvable' });
-    const f = join(dirOf(dirs.communityDir, id), kind, file);
+    // a picture is asked for as .jpg: the stored file says what it is (PNG for an imported one with transparency)
+    const f = kind === 'images' ? pubImage(id, m[1]!) : join(dirOf(dirs.communityDir, id), kind, file);
     if (!existsSync(f)) return reply.code(404).send({ error: 'introuvable' });
     reply.header('cache-control', 'public, max-age=31536000, immutable');
-    return sendFile(req, reply, f, kind === 'voices' ? 'audio/wav' : 'image/jpeg');
+    return sendFile(req, reply, f, kind === 'voices' ? 'audio/wav' : imageMime(f));
   });
 
   app.get('/api/community/:id/thumbnail.png', { config: { auth: 'public' } }, async (req, reply) => {
@@ -241,7 +240,7 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     const parsed = r ? parseProject(r.data) : null;
     if (!r || !parsed?.ok) return reply.code(404).send({ error: 'publication introuvable' });
     const root = dirOf(dirs.communityDir, p.data!.id);
-    const images = Object.fromEntries(listMedia(dirs.communityDir, p.data!.id, 'images').map((a) => [a, join(root, 'images', `${a}.jpg`)]));
+    const images = Object.fromEntries(listMedia(dirs.communityDir, p.data!.id, 'images').map((a) => [a, pubImage(p.data!.id, a)]));
     const stamp = String(r.updated_at.getTime());
     return sendPng(reply, await thumbnail(`pub:${p.data!.id}:${stamp}`, parsed.project, images), (req.query as { v?: string }).v === stamp, true);
   });
@@ -258,7 +257,7 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     // its recordings and painted decors, into this workspace (named by content: nothing clashes)
     const root = dirOf(dirs.communityDir, p.data.id);
     for (const a of listMedia(dirs.communityDir, p.data.id, 'voices')) { const to = voiceFile(dirs.voicesDir, ws, a); if (!existsSync(to)) { mkdirSync(join(dirs.voicesDir, ws), { recursive: true }); copyFileSync(join(root, 'voices', `${a}.wav`), to); } }
-    for (const a of listMedia(dirs.communityDir, p.data.id, 'images')) { const to = imageFile(dirs.imagesDir, ws, a); if (!existsSync(to)) { mkdirSync(join(dirs.imagesDir, ws), { recursive: true }); copyFileSync(join(root, 'images', `${a}.jpg`), to); } }
+    for (const a of listMedia(dirs.communityDir, p.data.id, 'images')) { const from = pubImage(p.data.id, a), to = join(dirs.imagesDir, ws, basename(from)); if (!existsSync(imageFile(dirs.imagesDir, ws, a))) { mkdirSync(join(dirs.imagesDir, ws), { recursive: true }); copyFileSync(from, to); } }
     const pid = randomUUID(), data = JSON.stringify(project);
     await db.tx(async (q) => {
       await q.query('INSERT INTO projects (id, title, data, workspace_id, created_by, updated_by, remix_of) VALUES ($1, $2, $3, $4, $5, $5, $6)', [pid, project.title, data, ws, user, p.data.id]);

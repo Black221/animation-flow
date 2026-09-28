@@ -18,7 +18,7 @@ export const DEFAULT_LEVELS: Levels = { voiceDb: 0, musicDb: 0, sfxDb: -4, duckD
 export interface MixInput {
   project: Project;
   timeline?: Timeline;
-  /** decoded voice assets, mono at 48 kHz, by asset id */
+  /** decoded voice assets (and the imported music), mono at 48 kHz, by asset id */
   voices: Map<string, Float32Array>;
   /** seconds; default: the whole film */
   range?: { from: number; to: number };
@@ -41,6 +41,22 @@ export interface MixResult {
   missing: string[];
   /** sound kinds the synthesizer does not know */
   unknownSounds: string[];
+  /** the imported music could not be had (the composed music plays instead) */
+  missingSoundtrack: boolean;
+}
+
+const SOUNDTRACK_FADE = 2; // seconds, at the end of the film
+
+/** the imported music over [from, to): from the film's start, looped or once, fading out at the film's end */
+function soundtrackBus(buf: Float32Array, loop: boolean, from: number, n: number, filmEnd: number): Float32Array {
+  const out = new Float32Array(n), start = Math.round(from * SR), len = buf.length;
+  for (let i = 0; i < n; i++) {
+    let k = start + i;
+    if (k >= len) { if (!loop || len === 0) break; k %= len; }
+    const t = (start + i) / SR, fade = t > filmEnd - SOUNDTRACK_FADE ? Math.max(0, (filmEnd - t) / SOUNDTRACK_FADE) : 1;
+    out[i] = buf[k]! * fade;
+  }
+  return out;
 }
 
 /** how much of a voice is sounding: an envelope follower (fast attack, slow release) */
@@ -85,8 +101,15 @@ export function mixSoundtrack(input: MixInput): MixResult {
   });
   for (let i = 0; i < n; i++) { L[i]! += voice[i]!; R[i]! += voice[i]!; }
 
-  // music under the voice: its gain drops by duckDb while the voice sounds
-  if (inc.music) {
+  // music under the voice: its gain drops by duckDb while the voice sounds. An imported music file plays for the
+  // whole film instead of the composed pieces.
+  const track = project.soundtrack ? voices.get(project.soundtrack.asset) : undefined, missingSoundtrack = !!project.soundtrack && !track;
+  if (inc.music && track) {
+    const m = soundtrackBus(track, project.soundtrack!.loop, from, n, tl.duration), act = activity(voice), duck = dbToGain(lv.duckDb);
+    // measured, brought to the music level, then the track's own gain
+    const measured = integratedLoudness([m]), base = dbToGain((Number.isFinite(measured) ? MUSIC_LUFS - measured : 0) + lv.musicDb + project.soundtrack!.gain);
+    for (let i = 0; i < n; i++) { const k = Math.min(1, act[i]! * 12), v = m[i]! * base * (1 + (duck - 1) * k); L[i]! += v; R[i]! += v; }
+  } else if (inc.music) {
     // each scene plays its piece of the project's score (or a built-in mood)
     const sections = tl.scenes.map((ts, si) => ({ start: ts.start - from, duration: ts.duration, piece: pieceFor(project.scenes[si]!.music.mood, project.score), gainDb: project.scenes[si]!.music.gain }))
       .filter((s) => s.start + s.duration > 0 && s.start < to - from);
@@ -116,5 +139,5 @@ export function mixSoundtrack(input: MixInput): MixResult {
   let lufs = integratedLoudness([L, R]);
   if (input.targetLufs !== null && Number.isFinite(lufs)) lufs = normalize([L, R], input.targetLufs ?? -16).after;
   const peak = truePeak([L, R]);
-  return { sampleRate: SR, left: L, right: R, duration: n / SR, lufs, peakDb: 20 * Math.log10(Math.max(1e-9, peak)), missing, unknownSounds: [...unknownSounds] };
+  return { sampleRate: SR, left: L, right: R, duration: n / SR, lufs, peakDb: 20 * Math.log10(Math.max(1e-9, peak)), missing, unknownSounds: [...unknownSounds], missingSoundtrack };
 }

@@ -22,7 +22,7 @@ function usesOf(p: Project, id: string, a: Asset): string[] {
   return p.scenes.filter((s) => (a.kind === 'decor' ? s.decor.kind === id : s.elements.some((e) => (e.type === 'character' && !!e.ref && refs.has(e.ref)) || (e.type === 'prop' && e.ref === id)))).map((s) => s.id);
 }
 
-export function DrawingsPanel({ project, onChange, readOnly, resetKey, remoteKey }: { project: Project; onChange: (p: Project) => void; readOnly: boolean; resetKey: string; remoteKey: number }) {
+export function DrawingsPanel({ project, onChange, readOnly, resetKey, remoteKey, onImport }: { project: Project; onChange: (p: Project) => void; readOnly: boolean; resetKey: string; remoteKey: number; /** opens the file picker of « Importer » */ onImport?: () => void }) {
   const { plan } = usePlan(), paintable = !plan || plan.limits.decorImages;
   const ids = Object.keys(project.assets);
   const [sel, setSel] = useState<string | null>(ids[0] ?? null);
@@ -60,13 +60,14 @@ export function DrawingsPanel({ project, onChange, readOnly, resetKey, remoteKey
 
   return (
     <div className="drawings">
+      {!readOnly && onImport && <p className="muted small import-hint"><button type="button" onClick={onImport}><Icon name="upload" size={14} /> Importer une image</button> un logo, un produit, une photo de décor, un personnage (PNG, JPEG, WebP) — ou déposez-la sur l’éditeur.</p>}
       <ul className="drawing-list" aria-label="dessins du film">
         {ids.map((id) => {
           const a = project.assets[id]!;
           return (
             <li key={id}>
               <button className={id === cur ? 'active' : ''} onClick={() => setSel(id)} data-testid={`drawing-${id}`}>
-                <strong>{a.name}</strong> <span className="muted small">{KIND_LABEL[a.kind]}{a.image ? ' · image' : ''}{a.made?.by === 'dessin de secours' ? ' · simplifié' : ''}</span>
+                <strong>{a.name}</strong> <span className="muted small">{KIND_LABEL[a.kind]}{a.image ? ' · image' : ''}{a.made?.by === 'image importée' ? ' · importée' : ''}{a.made?.by === 'dessin de secours' ? ' · simplifié' : ''}</span>
               </button>
             </li>
           );

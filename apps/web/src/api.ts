@@ -37,6 +37,36 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   return body as T;
 }
 
+/** send a file as the request body (pictures, sounds): the server reads what it is from its bytes */
+export async function upload<T>(path: string, file: Blob): Promise<T> {
+  const headers: Record<string, string> = { 'x-requested-with': 'animation-flow', 'content-type': file.type || 'application/octet-stream' };
+  const ws = getWorkspace();
+  if (ws) headers['x-workspace-id'] = ws;
+  const r = await fetch(path, { method: 'POST', headers, body: file });
+  if (r.status === 401) unauthorized.forEach((f) => f());
+  const text = await r.text();
+  let body: any = null;
+  try { body = text ? JSON.parse(text) : null; } catch { /* a proxy's page */ }
+  if (r.status === 413) throw new ApiError(413, 'fichier trop gros', body);
+  if (r.status === 402 && body?.quota) { lastQuota.text = body.error; lastQuota.at = Date.now(); overQuota.forEach((f) => f(body as QuotaInfo)); }
+  if (!r.ok) throw new ApiError(r.status, body?.error ?? `HTTP ${r.status}`, body);
+  return body as T;
+}
+export interface UploadedImage { asset: string; width: number; height: number; alpha: boolean; color: string; url: string }
+export interface UploadedSound { asset: string; duration: number; truncated: boolean; maxSeconds: number; url: string }
+export interface ImportResult { id: string; title: string; media: { images: number; sounds: number; missing: number; skipped: number }; warnings: Warning[] }
+
+/** download what a GET returns as a file (the export needs the workspace header, a plain link cannot send it) */
+export async function download(path: string, fallbackName: string) {
+  const headers: Record<string, string> = { 'x-requested-with': 'animation-flow' }, ws = getWorkspace();
+  if (ws) headers['x-workspace-id'] = ws;
+  const r = await fetch(path, { headers });
+  if (!r.ok) { let e = `HTTP ${r.status}`; try { e = (await r.json()).error ?? e; } catch { /* not JSON */ } throw new ApiError(r.status, e, null); }
+  const name = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName, url = URL.createObjectURL(await r.blob());
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 export interface Warning { path: string; message: string }
 export interface ProjectSummary { id: string; title: string; version: number; createdAt: string; updatedAt: string; updatedBy: string | null; createdBy: string | null; remixOf?: { id: string; title: string } | null; publicationId?: string | null; scenes?: number[] }
 export type License = 'cc-by' | 'cc-by-sa' | 'cc0';
@@ -156,6 +186,10 @@ export const Api = {
   deleteCredential: (id: string) => api<void>(`/api/credentials/${id}`, { method: 'DELETE' }),
   testCredential: (id: string) => api<TestResult>(`/api/credentials/${id}/test`, { method: 'POST' }),
   assignments: () => api<Assignment[]>('/api/assignments'),
+  uploadImage: (f: Blob) => upload<UploadedImage>('/api/uploads/image', f),
+  uploadAudio: (f: Blob, use: 'voice' | 'music') => upload<UploadedSound>(`/api/uploads/audio?use=${use}`, f),
+  exportProject: (id: string, media = true) => download(`/api/projects/${id}/export?media=${media ? 1 : 0}`, 'projet.animation.json'),
+  importProject: (file: unknown) => api<ImportResult>('/api/projects/import', { method: 'POST', body: file }),
   renders: (projectId: string) => api<RenderJob[]>(`/api/projects/${projectId}/renders`),
   startRender: (projectId: string, r: RenderRequest) => api<RenderJob>(`/api/projects/${projectId}/renders`, { method: 'POST', body: r }),
   cancelRender: (id: string) => api<RenderJob>(`/api/renders/${id}/cancel`, { method: 'POST' }),

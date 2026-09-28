@@ -11,10 +11,10 @@ import { Worker } from 'node:worker_threads';
 import { renderChunk, type ChunkJob } from './chunk';
 import { AbortError, FFMPEG, run } from './ffmpeg';
 
-export { probe, AbortError, decodeAudio } from './ffmpeg';
+export { probe, AbortError, decodeAudio, decodeUpload, audioType } from './ffmpeg';
 export { registerFonts } from './fonts';
 export { renderStill } from './still';
-export { loadPictures, normalizePicture } from './pictures';
+export { loadPictures, normalizePicture, normalizeUpload, pictureType, type Upload } from './pictures';
 
 export interface Progress { done: number; total: number; elapsedMs: number; fps: number }
 export interface RenderVideoOptions {

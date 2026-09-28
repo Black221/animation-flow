@@ -212,6 +212,29 @@ propre feuille.
   l'inspecteur ne garde que Scène, Voix et Commentaires, l'export des sous-titres disparaît ; au doigt, pas de
   raccourcis clavier ; classes `hide-phone` et `hide-tablet` pour les colonnes secondaires des tableaux.
 
+## Fichiers importés (`apps/api/src/routes/uploads.ts`, `apps/web/src/components/ImportDialog.tsx`, `textfile.ts`)
+
+- `POST /api/uploads/image` et `POST /api/uploads/audio?use=voice|music` prennent le fichier comme corps de la requête
+  (un analyseur de corps brut limité à ces deux routes ; `bodyLimit` par route). Le type vient des premiers octets
+  (`pictureType`, `audioType`), jamais de l'en-tête. Image : `normalizeUpload` (`@napi-rs/canvas`) redessine, détecte la
+  transparence et la couleur moyenne, écrit `IMAGES_DIR/<espace>/<id>.png|.jpg` ; `imageFile` trouve l'un ou l'autre et
+  les liens disent toujours `.jpg` (le fichier décide du type servi). Son : `decodeUpload` écrit une copie temporaire,
+  lance FFmpeg avec `-f <format> -protocol_whitelist file`, lit du PCM mono 48 kHz ; une voix passe par `trimSilence` et
+  `normalizeVoice` comme une voix synthétisée ; tout son est stocké en WAV 16 bits à côté des voix (`VOICES_DIR`), donc
+  lu par le même mixeur, les mêmes liens signés, la même copie à la publication et au remix.
+- Dans le format : une forme `image` dans un dessin (`{ type: 'image', asset, x, y, w, h }`) ; le moteur en fait une
+  primitive `image` qui garde sa matrice (`matrix`) quand l'élément tourne ou se retourne, et les styles la dessinent
+  sous cette transformation (le néon ne teinte que les décors peints). `soundtrack` au niveau du projet : la musique
+  importée, jouée depuis le début du film, en boucle ou non, fondu de 2 s à la fin, mesurée et ramenée au niveau de la
+  musique puis baissée sous les voix ; elle remplace les pièces composées des scènes. `pictureAssetsOf` et
+  `soundAssetsOf` (`packages/schema`) disent quels médias un projet utilise : rendu, vignettes, aperçu, publication et
+  export s'en servent.
+- `GET /api/projects/:id/export` : `{ format: 'animation-flow', version: 1, project, media: { images, sounds } }`
+  (base64). `POST /api/projects/import` n'importe que les médias que le projet nomme, décode et stocke chacun à nouveau
+  (un nouvel id quand ses octets changent, et le projet est réécrit en conséquence) et dit ce qui manque.
+- Les textes pour l'IA ne partent pas comme fichiers : `readTextFile` les lit dans le navigateur (DOCX et ODT depuis le
+  XML de leur zip avec `DecompressionStream`, PDF avec pdf.js chargé à la demande, SRT/VTT sans numéros ni temps).
+
 ## Rendu vidéo (`packages/render`, `apps/api/src/render`)
 
 ```

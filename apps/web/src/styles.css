@@ -181,7 +181,7 @@ main { min-height: 0; }
 /* narration */
 .voices { display: grid; gap: 10px; }
 .voice-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.voice-list li { display: grid; grid-template-columns: 56px 1fr auto auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 10px; background: var(--panel-2); font-size: 0.86rem; }
+.voice-list li { display: grid; grid-template-columns: 56px 1fr auto auto auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 10px; background: var(--panel-2); font-size: 0.86rem; }
 .voice-list .sid { font-family: var(--mono); font-size: 0.76em; color: var(--muted); }
 .voice-list .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .voice-list button.icon { width: 30px; min-height: 28px; }
@@ -844,3 +844,23 @@ button.like.on { color: var(--accent-2); border-color: color-mix(in srgb, var(--
 .render-panel .video.gif { width: auto; max-width: 100%; max-height: 440px; justify-self: center; object-fit: contain; }
 .render-list .aspect-icon { margin-right: 4px; }
 @media (max-width: 700px) { .render-panel .field-row .opt-label { min-width: 0; width: 100%; } .seg { width: 100%; } .seg button { flex: 1; justify-content: center; } }
+
+/* importing files: the veil over the editor while a file is dragged, the dialog, the drop targets */
+.editor { position: relative; }
+.drop-veil { position: absolute; inset: 10px; z-index: 50; display: grid; place-content: center; justify-items: center; gap: 6px; border: 2.5px dashed var(--accent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent-soft) 88%, transparent); color: var(--accent); pointer-events: none; text-align: center; }
+.drop-veil span { color: var(--muted); font-size: 0.9rem; }
+.drop-over { outline: 2.5px dashed var(--accent); outline-offset: -6px; border-radius: var(--radius); }
+.import-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 18px; align-items: start; }
+.import-preview { display: grid; place-items: center; min-height: 180px; max-height: 320px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--line); }
+.import-preview img { max-width: 100%; max-height: 320px; object-fit: contain; display: block; }
+.checker { background: repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 18px 18px; }
+.stack { display: grid; gap: 10px; }
+.seg.wide { display: flex; width: 100%; }
+.seg.wide button { flex: 1; justify-content: center; }
+.import-audio { width: 100%; }
+.doc-note { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 2px 0; }
+.soundtrack { display: grid; gap: 8px; padding: 12px; margin-bottom: 12px; }
+.soundtrack strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.soundtrack label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: var(--muted); }
+.import-hint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 700px) { .import-grid { grid-template-columns: 1fr; } }

@@ -1,7 +1,7 @@
-import { exampleProject, parseProject, type Project } from '@af/schema';
+import { exampleProject, parseProject, pictureAssetsOf, type Project } from '@af/schema';
 import { catalog, registry } from '../src';
 import { describe, expect, it } from 'vitest';
-import { ASPECTS, checkAgainstLibrary, cropSize, focusOf, planFraming, primsBox, reframe, createEvaluator, estimateDuration, GAP, LEAD, sampleElement, refResolver, timeLines, timeProject, toSrt, TAIL } from '@af/engine';
+import { ASPECTS, checkAgainstLibrary, cropSize, focusOf, planFraming, primBox, primsBox, reframe, createEvaluator, estimateDuration, GAP, LEAD, sampleElement, refResolver, timeLines, timeProject, toSrt, TAIL } from '@af/engine';
 
 const project = (() => { const r = parseProject(exampleProject); if (!r.ok) throw new Error(JSON.stringify(r.issues)); return r.project; })();
 const withEdit = (f: (p: Project) => void) => { const p = structuredClone(project); f(p); return p; };
@@ -146,5 +146,32 @@ describe('reframing (vertical, square, portrait outputs)', () => {
     const w0 = f.items.find((p) => !p.overlay && p.kind === 'path'), w1 = r.items.find((p) => p.id === w0!.id);
     if (w0?.kind !== 'path' || w1?.kind !== 'path') throw new Error('no world path');
     expect(w1.points[0]![0]).toBeCloseTo(w0.points[0]![0] - 600);
+  });
+});
+
+describe('imported pictures in drawings', () => {
+  const asset = 'b'.repeat(32);
+  const withLogo = withEdit((p) => {
+    (p as any).assets = { ...p.assets, logo: { kind: 'prop', name: 'Logo', description: '', parts: [{ id: 'image', pivot: [0, 0], shapes: [{ type: 'image', asset, x: -100, y: -80, w: 200, h: 80 }] }], poses: {}, expressions: {} } };
+    p.scenes[0]!.elements.push({ id: 'logo', type: 'prop', ref: 'logo', params: {}, layer: 20, space: 'world', keys: [{ t: 0, x: 960, y: 600, rotation: 0.5, scale: 1.5 }] } as any);
+  });
+  it('validates, is listed among the project’s pictures, and draws as a picture that turns with its element', () => {
+    const r = parseProject(withLogo);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(pictureAssetsOf(r.project)).toContain(asset);
+    const f = createEvaluator(r.project, registry).frameAt(1), img = f.items.find((p) => p.kind === 'image' && p.src === asset);
+    expect(img?.kind).toBe('image');
+    if (img?.kind !== 'image') return;
+    expect(img.matrix).toBeDefined();
+    const b = primBox(img);
+    // 200 × 80 at scale 1.5, turned: its box is wider than it is tall, around the element
+    expect(b.x1 - b.x0).toBeGreaterThan(250);
+    expect((b.x0 + b.x1) / 2).toBeGreaterThan(700); expect((b.x0 + b.x1) / 2).toBeLessThan(1220);
+  });
+  it('refuses an image shape without a proper id', () => {
+    const bad = structuredClone(withLogo) as any;
+    bad.assets.logo.parts[0].shapes[0].asset = '../../etc/passwd';
+    expect(parseProject(bad).ok).toBe(false);
   });
 });
