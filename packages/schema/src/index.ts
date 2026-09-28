@@ -249,6 +249,8 @@ export const Asset = z.object({
   /** decors: a picture made by an image model, over the whole decor (the frame and 300 px around it, 3:2); the
    *  parts stay underneath, drawn when the picture cannot be had */
   image: z.object({ asset: z.string().regex(/^[0-9a-f]{32}$/, "identifiant d'image"), width: z.number().int().positive(), height: z.number().int().positive(), by: z.string().max(200).optional() }).optional(),
+  /** false: never mirrored when it faces the other way (a picture with writing on it, a logo) */
+  flip: z.boolean().default(true),
   /** how it was made (model, rounds of visual review) */
   made: z.object({ by: z.string().max(200), rounds: z.number().int().min(0).max(20).default(0), at: z.string().max(40).optional() }).optional(),
 }).superRefine((a, ctx) => {
@@ -406,3 +408,4 @@ export function pictureAssetsOf(p: { assets?: Project['assets'] | undefined }): 
 export { exampleProject } from './example';
 export { diffJson, applyOps, OpConflict, OpInvalid, type Op, type PathSeg } from './ops';
 export { LiveDoc, type LiveCause, type Peer, type LiveServerMsg, type LiveClientMsg } from './live';
+export * from './picture';

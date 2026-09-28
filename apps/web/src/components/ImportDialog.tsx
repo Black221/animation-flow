@@ -3,11 +3,12 @@
 // by the server), then the project names it: an asset with the picture in its drawing, the scene's element or decor,
 // the soundtrack, the line's recording. Opened from the « Importer » button or by dropping a file on the editor.
 import { catalog } from '@af/library';
-import { textHash, voiceIsCurrent, type Asset, type Project } from '@af/schema';
+import { pictureAsset, pictureSize as pictureSizeOf, textHash, voiceIsCurrent, type Asset, type Project } from '@af/schema';
 import { Dialog, Icon } from '@af/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { Api } from '../api';
 import { addPicture } from '../pictures';
+import { pointOn, usePictureEdit } from '../usePictureEdit';
 
 export const MEDIA_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.opus,.flac,.aif,.aiff,.webm';
 export type MediaKind = 'image' | 'audio';
@@ -46,6 +47,9 @@ export function ImportDialog({ file, project, sceneIndex, onClose, onDone }: {
   const [imageUse, setImageUse] = useState<ImageUse>('prop'), [audioUse, setAudioUse] = useState<AudioUse>('music');
   const [name, setName] = useState(''), [place, setPlace] = useState(true), [loop, setLoop] = useState(true), [line, setLine] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  // a picture on a plain background (a mascot on white): offered without it, shown on the checkerboard; what is left
+  // of the background (a patch enclosed by the subject, a shadow) goes with a touch
+  const edit = usePictureEdit(kind === 'image' ? file : null);
   const url = useMemo(() => (file ? URL.createObjectURL(file) : ''), [file]);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
   const lines = project.scenes.flatMap((s, si) => s.narration.map((l, li) => ({ key: `${si}/${li}`, s, l, si, li })));
@@ -56,30 +60,31 @@ export function ImportDialog({ file, project, sceneIndex, onClose, onDone }: {
     setError(''); setBusy(false); setName(baseName(file)); setPlace(true); setLoop(true);
     const here = lines.filter((x) => x.si === sceneIndex), next = here.find((x) => !voiceIsCurrent(x.l)) ?? here[0] ?? lines[0];
     setLine(next?.key ?? ''); setAudioUse(project.soundtrack || !/voix|voice|replique|line/i.test(file.name) ? 'music' : 'voice');
-    if (kindOf(file) === 'image') void imageSize(file).then(({ w, h }) => setImageUse(file.type === 'image/png' || file.type === 'image/gif' || w / h < 1.2 || w < 900 ? 'prop' : 'decor'));
+    if (kindOf(file) === 'image') {
+      void imageSize(file).then(({ w, h }) => setImageUse(file.type === 'image/png' || file.type === 'image/gif' || w / h < 1.2 || w < 900 ? 'prop' : 'decor'));
+    }
   }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a decor keeps its whole picture
+  useEffect(() => { edit.setCut(imageUse !== 'decor'); }, [imageUse]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const importImage = async (f: File) => {
-    const r = await Api.uploadImage(f), label = name.trim() || baseName(f), made = { by: 'image importée', rounds: 0 };
+    const r = await Api.uploadImage(await edit.blob()), label = name.trim() || baseName(f), description = `image importée : ${f.name}`;
     addPicture(r.asset, r.url);
     const taken = (id: string) => id in project.assets || id in project.cast || catalog.props.some((p) => p.kind === id) || catalog.characters.some((c) => c.kind === id) || catalog.decors.some((d) => d.kind === id);
     const id = freeId(slug(label), taken), p = structuredClone(project), s = p.scenes[sceneIndex]!;
     const eid = () => freeId(id, (x) => s.elements.some((e) => e.id === x));
     const layer = Math.max(0, ...s.elements.map((e) => e.layer)) + 1;
+    // the drawing: the picture, sized for its use; a character turns and bounces on its feet (idle, talk, walk,
+    // jump, cheer, wave, dance), an object floats, spins or wobbles
+    p.assets[id] = pictureAsset(imageUse, r, label, description) as Asset;
     if (imageUse === 'decor') {
-      // the picture covers the frame and a little around it (the camera may move); the ground colour beyond
-      const asset: Asset = { kind: 'decor', name: label, description: `image importée : ${f.name}`, background: r.color, parts: [{ id: 'photo', pivot: [0, 0], shapes: [{ type: 'image', asset: r.asset, x: -120, y: -67.5, w: 2160, h: 1215 }] }], poses: {}, expressions: {}, made };
-      p.assets[id] = asset;
       if (place) s.decor = { kind: id, params: {} };
       return { p, note: place ? `« ${label} » est le décor de la scène ${s.id}` : `décor « ${label} » ajouté aux dessins` };
     }
-    // an object stands on its base (about the size of a person's upper body), a character is as tall as a person
-    const k = imageUse === 'character' ? 340 / r.height : 320 / Math.max(r.width, r.height), w = Math.round(r.width * k), h = Math.round(r.height * k);
-    const asset: Asset = { kind: imageUse, name: label, description: `image importée : ${f.name}`, parts: [{ id: 'image', pivot: [0, 0], shapes: [{ type: 'image', asset: r.asset, x: -w / 2, y: -h, w, h }] }], poses: {}, expressions: {}, made };
-    p.assets[id] = asset;
+    const { h } = pictureSizeOf(imageUse, r);
     if (imageUse === 'character') {
       p.cast[id] = { kind: id, name: label, params: {} };
-      if (place) s.elements.push({ id: eid(), type: 'character', ref: id, params: {}, layer, space: 'world', keys: [{ t: 0, x: 960, y: 900, opacity: 0 }, { t: 0.4, opacity: 1 }] });
+      if (place) s.elements.push({ id: eid(), type: 'character', ref: id, params: {}, layer, space: 'world', keys: [{ t: 0, x: 960, y: 900, opacity: 0, pose: 'idle' }, { t: 0.4, opacity: 1 }] });
     // an object in the upper right, clear of the characters (who stand in the middle, on the ground)
     } else if (place) s.elements.push({ id: eid(), type: 'prop', ref: id, params: {}, layer, space: 'world', keys: [{ t: 0, x: 1500, y: Math.round(380 + h / 2), opacity: 0 }, { t: 0.4, opacity: 1 }] });
     return { p, note: place ? `« ${label} » ajouté à la scène ${s.id}` : `« ${label} » ajouté aux dessins` };
@@ -111,11 +116,15 @@ export function ImportDialog({ file, project, sceneIndex, onClose, onDone }: {
       footer={<><button className="ghost" onClick={onClose}>Annuler</button><button className="primary" onClick={() => void go()} disabled={busy || !kind || (kind === 'audio' && audioUse === 'voice' && !line)}><Icon name="upload" size={16} /> {busy ? 'Import…' : 'Importer'}</button></>}>
       {file && !kind && <p className="error" role="alert">Ce fichier n’est ni une image (PNG, JPEG, WebP, GIF) ni un son (MP3, WAV, M4A, OGG, FLAC). Un projet (.json) s’importe depuis « Mes projets », un texte depuis « Créer avec l’IA ».</p>}
       {kind === 'image' && <div className="import-grid">
-        <div className="import-preview checker"><img src={url} alt="aperçu de l’image" /></div>
+        <div className="stack">
+          <div className="import-preview checker"><img src={edit.url || url} alt="aperçu de l’image" data-testid="import-preview" className={imageUse !== 'decor' ? 'erasable' : ''} onClick={(e) => { if (imageUse === 'decor') return; const at = pointOn(e); if (at) edit.erase(at[0], at[1]); }} title={imageUse !== 'decor' ? 'touchez une zone pour l’effacer' : undefined} /></div>
+          {imageUse !== 'decor' && <p className="muted small row wrap">Touchez une zone de l’image pour l’effacer (un reste de fond, une ombre).{edit.erased > 0 && <button type="button" className="ghost small" onClick={edit.undo}>Annuler l’effacement ({edit.erased})</button>}</p>}
+        </div>
         <div className="stack">
           <div className="seg wide" role="radiogroup" aria-label="usage de l’image">{(Object.keys(IMAGE_USE) as ImageUse[]).map((u) => <button key={u} type="button" role="radio" aria-checked={imageUse === u} className={imageUse === u ? 'on' : ''} onClick={() => setImageUse(u)}>{IMAGE_USE[u].label}</button>)}</div>
           <p className="muted small">{IMAGE_USE[imageUse].hint}.</p>
           <label className="field">Nom<input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} aria-label="nom du dessin" /></label>
+          {edit.plain && imageUse !== 'decor' && <label className="check"><input type="checkbox" checked={edit.cut} onChange={(e) => edit.setCut(e.target.checked)} /> Retirer le fond uni (détourer)</label>}
           <label className="check"><input type="checkbox" checked={place} onChange={(e) => setPlace(e.target.checked)} /> {imageUse === 'decor' ? `Décor de la scène ${scene.id}` : `Ajouter à la scène ${scene.id}`}</label>
           <p className="muted small">L’image est enregistrée dans l’espace (PNG si elle a de la transparence, sinon JPEG, 2560 px au plus) et se dessine telle quelle dans tous les styles.</p>
         </div>

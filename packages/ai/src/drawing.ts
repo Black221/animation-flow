@@ -227,7 +227,7 @@ export async function drawAll(model: Model, briefs: AssetBrief[], c: DrawContext
   const worker = async () => {
     while (next < briefs.length) {
       if (o.signal?.aborted) throw new ModelError('génération annulée');
-      const i = next++, r = await drawOne(model, briefs[i]!, { ...c, others: briefs }, shared);
+      const i = next++, r = await drawOne(model, briefs[i]!, { ...c, others: [...briefs, ...(c.others ?? [])] }, shared);
       out[i] = r; o.onAsset?.(r);
     }
   };

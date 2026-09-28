@@ -20,12 +20,20 @@ const order = (g: Generation) => ({ storyboard: 0, review: 1, assets: 2, music: 
 const tokens = (u: { inputTokens: number; outputTokens: number }) => `${(u.inputTokens / 1000).toFixed(1)} k tokens envoyés · ${(u.outputTokens / 1000).toFixed(1)} k reçus`;
 
 /** the things to draw, editable: their description is what the drawing model gets */
-function Things({ label, what, items, onChange, idPrefix, withVoice = false }: { label: string; what: string; items: (StoryThing & { voice?: string })[]; onChange: (items: (StoryThing & { voice?: string })[]) => void; idPrefix: string; withVoice?: boolean }) {
+function Things({ label, what, items, onChange, idPrefix, withVoice = false, provided = {} }: { label: string; what: string; items: (StoryThing & { voice?: string })[]; onChange: (items: (StoryThing & { voice?: string })[]) => void; idPrefix: string; withVoice?: boolean; /** the pictures the user gave, by id: shown, not drawn */ provided?: Record<string, string> }) {
   const set = (i: number, patch: Partial<StoryThing & { voice?: string }>) => onChange(items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   return (
     <section className="things" aria-label={label}>
       <h3>{label} <span className="muted small">— dessinés pour le film d'après leur description</span></h3>
-      {items.map((c, i) => (
+      {items.map((c, i) => c.id in provided ? (
+        <div key={c.id + i} className="card row wrap provided-thing" data-testid="thing">
+          {provided[c.id] ? <img src={provided[c.id]} alt="" className="provided-thumb" /> : <span className="provided-thumb" />}
+          <strong>{c.name}</strong><span className="sid">{c.id}</span>
+          <span className="badge accent">votre image, telle quelle</span>
+          <span className="muted small grow">{c.description}</span>
+          {withVoice && <input value={c.voice ?? ''} placeholder="voix (facultatif)" onChange={(e) => set(i, { voice: e.target.value || undefined })} aria-label={`voix de ${c.name}`} />}
+        </div>
+      ) : (
         <div key={c.id + i} className="card row wrap" data-testid="thing">
           <input value={c.name} onChange={(e) => set(i, { name: e.target.value })} aria-label={`nom de ${c.id}`} style={{ width: 160 }} />
           <span className="sid">{c.id}</span>
@@ -86,6 +94,13 @@ export function Generate() {
   const ui = useUI();
   const nav = useNavigate();
   const editable = useSession().can('editor');
+  // the pictures the user gave the AI: shown in the storyboard as they are (they are not drawn)
+  const [provided, setProvided] = useState<Record<string, string>>({}), mediaKey = (g?.input.media ?? []).map((m) => m.asset).join(',');
+  useEffect(() => {
+    const media = g?.input.media ?? [];
+    if (!media.length) return;
+    void Api.imageLinks(media.map((m) => m.asset)).then((l) => setProvided(Object.fromEntries(media.map((m) => [m.id, l[m.asset] ?? ''])))).catch(() => setProvided(Object.fromEntries(media.map((m) => [m.id, '']))));
+  }, [mediaKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(async () => {
     try { const x = await Api.generation(id); setG(x); setSb((cur) => (dirty && cur ? cur : x.storyboard)); } catch (e) { setError((e as Error).message); }
@@ -146,13 +161,13 @@ export function Generate() {
         <section className="storyboard" aria-label="storyboard">
           <div className="row wrap">
             <input className="grow title" value={sb.title} onChange={(e) => edit({ ...sb, title: e.target.value })} aria-label="titre du film" />
-            <span className="muted small">{sb.scenes.length} scène(s) · {Math.round(total)} s visés · {sb.cast.length + sb.props.length + sb.decors.length} dessin(s) à faire</span>
+            <span className="muted small">{sb.scenes.length} scène(s) · {Math.round(total)} s visés · {[...sb.cast, ...sb.props, ...sb.decors].filter((x) => !(x.id in provided)).length} dessin(s) à faire{Object.keys(provided).length ? ` · ${Object.keys(provided).length} image(s) fournie(s)` : ''}</span>
           </div>
           {sb.palette.length > 0 && <div className="palette row" aria-label="palette du film">{sb.palette.map((c, i) => <span key={i} className="swatch" style={{ background: c }} title={c} />)}<span className="muted small">palette du film</span></div>}
-          <Things label="Personnages" what="un personnage" idPrefix="c" withVoice items={sb.cast} onChange={(cast) => edit({ ...sb, cast })} />
-          <Things label="Accessoires" what="un accessoire" idPrefix="p" items={sb.props} onChange={(props) => edit({ ...sb, props, scenes: sb.scenes.map((s) => ({ ...s, props: s.props.filter((x) => props.some((p) => p.id === x)) })) })} />
+          <Things label="Personnages" what="un personnage" idPrefix="c" withVoice provided={provided} items={sb.cast} onChange={(cast) => edit({ ...sb, cast })} />
+          <Things label="Accessoires" what="un accessoire" idPrefix="p" provided={provided} items={sb.props} onChange={(props) => edit({ ...sb, props, scenes: sb.scenes.map((s) => ({ ...s, props: s.props.filter((x) => props.some((p) => p.id === x)) })) })} />
           <Things label="Bruitages" what="un bruitage" idPrefix="snd" items={sb.sounds ?? []} onChange={(sounds) => edit({ ...sb, sounds })} />
-          <Things label="Décors" what="un décor" idPrefix="d" items={sb.decors} onChange={(decors) => decors.length && edit({ ...sb, decors, scenes: sb.scenes.map((s) => (decors.some((d) => d.id === s.decor) ? s : { ...s, decor: decors[0]!.id })) })} />
+          <Things label="Décors" what="un décor" idPrefix="d" provided={provided} items={sb.decors} onChange={(decors) => decors.length && edit({ ...sb, decors, scenes: sb.scenes.map((s) => (decors.some((d) => d.id === s.decor) ? s : { ...s, decor: decors[0]!.id })) })} />
           <ol className="story-scenes">
             {sb.scenes.map((s, i) => <SceneCard key={s.id} s={s} speakers={sb.cast} decors={sb.decors} props={sb.props} onChange={(n) => edit({ ...sb, scenes: sb.scenes.map((x, j) => (j === i ? n : x)) })} onRemove={() => sb.scenes.length > 1 && edit({ ...sb, scenes: sb.scenes.filter((_, j) => j !== i) })} />)}
           </ol>

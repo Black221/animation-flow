@@ -131,13 +131,15 @@ export interface StoryThing { id: string; name: string; description: string }
 export interface StoryboardT { title: string; language: string; style: string; palette: string[]; cast: (StoryThing & { voice?: string })[]; props: StoryThing[]; decors: StoryThing[]; sounds: StoryThing[]; scenes: StorySceneT[] }
 export interface GenStep { stage: string; target: string; attempt: number; ok: boolean; issues: Issue[]; usage: { inputTokens: number; outputTokens: number }; ms: number }
 export interface Generation {
-  id: string; status: GenerationStatus; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean };
+  id: string; status: GenerationStatus; input: { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean; media?: ProvidedMedia[] };
   storyboard: StoryboardT | null; projectId: string | null; scenesDone: number; scenesTotal: number; steps: GenStep[]; fallbacks: string[];
   assetsDone: number; assetsTotal: number; drawings: string[]; composed: { pieces: string[]; sounds: string[] } | null;
   models: { storyboard?: string; scenes?: string; assets?: string; music?: string }; usage: { inputTokens: number; outputTokens: number }; error: string | null; createdAt: string; updatedAt: string;
 }
 export interface DrawnInfo { id: string; fallback: boolean; rounds: number; review: string[] }
-export interface GenerationRequest { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean }
+/** a picture of the workspace the AI uses as it is (a mascot, a logo, a place) */
+export interface ProvidedMedia { id: string; kind: 'character' | 'prop' | 'decor'; name: string; description: string; asset: string; width: number; height: number; color?: string }
+export interface GenerationRequest { text: string; language: string; style: string; targetSeconds?: number; instructions?: string; review: boolean; media?: ProvidedMedia[] }
 export interface Comment {
   id: string; projectId: string; parentId: string | null; sceneId: string; elementId: string | null; t: number | null; body: string;
   author: { id: string; name: string } | null; createdAt: string; editedAt: string | null; resolvedAt: string | null; resolvedBy: string | null;

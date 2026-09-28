@@ -80,17 +80,23 @@ export function drawImage(ctx: Ctx2D, p: ImagePrim, images?: RenderOptions['imag
 /** which of a decor's pictures are there: part of the plate's key, so it is painted again when one arrives */
 export const picturesReady = (decor: FrameDecor, images?: RenderOptions['images']) => decor.still.filter((p) => p.kind === 'image').map((p) => (images?.((p as ImagePrim).src) ? '1' : '0')).join('');
 
-/** the narration line in the lower band, as in a subtitled film; in a tall frame (vertical video) higher up, clear of
- *  the buttons phone apps lay over the bottom. `anchorY`: where the last line sits instead. */
+/** the narration line in the lower band, as in a subtitled film. In a tall frame (a vertical video made from a 16:9
+ *  film) the characters fill the bottom half: the line goes above them, in the middle (clear of the titles at the top
+ *  and of the buttons phone apps lay over the bottom), on a soft dark backing. `anchorY`: where the last line sits. */
 export function drawSubtitle(ctx: Ctx2D, frame: Frame, fonts: Record<FontRole, string>, anchorY?: number) {
   if (!frame.subtitle) return;
   const { width: W, height: H } = frame, tall = H / W > 1.2, size = Math.round(Math.min(H * 0.034, W * 0.05)), text = (frame.subtitle.speaker ? frame.subtitle.speaker.toUpperCase() + ' — ' : '') + frame.subtitle.text;
   ctx.save();
   ctx.font = `600 ${size}px ${fonts.body}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const words = text.split(' '), lines: string[] = []; let cur = '';
-  for (const w of words) { const next = cur ? cur + ' ' + w : w; if (ctx.measureText(next).width > W * (tall ? 0.86 : 0.8) && cur) { lines.push(cur); cur = w; } else cur = next; }
+  for (const w of words) { const next = cur ? cur + ' ' + w : w; if (ctx.measureText(next).width > W * (tall ? 0.84 : 0.8) && cur) { lines.push(cur); cur = w; } else cur = next; }
   if (cur) lines.push(cur);
-  const lh = size * 1.3, y0 = (anchorY ?? H * (tall ? 0.8 : 0.945)) - (lines.length - 1) * lh;
+  const lh = size * 1.3, y0 = (anchorY ?? H * (tall ? 0.44 : 0.945)) - (lines.length - 1) * lh;
+  if (tall && anchorY == null) {
+    const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + size * 1.2, bh = lines.length * lh + size * 0.6, bx = (W - bw) / 2, by = y0 - lh / 2 - size * 0.3, r = size * 0.5;
+    ctx.fillStyle = 'rgba(12,14,24,0.42)'; ctx.beginPath();
+    ctx.moveTo(bx + r, by); ctx.arcTo(bx + bw, by, bx + bw, by + bh, r); ctx.arcTo(bx + bw, by + bh, bx, by + bh, r); ctx.arcTo(bx, by + bh, bx, by, r); ctx.arcTo(bx, by, bx + bw, by, r); ctx.closePath(); ctx.fill();
+  }
   lines.forEach((l, i) => { ctx.lineWidth = size * 0.22; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(20,20,28,0.85)'; ctx.strokeText(l, W / 2, y0 + i * lh); ctx.fillStyle = '#FFFFFF'; ctx.fillText(l, W / 2, y0 + i * lh); });
   ctx.restore();
 }

@@ -864,3 +864,9 @@ button.like.on { color: var(--accent-2); border-color: color-mix(in srgb, var(--
 .soundtrack label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: var(--muted); }
 .import-hint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 700px) { .import-grid { grid-template-columns: 1fr; } }
+.provided { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 2px 0; }
+.provided-chip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 4px 3px 3px; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); font-size: 0.86rem; }
+.provided-chip img { width: 28px; height: 28px; object-fit: contain; border-radius: 50%; background: repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 8px 8px; }
+.import-preview img.erasable { cursor: crosshair; }
+.provided-thing { align-items: center; }
+.provided-thumb { width: 56px; height: 56px; object-fit: contain; border-radius: 10px; background: repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 10px 10px; }

@@ -29,7 +29,17 @@ export const STYLE_BRIEF: Record<string, string> = {
   neon: 'neon lights at night; every colour becomes a glowing tube on a dark background: choose vivid pinks, cyans, violets and yellows, avoid browns and greys',
 };
 
-export interface StoryboardOptions { language: string; style: string; targetSeconds?: number | undefined; instructions?: string | undefined }
+/** a picture the user brings (a mascot, a logo, a place): used as it is, never drawn again */
+export interface ProvidedPicture { id: string; kind: 'character' | 'prop' | 'decor'; name: string; description: string; asset: string; width: number; height: number; color?: string | undefined }
+export interface StoryboardOptions { language: string; style: string; targetSeconds?: number | undefined; instructions?: string | undefined; provided?: ProvidedPicture[] | undefined }
+
+const LIST = { character: 'cast', prop: 'props', decor: 'decors' } as const;
+/** what the storyboard is told of the pictures the user brings */
+export function providedBrief(provided: readonly ProvidedPicture[]): string {
+  if (!provided.length) return '';
+  return `\nThe user brings these pictures. They are used as they are (not drawn again): put each in the list named, with exactly this id, name and description, and give it a real part in the film (a mascot is a main character; a logo is shown, not described):
+${provided.map((p) => `- id "${p.id}" in "${LIST[p.kind]}": ${p.name} — ${p.description}${p.kind === 'character' ? ' (a still picture that moves as a whole: idle, talk, walk, jump, cheer, wave, dance)' : p.kind === 'prop' ? ' (a still picture: it can float, spin or wobble)' : ''}`).join('\n')}\n`;
+}
 
 export function storyboardPrompt(o: StoryboardOptions): string {
   const lang = LANGUAGE_NAMES[o.language] ?? o.language;
@@ -47,7 +57,7 @@ Rules:
 - ids are short (letters, digits, - and _) and unique across cast, props, decors and sounds.
 - "palette": 5 to 8 colours ("#rrggbb") shared by the whole film, harmonious and readable.
 - The film's style is "${o.style}"${STYLE_BRIEF[o.style] ? `: ${STYLE_BRIEF[o.style]}. Choose the palette for it` : ''}.
-${o.instructions ? `\nThe user adds: ${o.instructions}\n` : ''}
+${o.instructions ? `\nThe user adds: ${o.instructions}\n` : ''}${providedBrief(o.provided ?? [])}
 Answer with the storyboard JSON only: { "title", "language": "${o.language}", "style": "${o.style}", "palette": [...], "cast": [...], "props": [...], "decors": [...], "sounds": [...], "scenes": [...] }.`;
 }
 

@@ -136,6 +136,15 @@ describe('reframing (vertical, square, portrait outputs)', () => {
     expect(cropSize(1920, 1080, 4 / 5)).toEqual({ w: 864, h: 1080 });
   });
 
+  it('keeps captions side by side together: they shrink as a row instead of landing on each other', () => {
+    const p = withEdit((q) => { for (const [i, name] of ['Dakar', 'Diamniadio', 'Saly'].entries()) q.scenes[0]!.elements.push({ id: `chip${i}`, type: 'text', space: 'screen', layer: 30, params: { text: name, size: 64, frame: true }, keys: [{ t: 0, x: 480 + i * 480, y: 190 }] } as never); });
+    const f = createEvaluator(p, registry).frameAt(1), r = reframe(f, { x: 600, y: 0, w: 607.5, h: 1080 });
+    const boxes = [0, 1, 2].map((i) => primsBox(r.items.filter((x) => x.overlay === `chip${i}`)));
+    for (const b of boxes) { expect(b.x0).toBeGreaterThanOrEqual(0); expect(b.x1).toBeLessThanOrEqual(607.5 + 0.5); }
+    expect(boxes[0]!.x1).toBeLessThanOrEqual(boxes[1]!.x0 + 0.5);
+    expect(boxes[1]!.x1).toBeLessThanOrEqual(boxes[2]!.x0 + 0.5);
+  });
+
   it('lays each overlay out again inside the window, whole, and shifts the world', () => {
     const f = ev.frameAt(2), c = { x: 600, y: 0, w: 607.5, h: 1080 }, r = reframe(f, c);
     expect(r.width).toBe(607.5);

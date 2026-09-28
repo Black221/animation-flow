@@ -81,15 +81,29 @@ const OVERLAY_MARGIN = 0.04;
 export function reframe(f: Frame, c: Crop): Frame {
   const shift: Mat = translate(-c.x, -c.y), groups = new Map<string, Prim[]>();
   for (const p of f.items) if (p.overlay) { let g = groups.get(p.overlay); if (!g) groups.set(p.overlay, (g = [])); g.push(p); }
+  // overlays on the same row (captions side by side) are laid out together, as one block: each alone would be
+  // pulled into the narrower frame and land on its neighbours
+  const boxes = [...groups].map(([id, ps]) => ({ ids: [id], b: primsBox(ps) }));
+  for (let merged = true; merged;) {
+    merged = false;
+    outer: for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i]!.b, b = boxes[j]!.b, overlap = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+      if (overlap > 0.5 * Math.min(a.y1 - a.y0, b.y1 - b.y0)) {
+        boxes[i] = { ids: [...boxes[i]!.ids, ...boxes[j]!.ids], b: { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) } };
+        boxes.splice(j, 1); merged = true; break outer;
+      }
+    }
+  }
   const placed = new Map<string, Mat>();
-  for (const [id, ps] of groups) {
-    const b = primsBox(ps), bw = Math.max(1, b.x1 - b.x0), bh = Math.max(1, b.y1 - b.y0), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+  for (const { ids, b } of boxes) {
+    const bw = Math.max(1, b.x1 - b.x0), bh = Math.max(1, b.y1 - b.y0), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
     const mx = c.w * OVERLAY_MARGIN, my = c.h * OVERLAY_MARGIN, s = Math.min(1, (c.w - 2 * mx) / bw, (c.h - 2 * my) / bh);
     // same relative place in the new frame, then pulled inside it
     let nx = (cx / f.width) * c.w, ny = (cy / f.height) * c.h;
     nx = Math.min(c.w - mx - (bw * s) / 2, Math.max(mx + (bw * s) / 2, nx));
     ny = Math.min(c.h - my - (bh * s) / 2, Math.max(my + (bh * s) / 2, ny));
-    placed.set(id, mul(mul(translate(nx, ny), scaleM(s)), translate(-cx, -cy)));
+    const m = mul(mul(translate(nx, ny), scaleM(s)), translate(-cx, -cy));
+    for (const id of ids) placed.set(id, m);
   }
   return {
     ...f,

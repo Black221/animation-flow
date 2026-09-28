@@ -232,6 +232,20 @@ propre feuille.
 - `GET /api/projects/:id/export` : `{ format: 'animation-flow', version: 1, project, media: { images, sounds } }`
   (base64). `POST /api/projects/import` n'importe que les médias que le projet nomme, décode et stocke chacun à nouveau
   (un nouvel id quand ses octets changent, et le projet est réécrit en conséquence) et dit ce qui manque.
+- Détourage (`apps/web/src/cutout.ts`, `usePictureEdit.ts`), dans le navigateur avant l'envoi : couleur médiane du
+  bord, et fond « uni » si 80 % du bord en est proche ; remplissage depuis les bords (ce qui a la couleur du fond et
+  touche le bord s'en va, le même blanc enfermé dans un contour reste) ; les pixels de la frontière deviennent en partie
+  transparents et perdent la teinte du fond (pas de liseré blanc). La gomme magique fait le même remplissage depuis le
+  point touché ; les effacements se rejouent depuis l'original (annulables).
+- `pictureAsset` (`packages/schema/src/picture.ts`) : le dessin d'une image, à la taille d'une personne (personnage,
+  pivot aux pieds) ou d'un objet (pivot au centre), avec ses poses (idle, talk, walk, jump, cheer, wave, dance ; float,
+  spin, wobble), et `flip: false` : le moteur ne le retourne jamais en miroir. Les images données à l'IA
+  (`media` d'une génération) sont listées dans le prompt du storyboard (id, liste, description), exigées dans le
+  storyboard (sinon le modèle corrige), retirées des dessins à faire (`toDraw`) et ajoutées telles quelles
+  (`providedDrawings`).
+- Recadrage : les titres d'une même ligne (boîtes qui se recouvrent verticalement) sont replacés ensemble, comme un
+  bloc ; en vertical, les sous-titres incrustés passent au milieu de l'image (les personnages occupent le bas), sur un
+  fond sombre translucide.
 - Les textes pour l'IA ne partent pas comme fichiers : `readTextFile` les lit dans le navigateur (DOCX et ODT depuis le
   XML de leur zip avec `DecompressionStream`, PDF avec pdf.js chargé à la demande, SRT/VTT sans numéros ni temps).
 

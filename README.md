@@ -141,6 +141,14 @@ part avec un lien construit sur `APP_URL`.
   - un **projet** : « Exporter le projet » (onglet « Projet », ou le menu d'une carte de « Mes projets ») donne un
     fichier `.animation.json` avec ses images et ses sons ; « Importer un projet » (ou le fichier déposé sur « Mes
     projets ») le recrée dans n'importe quel espace, médias compris. Un JSON de projet seul s'importe aussi ;
+  - une image sur **fond uni** (une mascotte sur blanc, un logo sur un carré de couleur) est **détourée** d'office :
+    le fond qui touche les bords s'en va, le même blanc à l'intérieur du sujet (un t-shirt) reste ; ce qui reste de
+    fond (un morceau enfermé entre les jambes, une ombre) s'efface d'un **clic** sur l'aperçu (gomme magique,
+    annulable). Une image n'est jamais retournée en miroir (le texte d'un t-shirt ou d'un logo resterait lisible), et un
+    personnage fait d'une image bouge quand même : respiration, parole, marche, saut, joie, salut, danse ;
+  - des **images pour l'IA** (« Créer avec l'IA » → « Mascotte, logo, produit… ») : chacune avec son rôle (personnage,
+    objet, décor), son nom et ce qu'elle est. L'IA doit les mettre dans le storyboard sous leur identifiant (elle est
+    reprise sinon), ne les redessine pas et les fait jouer ; la relecture du storyboard les montre telles quelles ;
   - un **texte** pour l'IA (« Importer un texte » dans « Créer avec l'IA », ou déposé sur la zone de texte) : TXT,
     Markdown, Word (DOCX), OpenDocument (ODT), PDF, sous-titres (SRT, VTT) ou page web. Il est lu dans le navigateur ;
     seul le texte part vers l'IA (20 000 caractères au plus).

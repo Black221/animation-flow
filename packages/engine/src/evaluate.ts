@@ -99,6 +99,12 @@ const placeholder: ComponentFn = ({ id, params }) => [
   { kind: 'text', id: id + ':q', x: 0, y: -70, text: `? ${String(params.__missing ?? '')}`, size: 26, color: '#C8553D', font: 'body', weight: 600, align: 'center', rotation: 0, opacity: 1 },
 ];
 
+/** the project's own drawing an element shows, if it is one */
+function assetOf(project: Project, e: Element) {
+  if (e.type === 'character') { const c = e.ref ? project.cast[e.ref] : undefined; return c ? project.assets?.[c.kind] : undefined; }
+  return e.type === 'prop' && e.ref ? project.assets?.[e.ref] : undefined;
+}
+
 export function componentFor(project: Project, base: Registry, e: Element): { fn: ComponentFn; params: Record<string, unknown> } {
   const reg = registryFor(project, base);
   if (e.type === 'text') return { fn: reg.text, params: e.params };
@@ -153,7 +159,9 @@ export function createEvaluator(project: Project, base: Registry): Evaluator {
       if (s.opacity <= 0.001) return;
       const { fn, params } = componentFor(project, reg, e);
       const local = fn({ t: st, local: st - t0, id: e.id, params, state: { pose: s.pose, expression: s.expression, facing: s.facing, text: s.text } });
-      const screen = e.space === 'screen', m = mul(screen ? [1, 0, 0, 1, 0, 0] : view, trs(s.x, s.y, s.rotation, s.scale * s.facing, s.scale));
+      // a drawing that must not be mirrored (a picture with writing on it) keeps facing the way it was made
+      const facing = assetOf(project, e)?.flip === false ? 1 : s.facing;
+      const screen = e.space === 'screen', m = mul(screen ? [1, 0, 0, 1, 0, 0] : view, trs(s.x, s.y, s.rotation, s.scale * facing, s.scale));
       const prims = local.map((p) => (screen ? { ...transformPrim(p, m, s.opacity), overlay: e.id } : transformPrim(p, m, s.opacity))).filter((p) => visibleBox(p, W, H));
       items.push({ layer: e.layer, order: order + 1, prims });
       if (!screen && e.type !== 'text' && prims.length) { const b = primsBox(prims); subjects.push({ id: e.id, type: e.type, ref: e.ref ?? null, ...b }); }
