@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Moteur animation-flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F2F4F6; --panel: #FFFFFF; --ink: #17202B; --muted: #566273; --line: #C4CCD6; --soft: #E6EAEF;
+    --accent: #C92A68; --accent-soft: #FCE6EF;
+    --display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+    --body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #10151B; --panel: #19212B; --ink: #E4E9EF; --muted: #97A3B2; --line: #334050; --soft: #222C38; --accent: #FF7AA6; --accent-soft: #3A1F2B; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --bg: #10151B; --panel: #19212B; --ink: #E4E9EF; --muted: #97A3B2; --line: #334050; --soft: #222C38; --accent: #FF7AA6; --accent-soft: #3A1F2B; color-scheme: dark; }
+
+  body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--body); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 64px; display: grid; gap: 44px; }
+  header { display: grid; gap: 12px; max-width: 70ch; }
+  .eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  h1 { font: 800 clamp(30px, 5vw, 46px)/1.05 var(--display); margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+  h2 { font: 700 23px/1.2 var(--display); margin: 0; text-wrap: balance; }
+  h3 { font: 700 16px/1.25 var(--display); margin: 0; text-wrap: balance; }
+  p { margin: 0; }
+  .lede { font-size: 17px; color: var(--muted); }
+  code, .m { font-family: var(--mono); font-size: 0.92em; }
+  .new { color: var(--accent); font-weight: 600; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; font-size: 13.5px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .sw { width: 30px; height: 16px; border-radius: 4px; display: inline-block; }
+  .sw.now { background: var(--panel); border: 1.5px solid var(--line); }
+  .sw.add { background: var(--accent-soft); border: 2px dashed var(--accent); }
+  .sw.opt { background: var(--panel); border: 1.5px dashed var(--muted); }
+
+  section { display: grid; gap: 14px; }
+  .intro { color: var(--muted); max-width: 78ch; }
+  figure { margin: 0; display: grid; gap: 12px; }
+  .scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  svg { display: block; width: 100%; min-width: 940px; height: auto; color: var(--ink); }
+  figcaption { color: var(--muted); max-width: 82ch; }
+  figcaption ul { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 2px; }
+
+  /* drawing classes (styled from the page, the SVG stays self-contained) */
+  .bx { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+  .bx.core { fill: var(--soft); stroke: var(--ink); stroke-width: 1.5; }
+  .bx.opt { fill: var(--panel); stroke: var(--muted); stroke-dasharray: 5 4; }
+  .bx.add { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; }
+  .bx.lane { fill: var(--soft); stroke: var(--ink); stroke-width: 1.5; }
+  .ttl { font: 600 15px var(--display); fill: var(--ink); }
+  .fn { font: 500 13px var(--mono); fill: var(--ink); }
+  .tx { font: 400 12.5px var(--body); fill: var(--ink); }
+  .tx.b { font-weight: 600; }
+  .sub { font: 400 12px var(--body); fill: var(--muted); }
+  .nw { font: 600 12px var(--body); fill: var(--accent); }
+  .lab { font: 500 11.5px var(--mono); fill: var(--muted); }
+  .lab.nw { font: 600 11.5px var(--mono); fill: var(--accent); }
+  .num { font: 600 12px var(--mono); fill: var(--muted); }
+  .num.nw { fill: var(--accent); }
+  .ln { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  .ln.dash { stroke-dasharray: 5 4; }
+  .ln.add { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; }
+  .life { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 3 5; fill: none; }
+  .sep { stroke: var(--line); stroke-width: 1; fill: none; }
+  .ah { fill: var(--muted); }
+  .ah.add { fill: var(--accent); }
+  .tree { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .tree.act { stroke: var(--ink); stroke-width: 2.4; }
+  .tree.add { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; }
+  .node { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+  .node.var { fill: var(--soft); }
+  .node.act { fill: var(--soft); stroke: var(--ink); stroke-width: 2.2; }
+  .node.add { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; }
+
+  .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 10px; align-content: start; }
+  .card p { color: var(--muted); }
+  .card ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+  .card li { display: grid; gap: 2px; }
+  .card li b { font-weight: 600; }
+  .card li span { color: var(--muted); font-size: 14px; }
+  .where { font: 400 12px/1.4 var(--mono); color: var(--muted); }
+  .tag { justify-self: start; font: 600 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; padding: 5px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+  .tag.p2 { background: var(--soft); color: var(--ink); }
+  .tag.p3 { background: var(--soft); color: var(--muted); }
+
+  .plan { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: s; }
+  .plan li { counter-increment: s; display: grid; grid-template-columns: 38px 1fr; gap: 14px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .plan li::before { content: counter(s); font: 800 22px/1 var(--display); color: var(--accent); padding-top: 2px; }
+  .plan li div { display: grid; gap: 4px; }
+  .plan li p { color: var(--muted); }
+  .quick { color: var(--muted); max-width: 80ch; }
+
+  .intro ul { margin: 6px 0; padding-left: 20px; display: grid; gap: 2px; }
+  .tablewrap { padding: 0; }
+  table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  thead th { font: 600 12px/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--soft); }
+  tbody th { font-weight: 600; white-space: nowrap; }
+  tbody td { color: var(--muted); }
+  tbody td:last-child { color: var(--ink); }
+  td.val { font-variant-numeric: tabular-nums; color: var(--ink); }
+  tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+  .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .files { font: 400 13px/1.75 var(--mono); color: var(--muted); columns: 2 300px; column-gap: 32px; margin: 0; padding: 0; list-style: none; }
+  .files b { color: var(--ink); font-weight: 500; }
+  .files .p b { color: var(--accent); }
+</style>
+<style>*{box-sizing:border-box} body{margin:0}</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">packages/engine · styles · render · audio · ai</span>
+    <h1>Comment le moteur fabrique une image, et ce qu'il lui faut encore</h1>
+    <p class="lede">Un film est un fichier JSON : des scènes, des éléments avec leurs clés, une caméra, des répliques et des dessins. Le moteur calcule la durée de tout ce qui s'y trouve. Il demande ensuite, pour chaque instant t, ce qu'il y a à l'écran. Un style dessine la réponse. Les schémas montrent ce qui existe et, en rose, ce qu'il faut ajouter. Le but : qu'un modèle d'IA puisse écrire des animations fluides et justes, pour le dessin animé de personnages comme pour le motion design.</p>
+    <div class="legend" aria-label="légende des schémas">
+      <span><i class="sw now"></i>existe aujourd'hui</span>
+      <span><i class="sw add"></i>à ajouter</span>
+      <span><i class="sw opt"></i>chemin utilisé seulement pour un autre format</span>
+    </div>
+  </header>
+
+  <!-- ============================================================ 1. pipeline -->
+  <section aria-labelledby="f1">
+    <h2 id="f1">Du projet à la vidéo</h2>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 1180 690" role="img" aria-label="Le projet est chronométré une fois, puis frameAt(t) produit pour chaque instant une Frame de primitives à l'écran ; un style la dessine, éventuellement après recadrage, vers l'aperçu, la vidéo et les vignettes ; le son est mixé à part. À ajouter : actions, attaches et particules dans le projet ; trajectoires courbes et ressorts, actions en couches, contraintes et IK, mouvement secondaire, déformation, parallaxe ; bouche calée sur la voix ; masques et transitions ; flou de mouvement ; 50 et 60 images par seconde.">
+          <defs>
+            <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0 L10 5 L0 10 Z"/></marker>
+            <marker id="an" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah add" d="M0 0 L10 5 L0 10 Z"/></marker>
+          </defs>
+
+          <!-- A. project -->
+          <rect class="bx" x="20" y="60" width="170" height="372" rx="8"/>
+          <text class="ttl" x="36" y="88">Projet</text>
+          <text class="sub" x="36" y="106">JSON validé (Zod)</text>
+          <text class="tx" x="36" y="136">scènes</text>
+          <text class="tx" x="36" y="160">éléments + leurs clés</text>
+          <text class="tx" x="36" y="184">caméra (clés)</text>
+          <text class="tx" x="36" y="208">répliques, voix</text>
+          <text class="tx" x="36" y="232">dessins du projet</text>
+          <text class="tx" x="36" y="256">partition, bruitages</text>
+          <text class="nw" x="36" y="290">+ actions à clés</text>
+          <text class="nw" x="36" y="312">+ attaches, cibles IK</text>
+          <text class="nw" x="36" y="334">+ émetteurs de particules</text>
+          <text class="nw" x="36" y="356">+ calques de formes, textes</text>
+          <text class="nw" x="36" y="378">+ compositions, variables</text>
+          <text class="sub" x="36" y="414">aucune couleur de pinceau</text>
+
+          <!-- B. timing -->
+          <rect class="bx" x="230" y="60" width="170" height="110" rx="8"/>
+          <text class="fn" x="246" y="88">timeProject</text><text class="sub" x="352" y="88">1 fois</text>
+          <text class="tx" x="246" y="114">durée de chaque scène</text>
+          <text class="tx" x="246" y="136">temps des répliques</text>
+          <text class="sub" x="246" y="158">« l2, fin + 0,3 s » → secondes</text>
+
+          <!-- R. registry -->
+          <rect class="bx" x="230" y="200" width="170" height="140" rx="8"/>
+          <text class="fn" x="246" y="228">registryFor</text>
+          <text class="tx" x="246" y="254">bibliothèque</text>
+          <text class="tx" x="246" y="276">+ dessins du projet</text>
+          <text class="sub" x="246" y="298">kind → composant</text>
+          <text class="nw" x="246" y="324">+ bibliothèque d'actions</text>
+
+          <line class="ln" x1="190" y1="115" x2="228" y2="115" marker-end="url(#a)"/>
+          <line class="ln" x1="190" y1="255" x2="228" y2="255" marker-end="url(#a)"/>
+
+          <!-- C. frameAt(t): 8 steps -->
+          <rect class="bx core" x="440" y="40" width="260" height="480" rx="10"/>
+          <text class="fn" x="456" y="68">frameAt(t)</text>
+          <text class="sub" x="570" y="68">à chaque image</text>
+
+          <rect class="bx" x="456" y="82" width="228" height="42" rx="6"/>
+          <text class="num" x="468" y="108">1</text><text class="tx" x="486" y="108">scène jouée à t</text>
+
+          <rect class="bx" x="456" y="134" width="228" height="42" rx="6"/>
+          <text class="num" x="468" y="152">2</text><text class="tx" x="486" y="152">caméra : x, y, zoom</text>
+          <text class="nw" x="486" y="168">+ parallaxe, secousse</text>
+
+          <rect class="bx" x="456" y="186" width="228" height="42" rx="6"/>
+          <text class="num" x="468" y="204">3</text><text class="tx" x="486" y="204">clés → valeurs à t</text>
+          <text class="nw" x="486" y="220">+ courbes, ressorts</text>
+
+          <rect class="bx add" x="456" y="238" width="228" height="42" rx="6"/>
+          <text class="num nw" x="468" y="256">4</text><text class="tx b" x="486" y="256">actions en couches</text>
+          <text class="nw" x="486" y="272">+ fondu entre poses</text>
+
+          <rect class="bx add" x="456" y="290" width="228" height="42" rx="6"/>
+          <text class="num nw" x="468" y="308">5</text><text class="tx b" x="486" y="308">contraintes, IK</text>
+          <text class="nw" x="486" y="324">objets tenus, pieds plantés</text>
+
+          <rect class="bx" x="456" y="342" width="228" height="42" rx="6"/>
+          <text class="num" x="468" y="360">6</text><text class="tx" x="486" y="360">composant → primitives</text>
+          <text class="nw" x="486" y="376">+ déformation, morphing</text>
+
+          <rect class="bx add" x="456" y="394" width="228" height="42" rx="6"/>
+          <text class="num nw" x="468" y="412">7</text><text class="tx b" x="486" y="412">mouvement secondaire</text>
+          <text class="nw" x="486" y="428">inertie, ressorts ; particules</text>
+
+          <rect class="bx" x="456" y="446" width="228" height="42" rx="6"/>
+          <text class="num" x="468" y="464">8</text><text class="tx" x="486" y="464">× élément × caméra, tri</text>
+          <text class="nw" x="486" y="480">+ 2,5D, perspective</text>
+
+          <line class="ln" x1="570" y1="124" x2="570" y2="132" marker-end="url(#a)"/>
+          <line class="ln" x1="570" y1="176" x2="570" y2="184" marker-end="url(#a)"/>
+          <line class="ln" x1="570" y1="228" x2="570" y2="236" marker-end="url(#a)"/>
+          <line class="ln" x1="570" y1="280" x2="570" y2="288" marker-end="url(#a)"/>
+          <line class="ln" x1="570" y1="332" x2="570" y2="340" marker-end="url(#a)"/>
+          <line class="ln" x1="570" y1="384" x2="570" y2="392" marker-end="url(#a)"/>
+          <line class="ln" x1="570" y1="436" x2="570" y2="444" marker-end="url(#a)"/>
+
+          <line class="ln" x1="400" y1="100" x2="454" y2="100" marker-end="url(#a)"/>
+          <text class="lab" x="408" y="92">t</text>
+          <line class="ln" x1="400" y1="262" x2="454" y2="262" marker-end="url(#a)"/>
+          <text class="lab" x="402" y="254">dessins</text>
+
+          <!-- D. frame -->
+          <rect class="bx" x="740" y="60" width="170" height="280" rx="8"/>
+          <text class="fn" x="756" y="88">Frame</text>
+          <text class="sub" x="756" y="106">en pixels d'écran</text>
+          <text class="tx" x="756" y="136">primitives : chemins,</text>
+          <text class="tx" x="756" y="156">textes, halos, images</text>
+          <text class="tx" x="756" y="184">décor fixe + sa clé</text>
+          <text class="tx" x="756" y="208">sujets (boîtes)</text>
+          <text class="tx" x="756" y="232">sous-titre, qui parle</text>
+          <text class="tx" x="756" y="256">fondu</text>
+          <text class="nw" x="756" y="286">+ masques, fusion</text>
+          <text class="sub" x="756" y="320">hors-champ déjà retiré</text>
+          <line class="ln" x1="700" y1="200" x2="738" y2="200" marker-end="url(#a)"/>
+
+          <!-- reframe (optional) -->
+          <rect class="bx opt" x="950" y="96" width="210" height="80" rx="8"/>
+          <text class="fn" x="966" y="124">planFraming, reframe</text>
+          <text class="tx" x="966" y="146">fenêtre qui suit l'action</text>
+          <text class="sub" x="966" y="165">titres et sous-titres replacés</text>
+          <text class="lab" x="954" y="86">9:16 · 1:1 · 4:5</text>
+          <path class="ln dash" d="M910 136 L948 136" marker-end="url(#a)"/>
+
+          <!-- E. style pack -->
+          <rect class="bx" x="950" y="230" width="210" height="110" rx="8"/>
+          <text class="ttl" x="966" y="258">Pack de style</text>
+          <text class="tx" x="966" y="280">Canvas 2D, 6 styles</text>
+          <text class="sub" x="966" y="300">décor peint 1 fois par scène</text>
+          <text class="nw" x="966" y="324">+ effets, fusion, transitions</text>
+          <path class="ln" d="M910 290 L948 290" marker-end="url(#a)"/>
+          <text class="lab" x="916" y="310">16:9</text>
+          <path class="ln dash" d="M1055 176 L1055 228" marker-end="url(#a)"/>
+
+          <!-- motion blur (to add) -->
+          <rect class="bx add" x="950" y="380" width="210" height="64" rx="8"/>
+          <text class="tx b" x="966" y="405">flou de mouvement</text>
+          <text class="nw" x="966" y="426">3 à 8 sous-images</text>
+          <path class="ln" d="M1055 340 L1055 378" marker-end="url(#a)"/>
+
+          <!-- outputs -->
+          <rect class="bx" x="560" y="540" width="180" height="70" rx="8"/>
+          <text class="ttl" x="576" y="566">Aperçu de l'éditeur</text>
+          <text class="sub" x="576" y="588">navigateur, en direct</text>
+          <rect class="bx" x="770" y="540" width="190" height="104" rx="8"/>
+          <text class="ttl" x="786" y="566">Rendu vidéo</text>
+          <text class="sub" x="786" y="586">morceaux en parallèle</text>
+          <text class="sub" x="786" y="603">FFmpeg : MP4, WebM, GIF</text>
+          <text class="nw" x="786" y="628">+ 50 et 60 images/s</text>
+          <rect class="bx" x="980" y="540" width="180" height="70" rx="8"/>
+          <text class="ttl" x="996" y="566">Vignettes</text>
+          <text class="sub" x="996" y="588">images fixes, planches</text>
+          <path class="ln" d="M1010 444 L1010 490 L650 490 L650 538" marker-end="url(#a)"/>
+          <path class="ln" d="M1035 444 L1035 505 L865 505 L865 538" marker-end="url(#a)"/>
+          <path class="ln" d="M1070 444 L1070 538" marker-end="url(#a)"/>
+          <text class="lab" x="1078" y="500">même dessin</text>
+
+          <!-- sound -->
+          <rect class="bx" x="200" y="560" width="250" height="84" rx="8"/>
+          <text class="fn" x="216" y="588">mixSoundtrack</text>
+          <text class="tx" x="216" y="612">voix, musique baissée sous les voix,</text>
+          <text class="tx" x="216" y="632">bruitages → −16 LUFS</text>
+          <path class="ln" d="M105 432 L105 602 L198 602" marker-end="url(#a)"/>
+          <text class="lab" x="113" y="590">même timeline</text>
+          <path class="ln" d="M450 575 L558 575" marker-end="url(#a)"/>
+          <path class="ln" d="M450 630 L500 630 L500 668 L865 668 L865 646" marker-end="url(#a)"/>
+          <text class="lab" x="600" y="661">piste audio (AAC, Opus)</text>
+          <!-- visemes (to add) -->
+          <path class="ln add" d="M420 560 L420 363 L454 363" marker-end="url(#an)"/>
+          <text class="lab nw" x="300" y="545">voix → bouche (visèmes)</text>
+        </svg>
+      </div>
+      <figcaption>Le projet n'est chronométré qu'une fois. Ensuite, chaque image est une question posée à <code>frameAt(t)</code>, qui renvoie une <code>Frame</code> de primitives déjà placées. Les ajouts se branchent aux étapes existantes :
+        <ul>
+          <li>les étapes 4, 5 et 7 s'intercalent entre la lecture des clés et le dessin ;</li>
+          <li>la voix vient guider la bouche ;</li>
+          <li>le flou de mouvement réutilise <code>frameAt</code> à quelques sous-instants autour de t, ce qu'autorise un moteur où une image ne dépend que du projet et de t.</li>
+        </ul>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================================================ 2. character -->
+  <section aria-labelledby="f2">
+    <h2 id="f2">Poser un personnage à l'instant t</h2>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 1180 610" role="img" aria-label="Un dessin est un arbre de parties qui tournent autour de leur pivot dans le repère de leur parent. Aujourd'hui : clé, angle sinusoïdal par partie, matrice, variantes, primitives. À ajouter : fondu entre poses, couches, actions à clés, IK vers une cible, ressorts et squash and stretch, bouche calée sur la voix.">
+          <defs>
+            <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0 L10 5 L0 10 Z"/></marker>
+            <marker id="bn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah add" d="M0 0 L10 5 L0 10 Z"/></marker>
+          </defs>
+          <text class="lab" x="20" y="26">l'arbre des parties de la mascotte</text>
+
+          <rect class="node" x="262" y="44" width="76" height="30" rx="15"/><text class="fn" x="300" y="64" text-anchor="middle">hips</text>
+          <path class="tree" d="M300 74 L300 90 L60 90 L60 104 M300 90 L160 90 L160 104 M300 90 L260 90 L260 104 M300 90 L360 90 L360 104 M300 90 L460 90 L460 104"/>
+          <rect class="node" x="22" y="104" width="76" height="30" rx="15"/><text class="fn" x="60" y="124" text-anchor="middle">tail</text>
+          <rect class="node" x="122" y="104" width="76" height="30" rx="15"/><text class="fn" x="160" y="124" text-anchor="middle">leg_l</text>
+          <rect class="node" x="222" y="104" width="76" height="30" rx="15"/><text class="fn" x="260" y="124" text-anchor="middle">leg_r</text>
+          <rect class="node" x="322" y="104" width="76" height="30" rx="15"/><text class="fn" x="360" y="124" text-anchor="middle">shorts</text>
+          <rect class="node act" x="422" y="104" width="76" height="30" rx="15"/><text class="fn" x="460" y="124" text-anchor="middle">torso</text>
+          <text class="nw" x="22" y="152">ressort : queue,</text>
+          <text class="nw" x="22" y="168">chapeau, oreilles</text>
+          <text class="nw" x="150" y="192">IK : pieds plantés</text>
+
+          <path class="tree" d="M460 150 L360 150 L360 164 M460 150 L580 150 L580 164"/>
+          <path class="tree act" d="M460 134 L460 164"/>
+          <rect class="node" x="322" y="164" width="76" height="30" rx="15"/><text class="fn" x="360" y="184" text-anchor="middle">arm_l</text>
+          <rect class="node act" x="422" y="164" width="76" height="30" rx="15"/><text class="fn" x="460" y="184" text-anchor="middle">arm_r</text>
+          <rect class="node" x="542" y="164" width="76" height="30" rx="15"/><text class="fn" x="580" y="184" text-anchor="middle">head</text>
+
+          <path class="tree" d="M360 194 L360 224"/>
+          <path class="tree act" d="M460 194 L460 224"/>
+          <path class="tree" d="M580 194 L580 210 L550 210 L550 224 M580 210 L640 210 L640 224 M580 210 L730 210 L730 224"/>
+          <rect class="node" x="322" y="224" width="76" height="30" rx="15"/><text class="fn" x="360" y="244" text-anchor="middle">hand_l</text>
+          <rect class="node act" x="422" y="224" width="76" height="30" rx="15"/><text class="fn" x="460" y="244" text-anchor="middle">hand_r</text>
+          <rect class="node var" x="512" y="224" width="76" height="30" rx="15"/><text class="fn" x="550" y="244" text-anchor="middle">eyes</text>
+          <rect class="node var" x="602" y="224" width="76" height="30" rx="15"/><text class="fn" x="640" y="244" text-anchor="middle">mouth</text>
+          <rect class="node" x="692" y="224" width="76" height="30" rx="15"/><text class="fn" x="730" y="244" text-anchor="middle">hat</text>
+          <text class="sub" x="512" y="276">yeux : open · wide · joy · wink</text>
+          <text class="sub" x="512" y="294">bouche : smile · grin · open · sad</text>
+          <text class="nw" x="512" y="312">+ visèmes calés sur la voix</text>
+
+          <!-- IK target (to add) -->
+          <path class="tree add" d="M460 254 L460 300 L380 300 L380 316"/>
+          <rect class="node add" x="302" y="316" width="156" height="30" rx="15"/><text class="fn" x="380" y="336" text-anchor="middle">cible : ballon</text>
+          <text class="nw" x="470" y="292">IK</text>
+
+          <text class="sub" x="20" y="392">Chaque partie tourne autour de son pivot, dans le repère de son parent : la main suit le bras, le chapeau suit la tête.</text>
+          <text class="sub" x="20" y="412">En gras, la chaîne qui bouge dans la pose wave. En gris clair, les groupes de variantes : l'expression en montre une seule.</text>
+          <text class="sub" x="20" y="432">Avec l'IK, on donne la cible (le ballon) et le moteur calcule les angles du bras et de la main.</text>
+
+          <!-- steps -->
+          <line class="tree" x1="785" y1="30" x2="785" y2="590"/>
+          <g>
+            <rect class="bx" x="800" y="30" width="370" height="42" rx="6"/>
+            <text class="tx" x="816" y="49">clé à t : pose <tspan class="fn">wave</tspan>, expression <tspan class="fn">wink</tspan></text>
+            <text class="sub" x="816" y="65">la dernière clé passée (valeur discrète)</text>
+
+            <rect class="bx add" x="800" y="82" width="370" height="42" rx="6"/>
+            <text class="tx b" x="816" y="101">fondu entre poses</text>
+            <text class="nw" x="816" y="117">les angles passent de idle à wave en 0,3 s</text>
+
+            <rect class="bx add" x="800" y="134" width="370" height="42" rx="6"/>
+            <text class="tx b" x="816" y="153">couches</text>
+            <text class="nw" x="816" y="169">jambes en « walk » + bras en « wave », pondérées</text>
+
+            <rect class="bx" x="800" y="186" width="370" height="42" rx="6"/>
+            <text class="fn" x="816" y="205" style="font-size:12px">rot + spin·t + swing·sin 2π(speed·t + phase)</text>
+            <text class="sub" x="816" y="221">angle de chaque partie : une boucle</text>
+
+            <rect class="bx add" x="800" y="238" width="370" height="42" rx="6"/>
+            <text class="tx b" x="816" y="257">actions à clés</text>
+            <text class="nw" x="816" y="273">un geste qui commence et finit : lancer, s'asseoir</text>
+
+            <rect class="bx" x="800" y="290" width="370" height="42" rx="6"/>
+            <text class="tx" x="816" y="316">matrice = parent × rotation au pivot</text>
+
+            <rect class="bx add" x="800" y="342" width="370" height="42" rx="6"/>
+            <text class="tx b" x="816" y="361">IK et contraintes</text>
+            <text class="nw" x="816" y="377">la main atteint la cible, le pied reste au sol</text>
+
+            <rect class="bx add" x="800" y="394" width="370" height="42" rx="6"/>
+            <text class="tx b" x="816" y="413">ressorts, squash &amp; stretch</text>
+            <text class="nw" x="816" y="429">queue et chapeau suivent le mouvement réel</text>
+
+            <rect class="bx" x="800" y="446" width="370" height="42" rx="6"/>
+            <text class="tx" x="816" y="472">variantes : yeux <tspan class="fn">wink</tspan>, bouche <tspan class="fn">grin</tspan></text>
+
+            <rect class="bx add" x="800" y="498" width="370" height="42" rx="6"/>
+            <text class="tx b" x="816" y="517">visèmes, clignement, regard</text>
+            <text class="nw" x="816" y="533">la bouche suit la voix, les yeux une cible</text>
+
+            <rect class="bx" x="800" y="550" width="370" height="42" rx="6"/>
+            <text class="tx" x="816" y="576">formes → primitives, sous la matrice</text>
+          </g>
+          <g>
+            <line class="ln" x1="985" y1="72" x2="985" y2="80" marker-end="url(#b)"/>
+            <line class="ln" x1="985" y1="124" x2="985" y2="132" marker-end="url(#b)"/>
+            <line class="ln" x1="985" y1="176" x2="985" y2="184" marker-end="url(#b)"/>
+            <line class="ln" x1="985" y1="228" x2="985" y2="236" marker-end="url(#b)"/>
+            <line class="ln" x1="985" y1="280" x2="985" y2="288" marker-end="url(#b)"/>
+            <line class="ln" x1="985" y1="332" x2="985" y2="340" marker-end="url(#b)"/>
+            <line class="ln" x1="985" y1="384" x2="985" y2="392" marker-end="url(#b)"/>
+            <line class="ln" x1="985" y1="436" x2="985" y2="444" marker-end="url(#b)"/>
+            <line class="ln" x1="985" y1="488" x2="985" y2="496" marker-end="url(#b)"/>
+            <line class="ln" x1="985" y1="540" x2="985" y2="548" marker-end="url(#b)"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption>C'est le détail des étapes 3 à 7 du premier schéma pour un dessin du projet. Aujourd'hui, une partie ne sait faire qu'une boucle (un sinus) et une pose remplace l'autre d'un coup. D'où deux défauts visibles : les passages saccadés et l'impossibilité de faire un geste qui a un début et une fin. Les ajouts en rose gardent le dessin intact : ce sont des données en plus (actions, cibles, ressorts), pas du code.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================================================ 3. engine <-> AI -->
+  <section aria-labelledby="f3">
+    <h2 id="f3">Ce que le moteur et le modèle d'IA se disent</h2>
+    <p class="intro">Aujourd'hui, le modèle écrit du JSON et reçoit la liste des erreurs trouvées, deux fois au plus. Il voit chaque dessin rendu en image fixe, mais jamais une scène en mouvement. Les échanges à ajouter lui donnent trois choses : un vocabulaire de haut niveau, un moyen de poser des questions au moteur, et un retour sur le mouvement lui-même.</p>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 1180 960" role="img" aria-label="Diagramme de séquence entre le modèle d'IA, la plateforme et le moteur. Aujourd'hui : storyboard puis réparations, dessins avec relecture sur une image fixe, scènes vérifiées par le schéma et la bibliothèque. À ajouter : intentions compilées en clés, questions au moteur sur les positions, planche du mouvement et mesures envoyées au modèle, correctifs ciblés.">
+          <defs>
+            <marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0 L10 5 L0 10 Z"/></marker>
+            <marker id="cn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah add" d="M0 0 L10 5 L0 10 Z"/></marker>
+          </defs>
+          <!-- lanes -->
+          <rect class="bx lane" x="90" y="16" width="180" height="40" rx="8"/><text class="ttl" x="180" y="41" text-anchor="middle">Modèle d'IA</text>
+          <rect class="bx lane" x="500" y="16" width="180" height="40" rx="8"/><text class="ttl" x="590" y="41" text-anchor="middle">Plateforme</text>
+          <rect class="bx lane" x="910" y="16" width="180" height="40" rx="8"/><text class="ttl" x="1000" y="41" text-anchor="middle">Moteur</text>
+          <path class="life" d="M180 56 L180 948 M590 56 L590 948 M1000 56 L1000 948"/>
+
+          <text class="lab" x="20" y="84">AUJOURD'HUI</text>
+          <!-- storyboard -->
+          <text class="sub" x="20" y="108">storyboard</text>
+          <line class="ln" x1="588" y1="112" x2="184" y2="112" marker-end="url(#c)"/>
+          <text class="tx" x="385" y="104" text-anchor="middle">brief, consignes, images jointes</text>
+          <line class="ln" x1="182" y1="148" x2="586" y2="148" marker-end="url(#c)"/>
+          <text class="tx" x="385" y="140" text-anchor="middle">storyboard (JSON)</text>
+          <line class="ln dash" x1="588" y1="184" x2="184" y2="184" marker-end="url(#c)"/>
+          <text class="tx" x="385" y="176" text-anchor="middle">problèmes (chemin + message) : répare, 2 fois au plus</text>
+
+          <line class="sep" x1="20" y1="206" x2="1160" y2="206"/>
+          <!-- drawings -->
+          <text class="sub" x="20" y="232">dessins</text>
+          <line class="ln" x1="588" y1="236" x2="184" y2="236" marker-end="url(#c)"/>
+          <text class="tx" x="385" y="228" text-anchor="middle">fiche du dessin + image modèle</text>
+          <line class="ln" x1="182" y1="272" x2="586" y2="272" marker-end="url(#c)"/>
+          <text class="tx" x="385" y="264" text-anchor="middle">dessin : parties, pivots, poses (JSON)</text>
+          <line class="ln" x1="592" y1="308" x2="996" y2="308" marker-end="url(#c)"/>
+          <text class="tx" x="795" y="300" text-anchor="middle">rends une image fixe</text>
+          <line class="ln" x1="998" y1="344" x2="594" y2="344" marker-end="url(#c)"/>
+          <text class="tx" x="795" y="336" text-anchor="middle">PNG</text>
+          <line class="ln" x1="588" y1="380" x2="184" y2="380" marker-end="url(#c)"/>
+          <text class="tx" x="385" y="372" text-anchor="middle">relis : le rendu (et le modèle) en images</text>
+          <line class="ln" x1="182" y1="416" x2="586" y2="416" marker-end="url(#c)"/>
+          <text class="tx" x="385" y="408" text-anchor="middle">bon, ou dessin corrigé (2 tours au plus)</text>
+
+          <line class="sep" x1="20" y1="438" x2="1160" y2="438"/>
+          <!-- scenes -->
+          <text class="sub" x="20" y="464">scènes</text>
+          <line class="ln" x1="588" y1="468" x2="184" y2="468" marker-end="url(#c)"/>
+          <text class="tx" x="385" y="460" text-anchor="middle">guide du format + fiche des dessins (tailles, poses)</text>
+          <line class="ln" x1="182" y1="504" x2="586" y2="504" marker-end="url(#c)"/>
+          <text class="tx" x="385" y="496" text-anchor="middle">scène : clés en x, y, pose, en secondes (JSON)</text>
+          <line class="ln" x1="592" y1="540" x2="996" y2="540" marker-end="url(#c)"/>
+          <text class="tx" x="795" y="532" text-anchor="middle">vérifie : dessins, poses, expressions existent</text>
+          <line class="ln dash" x1="998" y1="570" x2="184" y2="570" marker-end="url(#c)"/>
+          <text class="tx" x="590" y="562" text-anchor="middle">écarts → problèmes → réparation (jamais vu en mouvement)</text>
+
+          <line class="sep" x1="20" y1="598" x2="1160" y2="598"/>
+          <text class="lab nw" x="20" y="626">À AJOUTER</text>
+          <!-- intents -->
+          <line class="ln add" x1="182" y1="652" x2="996" y2="652" marker-end="url(#cn)"/>
+          <text class="nw" x="590" y="644" text-anchor="middle">intentions : marcher_vers(x), lancer_à(moussa), tenir(ballon, main_d)</text>
+          <text class="sub" x="1010" y="676">compilées en clés,</text>
+          <text class="sub" x="1010" y="692">cycles calés sur la vitesse</text>
+          <!-- questions -->
+          <line class="ln add" x1="182" y1="712" x2="996" y2="712" marker-end="url(#cn)"/>
+          <text class="nw" x="590" y="704" text-anchor="middle">question (outil) : où est la main droite de la mascotte à 3,2 s ?</text>
+          <line class="ln add" x1="998" y1="746" x2="184" y2="746" marker-end="url(#cn)"/>
+          <text class="nw" x="590" y="738" text-anchor="middle">réponse : x 1449, y 614, angle −140°, visible</text>
+          <!-- motion review -->
+          <line class="ln add" x1="998" y1="796" x2="184" y2="796" marker-end="url(#cn)"/>
+          <text class="nw" x="590" y="788" text-anchor="middle">planche du mouvement : 8 images de la scène, ou un GIF court</text>
+          <line class="ln add" x1="998" y1="846" x2="184" y2="846" marker-end="url(#cn)"/>
+          <text class="nw" x="590" y="822" text-anchor="middle">mesures : pieds qui glissent 38 px, à-coup à 2,1 s,</text>
+          <text class="nw" x="590" y="838" text-anchor="middle">Moussa caché par le titre, ballon hors cadre</text>
+          <line class="ln add" x1="182" y1="896" x2="996" y2="896" marker-end="url(#cn)"/>
+          <text class="nw" x="590" y="888" text-anchor="middle">correctif ciblé : 3 clés changées, pas toute la scène</text>
+          <path class="ln add" d="M1000 906 L1000 930 L1060 930 L1060 790 L1004 790" marker-end="url(#cn)"/>
+          <text class="lab nw" x="1068" y="864">jusqu'à</text>
+          <text class="lab nw" x="1068" y="880">bon</text>
+        </svg>
+      </div>
+      <figcaption>En haut, les échanges d'aujourd'hui : le modèle écrit, la plateforme vérifie le JSON et, pour les dessins seulement, lui montre une image fixe. En bas, en rose, ce qu'il faut ajouter :
+        <ul>
+          <li>le modèle parle en intentions, que le moteur traduit en clés ;</li>
+          <li>il interroge le moteur au lieu de deviner des coordonnées ;</li>
+          <li>il voit et mesure le mouvement de la scène, puis corrige seulement ce qui ne va pas.</li>
+        </ul>
+        La boucle s'arrête quand les mesures et la relecture sont bonnes.
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================================================ 4. the Maelia method -->
+  <section aria-labelledby="f4">
+    <h2 id="f4">La méthode du film Maelia, appliquée à la génération</h2>
+    <div class="intro">Le film « Awa et Jumo » (7 min 19 s, 20 scènes) a été produit ainsi :
+      <ul>
+        <li>une source de vérité et des règles non négociables ;</li>
+        <li>la voix enregistrée avant toute animation ;</li>
+        <li>des planches de personnages validées avant d'animer ;</li>
+        <li>une scène modèle terminée d'abord ;</li>
+        <li>chaque scène regardée et mesurée en boucle ;</li>
+        <li>un rapport final qui distingue ce qui a été contrôlé de ce qui ne l'a pas été.</li>
+      </ul>
+      Voici la même boucle transposée à animation-flow.</div>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 1180 430" role="img" aria-label="Boucle de production : brief-contrat, voix d'abord, fiches de personnages et images de style, validation par l'utilisateur, scène modèle, autres scènes en parallèle, relecture du mouvement et mesures avec correctifs ciblés en boucle, puis contrôle final et rapport.">
+          <defs>
+            <marker id="d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0 L10 5 L0 10 Z"/></marker>
+            <marker id="dn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah add" d="M0 0 L10 5 L0 10 Z"/></marker>
+          </defs>
+          <!-- row 1 -->
+          <rect class="bx add" x="20" y="40" width="240" height="96" rx="8"/>
+          <text class="num nw" x="36" y="64">1</text><text class="tx b" x="54" y="64">Brief-contrat</text>
+          <text class="sub" x="36" y="88">faits, noms et chiffres à respecter,</text>
+          <text class="sub" x="36" y="106">extraits du texte de l'utilisateur</text>
+          <text class="sub" x="36" y="124">« dans le doute, ne rien inventer »</text>
+
+          <rect class="bx add" x="300" y="40" width="240" height="96" rx="8"/>
+          <text class="num nw" x="316" y="64">2</text><text class="tx b" x="334" y="64">La voix d'abord</text>
+          <text class="sub" x="316" y="88">synthèse, durées mesurées,</text>
+          <text class="sub" x="316" y="106">chiffres réécoutés (Whisper) ;</text>
+          <text class="sub" x="316" y="124">les scènes suivent les vrais temps</text>
+
+          <rect class="bx add" x="580" y="40" width="240" height="96" rx="8"/>
+          <text class="num nw" x="596" y="64">3</text><text class="tx b" x="614" y="64">Fiches et images de style</text>
+          <text class="sub" x="596" y="88">chaque personnage : vues, poses,</text>
+          <text class="sub" x="596" y="106">expressions ; une image par décor</text>
+          <text class="sub" x="596" y="124">relues par le modèle qui voit</text>
+
+          <rect class="bx" x="860" y="40" width="300" height="96" rx="8"/>
+          <text class="tx b" x="876" y="64">Validation par l'utilisateur</text>
+          <text class="sub" x="876" y="88">existe pour le storyboard ;</text>
+          <text class="nw" x="876" y="108">+ fiches, images de style, voix</text>
+          <text class="sub" x="876" y="126">avec la liste des décisions à prendre</text>
+
+          <line class="ln" x1="260" y1="88" x2="298" y2="88" marker-end="url(#d)"/>
+          <line class="ln" x1="540" y1="88" x2="578" y2="88" marker-end="url(#d)"/>
+          <line class="ln" x1="820" y1="88" x2="858" y2="88" marker-end="url(#d)"/>
+          <path class="ln" d="M1010 136 L1010 186 L140 186 L140 256" marker-end="url(#d)"/>
+          <text class="lab" x="880" y="178">validé</text>
+
+          <!-- row 2 -->
+          <rect class="bx add" x="20" y="258" width="240" height="96" rx="8"/>
+          <text class="num nw" x="36" y="282">4</text><text class="tx b" x="54" y="282">Une scène modèle</text>
+          <text class="sub" x="36" y="306">générée, relue, corrigée jusqu'au</text>
+          <text class="sub" x="36" y="324">bon niveau, puis elle sert</text>
+          <text class="sub" x="36" y="342">d'exemple pour toutes les autres</text>
+
+          <rect class="bx" x="300" y="258" width="240" height="96" rx="8"/>
+          <text class="num" x="316" y="282">5</text><text class="tx b" x="334" y="282">Les autres scènes</text>
+          <text class="sub" x="316" y="306">en parallèle (existe déjà) ;</text>
+          <text class="nw" x="316" y="326">+ la scène modèle et le guide</text>
+          <text class="nw" x="316" y="344">d'animation chiffré en consigne</text>
+
+          <rect class="bx add" x="580" y="258" width="240" height="96" rx="8"/>
+          <text class="num nw" x="596" y="282">6</text><text class="tx b" x="614" y="282">Regarder et mesurer</text>
+          <text class="sub" x="596" y="306">planche, ruban, gros plans ;</text>
+          <text class="sub" x="596" y="324">à-coups, zones, lecture, contraste,</text>
+          <text class="sub" x="596" y="342">chiffres, budget par image</text>
+
+          <rect class="bx add" x="860" y="258" width="300" height="96" rx="8"/>
+          <text class="num nw" x="876" y="282">7</text><text class="tx b" x="894" y="282">Contrôle final et rapport</text>
+          <text class="sub" x="876" y="306">film entier, sonie, durées, fidélité ;</text>
+          <text class="sub" x="876" y="324">« contrôlé » et « non contrôlé »,</text>
+          <text class="sub" x="876" y="342">défauts connus, affichés à l'utilisateur</text>
+
+          <line class="ln" x1="260" y1="306" x2="298" y2="306" marker-end="url(#d)"/>
+          <line class="ln" x1="540" y1="306" x2="578" y2="306" marker-end="url(#d)"/>
+          <line class="ln" x1="820" y1="306" x2="858" y2="306" marker-end="url(#d)"/>
+          <path class="ln add" d="M700 354 L700 400 L420 400 L420 356" marker-end="url(#dn)"/>
+          <text class="lab nw" x="436" y="392">correctif ciblé, jusqu'à ce que les mesures soient bonnes</text>
+        </svg>
+      </div>
+      <figcaption>Aujourd'hui, animation-flow fait l'étape 5 et une partie de la validation (le storyboard). Le reste est à ajouter. La voix est déjà la référence du temps, mais elle est enregistrée après l'écriture des scènes. Les dessins sont relus en image fixe, sans planche de poses. Les scènes ne sont jamais regardées en mouvement.</figcaption>
+    </figure>
+    <div class="scroll tablewrap">
+      <table>
+        <thead><tr><th scope="col"></th><th scope="col">Film Maelia</th><th scope="col">animation-flow aujourd'hui</th><th scope="col">Cible</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Ce que le modèle écrit</th><td>du code : tout mouvement est possible</td><td>des clés JSON (lignes droites, poses en boucle)</td><td>des clés, des actions, des intentions et des formules sûres</td></tr>
+          <tr><th scope="row">Ce qu'il voit</th><td>chaque scène en planche, ruban et gros plan</td><td>un dessin, en image fixe</td><td>chaque scène en mouvement, avec des mesures</td></tr>
+          <tr><th scope="row">Règles</th><td>un guide chiffré, vérifié par des outils</td><td>des règles de format</td><td>le guide dans les consignes et dans <code>measure.ts</code></td></tr>
+          <tr><th scope="row">Référence</th><td>une scène modèle terminée</td><td>aucune</td><td>la scène 1 validée, donnée en exemple</td></tr>
+          <tr><th scope="row">Personnages</th><td>4 vues, transitions d'humeur</td><td>une vue, expressions qui sautent</td><td>vues multiples, transitions avec anticipation</td></tr>
+          <tr><th scope="row">Humain</th><td>validation avant d'animer</td><td>relecture du storyboard</td><td>storyboard, fiches, style et voix</td></tr>
+          <tr><th scope="row">Fin</th><td>rapport contrôlé / non contrôlé</td><td>liste des secours techniques</td><td>rapport chiffré sur la page de la génération</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ roadmap -->
+  <section aria-labelledby="f5">
+    <h2 id="f5">Tout ce qu'on peut ajouter</h2>
+    <div class="intro">Il y a deux besoins. D'abord, le dessin animé de personnages, comme Maelia. Ensuite, le motion design en général : formes, textes, données, marques, déclinaisons de formats. Le but est le niveau d'outils comme After Effects, Spine, Moho ou Lottie.
+      <ul>
+        <li>Certaines limites ne tomberont pas : ni la 3D réaliste, ni la simulation de fluides, ni la prise de vues réelles.</li>
+        <li>« Parfait » ne se mesure pas. La page fixe donc plus bas des critères chiffrés que chaque film doit tenir.</li>
+      </ul>
+    </div>
+    <div class="groups">
+      <article class="card">
+        <span class="tag">Fluidité</span>
+        <h3>Des mouvements continus</h3>
+        <ul>
+          <li><b>Trajectoires courbes</b><span>Bézier ou Catmull-Rom qui traversent les clés, tangentes réglables.</span><span class="where">engine/src/animate.ts</span></li>
+          <li><b>Ressorts et courbes riches</b><span>Élastique, rebond, ressort physique (masse, raideur, amortissement).</span><span class="where">engine/src/math.ts</span></li>
+          <li><b>Fondu entre poses et couches</b><span>Les angles glissent d'une pose à l'autre ; jambes et bras jouent des poses différentes.</span><span class="where">engine/src/assets.ts</span></li>
+          <li><b>Formules sûres</b><span>sin, bruit, ressort, boucle, lien vers une autre valeur : évaluées sans exécuter de code.</span><span class="where">nouveau engine/src/expr.ts</span></li>
+          <li><b>Remappage du temps</b><span>Ralenti, accéléré, arrêt sur image, boucle et aller-retour d'un élément ou d'une composition.</span><span class="where">engine/src/timing.ts</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag">Personnages</span>
+        <h3>Des personnages qui ont du poids</h3>
+        <ul>
+          <li><b>Actions à clés</b><span>Des gestes avec un début et une fin, dans une bibliothèque citée par nom.</span><span class="where">nouveau engine/src/rig.ts</span></li>
+          <li><b>Attaches et IK</b><span>Un objet suit une main ; la main atteint une cible ; le pied reste planté.</span><span class="where">nouveau engine/src/constraints.ts</span></li>
+          <li><b>Vues multiples</b><span>Face, 3/4, profil, dos : se retourner en passant par les vues, comme Awa.</span><span class="where">schema (vues d'un dessin)</span></li>
+          <li><b>Transitions d'humeur</b><span>Anticipation, changement, réaction, rebond, au lieu d'un saut d'expression.</span><span class="where">engine/src/assets.ts</span></li>
+          <li><b>Déformation</b><span>Os et maillage : membres qui plient, squash &amp; stretch, formes qui se transforment.</span><span class="where">engine/src/assets.ts</span></li>
+          <li><b>Mouvement secondaire</b><span>Tresses, queue, chapeau, vêtements suivent le mouvement réel.</span><span class="where">engine/src/assets.ts</span></li>
+          <li><b>Visage vivant</b><span>Visèmes tirés de la voix, clignement automatique, regard vers une cible.</span><span class="where">audio → engine</span></li>
+          <li><b>Locomotion et foules</b><span>Foulée calée sur la vitesse ; foules d'instances variées et décalées.</span><span class="where">engine + library</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag">Motion design</span>
+        <h3>Calques de formes</h3>
+        <ul>
+          <li><b>Tracé progressif</b><span>Un contour qui se dessine (trim paths), début, fin et décalage animés.</span><span class="where">engine/src/primitives.ts, styles</span></li>
+          <li><b>Morphing</b><span>Une forme devient une autre, points appariés automatiquement.</span><span class="where">engine/src/geometry.ts</span></li>
+          <li><b>Répétiteurs et grilles</b><span>Copies d'une forme avec décalage de position, rotation, couleur et temps.</span><span class="where">nouveau engine/src/shapes.ts</span></li>
+          <li><b>Déformations de chemin</b><span>Onde, zigzag, torsion, arrondi, décalage de contour.</span><span class="where">engine/src/shapes.ts</span></li>
+          <li><b>Dégradés et motifs animés</b><span>Dégradés linéaires et radiaux, motifs qui défilent.</span><span class="where">engine + styles</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag">Motion design</span>
+        <h3>Texte animé</h3>
+        <ul>
+          <li><b>Animateurs par lettre, mot ou ligne</b><span>Position, échelle, opacité, flou, couleur, avec un décalage dans le temps.</span><span class="where">library/src/text.ts</span></li>
+          <li><b>Texte sur un chemin</b><span>Un titre qui suit une courbe ou un cercle.</span><span class="where">library/src/text.ts</span></li>
+          <li><b>Compteurs exacts</b><span>Ils défilent puis s'arrêtent net sur la bonne valeur, format local (7 668, 0,899).</span><span class="where">library/src/text.ts</span></li>
+          <li><b>Écriture manuscrite</b><span>Le texte s'écrit au trait, lettre après lettre.</span><span class="where">library + styles</span></li>
+          <li><b>Mise en page qui s'adapte</b><span>Retour à la ligne et taille selon le format ; langues à écriture de droite à gauche.</span><span class="where">engine/src/reframe.ts</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag">Compositing</span>
+        <h3>Masques, effets et transitions</h3>
+        <ul>
+          <li><b>Masques et caches</b><span>Alpha, luminance, forme animée : révélations et découpes.</span><span class="where">engine + styles</span></li>
+          <li><b>Modes de fusion</b><span>Produit, écran, incrustation, sur chaque élément.</span><span class="where">styles/src</span></li>
+          <li><b>Effets</b><span>Flou, ombre portée, lueur, bruit, déplacement, étalonnage des couleurs.</span><span class="where">styles/src</span></li>
+          <li><b>Flou de mouvement, 50 et 60 i/s</b><span>Sous-images mélangées ; cadences des réseaux sociaux.</span><span class="where">styles/src/output.ts, render</span></li>
+          <li><b>Transitions</b><span>Volet, iris, forme, raccord de forme d'un plan à l'autre (motivées, comme Maelia).</span><span class="where">engine + styles</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag">Espace</span>
+        <h3>Profondeur et caméra</h3>
+        <ul>
+          <li><b>2,5D</b><span>Profondeur des calques, perspective, rotation en X et Y, parallaxe automatique.</span><span class="where">engine/src/evaluate.ts</span></li>
+          <li><b>Caméra de cinéma</b><span>Déplacements sur courbe, secousse, profondeur de champ, préréglages (travelling, plongée).</span><span class="where">engine/src/animate.ts</span></li>
+          <li><b>Lumières et ombres</b><span>Ombres portées au sol, éclairage simple par direction.</span><span class="where">styles/src</span></li>
+          <li><b>Chaque plan bouge</b><span>Une poussée ou un panoramique léger par défaut, comme la règle du film Maelia.</span><span class="where">ai/src/prompts.ts</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag p2">Structure</span>
+        <h3>Réutiliser et décliner</h3>
+        <ul>
+          <li><b>Compositions imbriquées</b><span>Un bloc animé réutilisé, en boucle ou décalé, comme un élément.</span><span class="where">schema + engine</span></li>
+          <li><b>Gabarits et variables</b><span>Textes, couleurs, logos, données : cent versions d'une même vidéo.</span><span class="where">schema + api</span></li>
+          <li><b>Charte de marque</b><span>Polices, couleurs et logos imposés à la génération et au rendu.</span><span class="where">api + ai</span></li>
+          <li><b>Données → animation</b><span>Graphiques animés depuis un tableau (barres, courbes, cartes).</span><span class="where">nouveau library/src/charts.ts</span></li>
+          <li><b>Piloté par le son</b><span>Clés calées sur le tempo et les battements, formes qui suivent l'amplitude.</span><span class="where">audio → engine</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag p2">Simulation</span>
+        <h3>Particules et physique</h3>
+        <ul>
+          <li><b>Émetteurs</b><span>Confettis, étincelles, fumée, pluie, bulles, avec un tirage rejouable.</span><span class="where">nouveau engine/src/particles.ts</span></li>
+          <li><b>Forces</b><span>Gravité, vent, turbulence, attraction ; collision avec le sol.</span><span class="where">engine/src/particles.ts</span></li>
+          <li><b>Cordes et tissus simples</b><span>Chaînes de ressorts : écharpes, drapeaux, câbles.</span><span class="where">engine/src/constraints.ts</span></li>
+          <li><b>Toujours déterministe</b><span>Calculé depuis le début de la scène, pour des morceaux identiques.</span><span class="where">engine</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag">Dialogue avec l'IA</span>
+        <h3>Aider le modèle à viser juste</h3>
+        <ul>
+          <li><b>Brief-contrat</b><span>Faits, noms et chiffres extraits du texte, à respecter à la lettre.</span><span class="where">ai/src/storyboard.ts</span></li>
+          <li><b>Intentions et questions</b><span>« marcher vers », « lancer à » ; « où est la main à 3,2 s ? ».</span><span class="where">nouveau ai/src/intents.ts</span></li>
+          <li><b>Relecture du mouvement</b><span>Planche, ruban d'un geste et gros plans, avec la liste de contrôle du guide.</span><span class="where">ai/src/pipeline.ts</span></li>
+          <li><b>Scène modèle et fiches</b><span>La scène 1 validée donnée en exemple ; fiches de poses relues.</span><span class="where">ai/src/pipeline.ts</span></li>
+          <li><b>Correctifs ciblés</b><span>Changer trois clés plutôt que réécrire la scène.</span><span class="where">ai/src/prompts.ts</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag">Contrôle</span>
+        <h3>Mesurer chaque film</h3>
+        <ul>
+          <li><b>À-coups</b><span>Au plus 60 px et 0,7 rad par image ; marche au plus 5 Hz (check-motion de Maelia).</span><span class="where">nouveau engine/src/measure.ts</span></li>
+          <li><b>Zones réservées et lisibilité</b><span>Bande des sous-titres libre, contraste des textes, temps de lecture.</span><span class="where">engine/src/measure.ts</span></li>
+          <li><b>Fidélité</b><span>Chiffres affichés comparés au brief ; chiffres prononcés réécoutés (Whisper).</span><span class="where">ai + audio</span></li>
+          <li><b>Budget et déterminisme</b><span>Temps par image mesuré ; les morceaux rendus donnent les mêmes images.</span><span class="where">render</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag p3">Sorties</span>
+        <h3>Formats et performances</h3>
+        <ul>
+          <li><b>Rendu GPU</b><span>WebGL en plus du Canvas 2D, pour les effets et la 2,5D en temps réel.</span><span class="where">styles/src</span></li>
+          <li><b>Export Lottie et SVG animé</b><span>Pour le web et les applications, en vectoriel.</span><span class="where">nouveau render/src/lottie.ts</span></li>
+          <li><b>Vidéo avec transparence</b><span>WebM alpha, ProRes 4444, séquences PNG, pour l'incrustation.</span><span class="where">render/src/ffmpeg.ts</span></li>
+          <li><b>Aperçus rapides</b><span>Basse définition et cache pendant l'édition, pleine qualité au rendu.</span><span class="where">styles + web</span></li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag p3">Éditeur</span>
+        <h3>Pour retoucher à la main</h3>
+        <ul>
+          <li><b>Éditeur de courbes</b><span>Vitesse et accélération de chaque valeur, comme dans After Effects.</span><span class="where">apps/web</span></li>
+          <li><b>Pelures d'oignon</b><span>Les images voisines en transparence, pour juger un geste.</span><span class="where">apps/web</span></li>
+          <li><b>Trajectoires à l'écran</b><span>Déplacer une courbe de mouvement avec ses poignées.</span><span class="where">apps/web</span></li>
+          <li><b>Clés par partie</b><span>Retoucher le bras d'un personnage dans la frise.</span><span class="where">apps/web</span></li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============================================================ quality criteria -->
+  <section aria-labelledby="f6">
+    <h2 id="f6">Ce que « réussi » veut dire, en chiffres</h2>
+    <p class="intro">Pour Maelia, chaque règle du guide avait un outil qui la vérifiait. Voici les critères qu'un film généré devrait tenir avant d'être présenté comme terminé. Ce qui n'est pas mesurable (le jeu de la voix, l'humour) est signalé comme « non contrôlé ».</p>
+    <div class="scroll tablewrap">
+      <table>
+        <thead><tr><th scope="col">Critère</th><th scope="col">Seuil</th><th scope="col">Mesure</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">À-coups</th><td class="val">0 image au-delà de 60 px ou 0,7 rad</td><td>suivi de chaque élément image par image</td></tr>
+          <tr><th scope="row">Cycles</th><td class="val">marche ≤ 5 Hz, pieds glissant ≤ 4 px</td><td>position des pieds au sol</td></tr>
+          <tr><th scope="row">Zones réservées</th><td class="val">bande des sous-titres libre 100 % du temps</td><td>boîtes des visages, chiffres, titres</td></tr>
+          <tr><th scope="row">Lecture</th><td class="val">texte visible ≥ 0,3 s + 1 s par 15 caractères</td><td>durée d'affichage de chaque texte</td></tr>
+          <tr><th scope="row">Contraste</th><td class="val">≥ 4,5:1 pour les textes</td><td>couleurs du texte et du fond rendu</td></tr>
+          <tr><th scope="row">Cadre</th><td class="val">0 personnage parlant hors cadre ou caché</td><td>sujets, titres, recadrages</td></tr>
+          <tr><th scope="row">Fidélité</th><td class="val">100 % des chiffres du brief, aucun en plus</td><td>textes des scènes ; voix retranscrite</td></tr>
+          <tr><th scope="row">Son</th><td class="val">−16 LUFS ± 1, crête ≤ −1,5 dBFS</td><td>sonie intégrée (EBU R128)</td></tr>
+          <tr><th scope="row">Durée</th><td class="val">cible ± 10 %, allongée seulement par la voix</td><td>timeline</td></tr>
+          <tr><th scope="row">Déterminisme</th><td class="val">images identiques en 1 ou N morceaux</td><td>empreinte de quelques images</td></tr>
+          <tr><th scope="row">Budget</th><td class="val">≤ 0,5 s par image 1080p en vectoriel plat</td><td>temps de rendu mesuré</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ phased plan -->
+  <section aria-labelledby="f7">
+    <h2 id="f7">Dans quel ordre</h2>
+    <ol class="plan">
+      <li><div><h3>Voir et mesurer</h3><p>C'est le socle : il faut pouvoir juger tout le reste. Relecture du mouvement (planche, ruban, gros plans) par le modèle qui voit, <code>measure.ts</code> avec les critères ci-dessus, et un rapport « contrôlé / non contrôlé » sur la page de la génération.</p></div></li>
+      <li><div><h3>Fluidité</h3><p>Trajectoires courbes, ressorts, fondus entre poses, couches, formules sûres, flou de mouvement, 50 et 60 i/s. Les projets existants ne changent pas : sans les nouveaux champs, tout se comporte comme avant.</p></div></li>
+      <li><div><h3>Personnages</h3><p>Attaches et IK, actions à clés, transitions d'humeur, vues multiples, mouvement secondaire, visèmes. C'est le niveau de Maelia, écrit en données au lieu de code.</p></div></li>
+      <li><div><h3>Méthode Maelia dans la génération</h3><p>Brief-contrat, voix d'abord, fiches et images de style validées par l'utilisateur, scène modèle, intentions et questions au moteur.</p></div></li>
+      <li><div><h3>Motion design</h3><p>Calques de formes (tracé, morphing, répétiteurs), animateurs de texte, masques et fusion, effets, 2,5D, compositions imbriquées, gabarits et variables, données et son qui pilotent l'animation.</p></div></li>
+      <li><div><h3>Simulation, sorties et éditeur</h3><p>Particules et ressorts, rendu GPU, export Lottie et vidéo avec transparence. Puis, côté éditeur, l'éditeur de courbes, les pelures d'oignon et les trajectoires à l'écran pour retoucher à la main.</p></div></li>
+    </ol>
+    <p class="quick">Le détail de chaque phase (lots, fichiers, algorithmes, tests, critères d'acceptation, calendrier) est dans le <a href="plan.html">plan d'implémentation du moteur</a>.</p>
+    <p class="quick">Gains rapides possibles dès la phase 1 : le flou de mouvement et le 60 i/s. Le moteur calcule une image à partir du projet et de t seulement, donc les deux ne demandent presque pas de code nouveau.</p>
+  </section>
+
+  <section aria-labelledby="f8">
+    <h2 id="f8">Trois règles à garder</h2>
+    <div class="rules">
+      <div class="card">
+        <h3>Une image ne dépend que du projet et de t</h3>
+        <p>Pas d'état caché, pas d'aléatoire non semé. Les ressorts et les particules devront la respecter : ils se calculent depuis le début de la scène, avec un tirage fixé. Sinon les morceaux rendus en parallèle ne se recolleraient plus.</p>
+      </div>
+      <div class="card">
+        <h3>Le moteur dit quoi et où, le style dit comment</h3>
+        <p>Le moteur ne produit que des formes placées. Le même film passe en plat, aquarelle, papier découpé, crayonné, BD ou néon sans toucher au projet. Le flou et les masques doivent marcher dans les six styles.</p>
+      </div>
+      <div class="card">
+        <h3>Le temps suit la voix</h3>
+        <p>Une clé peut viser une réplique (<span class="m">l2, fin + 0,3 s</span>). Quand la vraie voix est plus longue, les gestes se recalent. Les intentions et les actions devront s'ancrer de la même façon.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="f9">
+    <h2 id="f9">Où c'est dans le code</h2>
+    <ul class="files">
+      <li><b>engine/src/timing.ts</b> · durées, répliques</li>
+      <li><b>engine/src/evaluate.ts</b> · frameAt(t), Frame</li>
+      <li><b>engine/src/animate.ts</b> · clés, caméra</li>
+      <li><b>engine/src/assets.ts</b> · parties, poses, variantes</li>
+      <li><b>engine/src/reframe.ts</b> · formats 9:16, 1:1, 4:5</li>
+      <li><b>styles/src</b> · les 6 packs, sortie recadrée</li>
+      <li><b>render/src</b> · morceaux, FFmpeg</li>
+      <li><b>audio/src/mix.ts</b> · la bande-son</li>
+      <li><b>ai/src/ask.ts, pipeline.ts, drawing.ts</b> · échanges avec le modèle</li>
+      <li class="p"><b>engine/src/constraints.ts</b> · proposé : attaches, IK</li>
+      <li class="p"><b>engine/src/rig.ts</b> · proposé : actions, couches, fondus</li>
+      <li class="p"><b>engine/src/particles.ts</b> · proposé</li>
+      <li class="p"><b>engine/src/measure.ts</b> · proposé : mesures pour le modèle</li>
+      <li class="p"><b>ai/src/intents.ts</b> · proposé : intentions → clés</li>
+      <li class="p"><b>engine/src/expr.ts</b> · proposé : formules sûres</li>
+      <li class="p"><b>engine/src/shapes.ts</b> · proposé : calques de formes</li>
+      <li class="p"><b>library/src/charts.ts</b> · proposé : données animées</li>
+      <li class="p"><b>render/src/lottie.ts</b> · proposé : export Lottie</li>
+    </ul>
+  </section>
+</div>
+
+</body>
+</html>

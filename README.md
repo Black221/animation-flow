@@ -355,6 +355,8 @@ pnpm --filter @af/styles exec tsx scripts/formats.ts --style=neon  # le même fi
 
 Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+Le moteur en schémas (fonctionnement, échanges avec le modèle d'IA, améliorations prévues) : [docs/moteur/moteur.html](docs/moteur/moteur.html). Son plan d'implémentation (7 phases, 57 lots, calendrier, format v2, tests, risques) : [docs/moteur/plan.html](docs/moteur/plan.html). Ce sont des pages autonomes, à ouvrir dans un navigateur.
+
 ## Feuille de route
 
 1. **Fondations** (fait) : format, moteur, deux styles, éditeur avec aperçu, fournisseurs et clés, Docker.

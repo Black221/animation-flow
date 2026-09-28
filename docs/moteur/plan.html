@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plan du moteur animation-flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F2F4F6; --panel: #FFFFFF; --ink: #17202B; --muted: #566273; --line: #C4CCD6; --soft: #E6EAEF;
+    --accent: #C92A68; --accent-soft: #FCE6EF;
+    --s1: #2F6FB0; --s2: #2E8A6E; --s3: #B7791F; --s4: #7A4FB5;
+    --display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+    --body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #10151B; --panel: #19212B; --ink: #E4E9EF; --muted: #97A3B2; --line: #334050; --soft: #222C38; --accent: #FF7AA6; --accent-soft: #3A1F2B; --s1: #6FA8E8; --s2: #5CC7A3; --s3: #E3B05A; --s4: #B08CE8; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --bg: #10151B; --panel: #19212B; --ink: #E4E9EF; --muted: #97A3B2; --line: #334050; --soft: #222C38; --accent: #FF7AA6; --accent-soft: #3A1F2B; --s1: #6FA8E8; --s2: #5CC7A3; --s3: #E3B05A; --s4: #B08CE8; color-scheme: dark; }
+
+  body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--body); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 72px; display: grid; gap: 48px; }
+  header { display: grid; gap: 14px; max-width: 74ch; }
+  .eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  h1 { font: 800 clamp(30px, 5vw, 46px)/1.05 var(--display); margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+  h2 { font: 700 25px/1.2 var(--display); margin: 0; text-wrap: balance; }
+  h3 { font: 700 18px/1.25 var(--display); margin: 0; text-wrap: balance; }
+  h4 { font: 600 15px/1.3 var(--body); margin: 0; }
+  p { margin: 0; }
+  ul, ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+  .lede { font-size: 17px; color: var(--muted); }
+  .muted { color: var(--muted); }
+  code, .m { font-family: var(--mono); font-size: 0.9em; }
+  section { display: grid; gap: 16px; }
+  .intro { color: var(--muted); max-width: 80ch; }
+  .facts { display: flex; flex-wrap: wrap; gap: 10px 28px; }
+  .facts div { display: grid; gap: 0; }
+  .facts b { font: 800 26px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+  .facts span { font-size: 13px; color: var(--muted); }
+
+  nav.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; }
+  nav.toc ol { columns: 2 260px; column-gap: 32px; display: block; padding-left: 22px; }
+  nav.toc li { margin-bottom: 4px; }
+  a { color: var(--ink); text-decoration-color: var(--line); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--accent); }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+  .scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .scroll.pad { padding: 12px; }
+  svg { display: block; width: 100%; min-width: 980px; height: auto; color: var(--ink); }
+  figure { margin: 0; display: grid; gap: 10px; }
+  figcaption { color: var(--muted); max-width: 84ch; }
+
+  table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  thead th { font: 600 12px/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--soft); }
+  tbody th { font-weight: 600; }
+  tbody td { color: var(--muted); }
+  tbody td.ink { color: var(--ink); }
+  tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 10px; align-content: start; }
+  .card p, .card li { color: var(--muted); }
+  .card li b, .card p b { color: var(--ink); font-weight: 600; }
+
+  .phase { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; display: grid; gap: 18px; }
+  .phase > header { display: grid; gap: 6px; max-width: none; }
+  .phead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+  .pnum { font: 800 15px/1 var(--mono); color: var(--accent); }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill { font: 500 12px/1 var(--mono); padding: 6px 9px; border-radius: 99px; background: var(--soft); color: var(--ink); }
+  .pill.acc { background: var(--accent-soft); color: var(--accent); }
+  .lots { display: grid; gap: 14px; }
+  .lot { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 8px; }
+  .lot h4 .id { font-family: var(--mono); color: var(--muted); font-weight: 500; margin-right: 6px; }
+  .lot ul { color: var(--muted); }
+  .lot li b { color: var(--ink); font-weight: 600; }
+  .where { font: 400 12.5px/1.5 var(--mono); color: var(--muted); }
+  .accept { background: var(--soft); border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; }
+  .accept h4 { font: 600 12px/1.2 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .accept li { color: var(--ink); }
+
+  pre { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; overflow-x: auto; font: 400 13px/1.55 var(--mono); color: var(--ink); }
+  pre .c { color: var(--muted); }
+  pre .n { color: var(--accent); }
+
+  /* gantt */
+  .gw { stroke: var(--line); stroke-width: 1; }
+  .gl { font: 500 11px var(--mono); fill: var(--muted); }
+  .gs { font: 600 13px var(--body); fill: var(--ink); }
+  .gb { font: 500 11.5px var(--body); fill: #FFFFFF; }
+  .b1 { fill: var(--s1); } .b2 { fill: var(--s2); } .b3 { fill: var(--s3); } .b4 { fill: var(--s4); }
+  .ms { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 4; }
+  .mt { font: 600 11.5px var(--mono); fill: var(--accent); }
+  .row { fill: var(--soft); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .gb { fill: #10151B; } }
+  :root[data-theme="dark"] .gb { fill: #10151B; }
+
+  /* pipeline stages */
+  .stages { counter-reset: st; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; padding: 0; list-style: none; }
+  .stages li { counter-increment: st; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px 12px 48px; position: relative; display: grid; gap: 2px; }
+  .stages li::before { content: counter(st); position: absolute; left: 14px; top: 11px; font: 800 18px/1 var(--display); color: var(--muted); }
+  .stages li.new { border: 2px dashed var(--accent); background: var(--accent-soft); }
+  .stages li.new::before { color: var(--accent); }
+  .stages b { font-weight: 600; }
+  .stages span { font-size: 13.5px; color: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; color: var(--muted); align-items: center; }
+  .legend i { display: inline-block; width: 26px; height: 14px; border-radius: 4px; margin-right: 6px; vertical-align: -2px; }
+  .legend .now { background: var(--panel); border: 1.5px solid var(--line); }
+  .legend .add { background: var(--accent-soft); border: 2px dashed var(--accent); }
+</style>
+<style>*{box-sizing:border-box} body{margin:0}</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">animation-flow · plan d'implémentation</span>
+    <h1>Plan d'implémentation du moteur</h1>
+    <p class="lede">Ce plan fait passer le moteur actuel (des clés interpolées, des poses en boucle, cinq types de primitives) à un moteur de dessin animé et de motion design complet. C'est le niveau cumulé de Spine ou Moho pour les personnages et d'After Effects ou Lottie pour le motion design. Tout reste décrit en données, déterministe et vérifiable par des mesures. Chaque lot indique les fichiers touchés, l'algorithme retenu, les tests et le critère d'acceptation.</p>
+    <div class="facts" aria-label="chiffres clés du plan">
+      <div><b>7</b><span>phases, de 0 à 6</span></div>
+      <div><b>57</b><span>lots</span></div>
+      <div><b>≈ 31</b><span>semaines calendaires, 4 équipes en parallèle</span></div>
+      <div><b>≈ 72</b><span>semaines-développeur au total</span></div>
+      <div><b>12</b><span>films de référence pour juger chaque phase</span></div>
+    </div>
+    <p class="muted">Le fonctionnement actuel du moteur et la liste des améliorations sont sur la page <a href="moteur.html">Moteur animation-flow</a>.</p>
+    <p class="muted">Les durées sont estimées pour un développeur confirmé. Avec des sessions Claude, le code va plus vite, mais la relecture des images et des mesures prend le même temps : c'est elle qui fixe le rythme.</p>
+  </header>
+
+  <nav class="toc" aria-label="sommaire">
+    <ol>
+      <li><a href="#calendrier">Calendrier et équipes</a></li>
+      <li><a href="#invariants">Les règles à ne jamais casser</a></li>
+      <li><a href="#architecture">Architecture cible : le calcul d'une image</a></li>
+      <li><a href="#schema">Le format v2</a></li>
+      <li><a href="#principes">Des principes d'animation aux fonctions</a></li>
+      <li><a href="#p0">Phase 0 · Fondations</a></li>
+      <li><a href="#p1">Phase 1 · Voir et mesurer</a></li>
+      <li><a href="#p2">Phase 2 · Fluidité</a></li>
+      <li><a href="#p3">Phase 3 · Personnages</a></li>
+      <li><a href="#p4">Phase 4 · La méthode Maelia dans la génération</a></li>
+      <li><a href="#p5">Phase 5 · Motion design</a></li>
+      <li><a href="#p6">Phase 6 · Simulation, sorties, éditeur</a></li>
+      <li><a href="#banc">Banc d'essai : 12 films de référence</a></li>
+      <li><a href="#tests">Stratégie de tests</a></li>
+      <li><a href="#risques">Risques et parades</a></li>
+      <li><a href="#fini">Ce que « fini » veut dire pour un lot</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ calendar -->
+  <section id="calendrier" aria-labelledby="h-cal">
+    <h2 id="h-cal">Calendrier et équipes</h2>
+    <p class="intro">Quatre équipes avancent en parallèle : moteur, styles et rendu, IA, éditeur. La phase 1 passe avant la fluidité parce qu'elle fournit les mesures qui jugent tout le reste. Les jalons en rose sont des démonstrations sur le banc d'essai.</p>
+    <figure>
+      <div class="scroll pad">
+        <svg viewBox="0 0 1120 330" role="img" aria-label="Diagramme de Gantt sur 31 semaines, quatre équipes. Moteur : fondations, fluidité, personnages, formes et texte, 2,5D et compositions, particules. Styles et rendu : compositeur et tests visuels, flou de mouvement, masques et effets, GPU, exports. IA : relecture et mesures, méthode Maelia, rig standard, intentions et outils, consignes motion design. Éditeur : rapport, éditeur de courbes, rig et pelures d'oignon, formes, texte, effets. Jalons semaines 5, 13, 22 et 31.">
+          <!-- grid: x = 170 + week * 30 -->
+          <g>
+            <line class="gw" x1="170" y1="30" x2="170" y2="290"/><line class="gw" x1="320" y1="30" x2="320" y2="290"/><line class="gw" x1="470" y1="30" x2="470" y2="290"/><line class="gw" x1="620" y1="30" x2="620" y2="290"/><line class="gw" x1="770" y1="30" x2="770" y2="290"/><line class="gw" x1="920" y1="30" x2="920" y2="290"/><line class="gw" x1="1070" y1="30" x2="1070" y2="290"/>
+            <text class="gl" x="170" y="22" text-anchor="middle">sem. 0</text><text class="gl" x="320" y="22" text-anchor="middle">5</text><text class="gl" x="470" y="22" text-anchor="middle">10</text><text class="gl" x="620" y="22" text-anchor="middle">15</text><text class="gl" x="770" y="22" text-anchor="middle">20</text><text class="gl" x="920" y="22" text-anchor="middle">25</text><text class="gl" x="1070" y="22" text-anchor="middle">30</text>
+          </g>
+          <!-- rows -->
+          <rect class="row" x="20" y="40" width="1080" height="52" rx="6"/>
+          <rect class="row" x="20" y="102" width="1080" height="52" rx="6"/>
+          <rect class="row" x="20" y="164" width="1080" height="52" rx="6"/>
+          <rect class="row" x="20" y="226" width="1080" height="52" rx="6"/>
+          <text class="gs" x="32" y="71">Moteur</text>
+          <text class="gs" x="32" y="133">Styles, rendu</text>
+          <text class="gs" x="32" y="195">IA</text>
+          <text class="gs" x="32" y="257">Éditeur</text>
+          <!-- Moteur -->
+          <rect class="b1" x="170" y="50" width="58" height="32" rx="5"/><text class="gb" x="178" y="70">P0</text>
+          <rect class="b1" x="290" y="50" width="88" height="32" rx="5"/><text class="gb" x="298" y="70">P2 fluidité</text>
+          <rect class="b1" x="382" y="50" width="176" height="32" rx="5"/><text class="gb" x="390" y="70">P3 personnages</text>
+          <rect class="b1" x="562" y="50" width="146" height="32" rx="5"/><text class="gb" x="570" y="70">P5 formes, texte</text>
+          <rect class="b1" x="712" y="50" width="116" height="32" rx="5"/><text class="gb" x="720" y="70">P5 2,5D, comps</text>
+          <rect class="b1" x="832" y="50" width="58" height="32" rx="5"/><text class="gb" x="838" y="70">P6 part.</text>
+          <!-- Styles -->
+          <rect class="b2" x="200" y="112" width="58" height="32" rx="5"/><text class="gb" x="206" y="132">P0 comp.</text>
+          <rect class="b2" x="320" y="112" width="28" height="32" rx="5"/><text class="gb" x="324" y="132">flou</text>
+          <rect class="b2" x="410" y="112" width="148" height="32" rx="5"/><text class="gb" x="418" y="132">P5 masques, effets</text>
+          <rect class="b2" x="832" y="112" width="178" height="32" rx="5"/><text class="gb" x="840" y="132">P6 rendu GPU</text>
+          <rect class="b2" x="1012" y="112" width="88" height="32" rx="5"/><text class="gb" x="1020" y="132">exports</text>
+          <!-- IA -->
+          <rect class="b3" x="230" y="174" width="88" height="32" rx="5"/><text class="gb" x="238" y="194">P1 mesures</text>
+          <rect class="b3" x="322" y="174" width="118" height="32" rx="5"/><text class="gb" x="330" y="194">P4 méthode</text>
+          <rect class="b3" x="444" y="174" width="88" height="32" rx="5"/><text class="gb" x="452" y="194">P3 rig std</text>
+          <rect class="b3" x="536" y="174" width="88" height="32" rx="5"/><text class="gb" x="544" y="194">intentions</text>
+          <rect class="b3" x="712" y="174" width="88" height="32" rx="5"/><text class="gb" x="720" y="194">P5 consignes</text>
+          <!-- Editeur -->
+          <rect class="b4" x="260" y="236" width="58" height="32" rx="5"/><text class="gb" x="266" y="256">rapport</text>
+          <rect class="b4" x="380" y="236" width="118" height="32" rx="5"/><text class="gb" x="388" y="256">courbes</text>
+          <rect class="b4" x="560" y="236" width="118" height="32" rx="5"/><text class="gb" x="568" y="256">rig, oignon</text>
+          <rect class="b4" x="800" y="236" width="178" height="32" rx="5"/><text class="gb" x="808" y="256">formes, texte, effets</text>
+          <!-- milestones -->
+          <line class="ms" x1="320" y1="34" x2="320" y2="296"/><text class="mt" x="324" y="312">J1 · chaque film est mesuré</text>
+          <line class="ms" x1="560" y1="34" x2="560" y2="296"/><text class="mt" x="564" y="312">J2 · personnages niveau Maelia</text>
+          <line class="ms" x1="830" y1="34" x2="830" y2="296"/><text class="mt" x="834" y="312">J3 · motion design</text>
+          <line class="ms" x1="1100" y1="34" x2="1100" y2="296"/><text class="mt" x="1096" y="326" text-anchor="end">J4 · sorties pro, éditeur</text>
+        </svg>
+      </div>
+      <figcaption>Semaines calendaires. Chaque barre est à l'échelle de sa durée. Les dépendances principales sont les suivantes :
+        <ul>
+          <li>P0 précède tout ;</li>
+          <li>les mesures de P1 servent à valider P2, P3 et P5 ;</li>
+          <li>le rig standard de P3 précède les actions réutilisables et les intentions ;</li>
+          <li>le compositeur de P0 précède les masques et les effets de P5 ;</li>
+          <li>le rendu GPU de P6 vient après, pour accélérer ce qui existe déjà en Canvas 2D.</li>
+        </ul>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================================================ invariants -->
+  <section id="invariants" aria-labelledby="h-inv">
+    <h2 id="h-inv">Les règles à ne jamais casser</h2>
+    <div class="grid2">
+      <div class="card"><h3>Une image ne dépend que du projet et de t</h3><p>Aucun <code>Math.random</code>, aucune horloge. Le hasard est semé par l'identifiant de l'élément. Ce qui a un état (ressorts, cordes) se calcule à pas fixe depuis le début de la scène, avec des points de reprise, pour que les morceaux rendus en parallèle se recollent sans raccord.</p></div>
+      <div class="card"><h3>Des données, jamais du code</h3><p>Le modèle d'IA et l'utilisateur écrivent du JSON validé. La liberté du code passe par des formules dans un petit langage sûr : pas de boucle, pas d'accès au système, un budget d'évaluation.</p></div>
+      <div class="card"><h3>Rien ne change pour un projet existant</h3><p>Format v2 avec une migration automatique depuis la v1, et chaque champ nouveau est facultatif. Test de garde : les modèles de projets et le projet d'exemple donnent les mêmes images, au pixel près, avant et après chaque lot.</p></div>
+      <div class="card"><h3>Le moteur dit quoi et où, le style dit comment</h3><p>Formes, masques, effets et fusion sont décrits par le moteur dans la Frame, puis appliqués par un compositeur commun aux styles. Chaque ajout doit marcher dans les six styles, ou déclarer qu'il ne s'applique pas à l'un d'eux (par exemple le flou dans le papier découpé).</p></div>
+      <div class="card"><h3>Le temps suit la voix, et la musique</h3><p>Une clé peut viser une réplique, et désormais aussi un temps de la musique (<code>{ beat: 17 }</code>). Actions et intentions s'ancrent de la même façon.</p></div>
+      <div class="card"><h3>Tout se mesure</h3><p>Une fonction qu'on ne peut pas vérifier ne sort pas. Chaque lot livre ses critères dans <code>measure.ts</code> et ses tests dorés (images de référence).</p></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ architecture -->
+  <section id="architecture" aria-labelledby="h-arch">
+    <h2 id="h-arch">Architecture cible : le calcul d'une image</h2>
+    <p class="intro"><code>frameAt(t)</code> passe de 5 à 12 étapes. L'ordre compte : les contraintes s'appliquent après les poses, le mouvement secondaire réagit au mouvement final, et la déformation vient avant les opérations sur les formes. Le résultat n'est plus une liste plate de primitives, mais un petit arbre de composition (groupes avec masque, fusion et effets), que le compositeur commun aplatit pour le style.</p>
+    <div class="legend"><span><i class="now"></i>existe</span><span><i class="add"></i>nouveau</span></div>
+    <ol class="stages">
+      <li><b>Temps</b><span>scène jouée, recouvrement des transitions, remappage du temps des compositions</span></li>
+      <li><b>Caméra</b><span>courbe, secousse semée, focale et profondeur de champ (2,5D)</span></li>
+      <li class="new"><b>Pistes de valeurs</b><span>Bézier temporel et spatial, ressort analytique, formules</span></li>
+      <li class="new"><b>Rig</b><span>poses fondues, couches par partie, actions à clés, vues</span></li>
+      <li class="new"><b>Contraintes</b><span>parentage entre éléments, attaches à une partie, IK, regard, pieds plantés</span></li>
+      <li class="new"><b>Secondaire</b><span>ressorts sur tresses, queues, vêtements ; écrasement automatique à l'impact</span></li>
+      <li class="new"><b>Déformation</b><span>membres souples, peau sur os, morphing de formes, squash &amp; stretch</span></li>
+      <li class="new"><b>Formes</b><span>tracé progressif, répétiteurs, déformations de chemin, fusion booléenne</span></li>
+      <li class="new"><b>Texte</b><span>mise en page par glyphe, animateurs, texte sur chemin, compteurs</span></li>
+      <li class="new"><b>Particules</b><span>émetteurs sans état (fonctions de l'âge), cordes à pas fixe</span></li>
+      <li><b>Projection et tri</b><span>élément × caméra ; + profondeur, perspective, rotation X/Y, tri par z</span></li>
+      <li class="new"><b>Composition</b><span>masques, caches, modes de fusion, effets, flou de mouvement ; puis le style</span></li>
+    </ol>
+  </section>
+
+  <!-- ============================================================ schema v2 -->
+  <section id="schema" aria-labelledby="h-schema">
+    <h2 id="h-schema">Le format v2, en résumé</h2>
+    <p class="intro">Tout est facultatif. Un projet v1 migré ne contient aucun de ces champs et se comporte comme avant. Les noms suivent le vocabulaire du motion design (After Effects, Lottie) pour que les modèles d'IA les reconnaissent.</p>
+<pre><span class="c">// packages/schema — ce qui s'ajoute (extrait)</span>
+schemaVersion: <span class="n">2</span>
+<span class="c">// temps : une réplique, ou un temps de la musique</span>
+TimeRef = number | { line, edge, offset } | <span class="n">{ beat, offset }</span>
+<span class="c">// clé : interpolation temporelle et spatiale</span>
+ElementKey += {
+  ease: 'inOut' | … | <span class="n">{ bezier: [x1, y1, x2, y2] } | { spring: { stiffness, damping, mass } }</span>,
+  <span class="n">path: 'auto' | 'linear' | { in: [dx, dy], out: [dx, dy] }</span>,   <span class="c">// tangentes spatiales</span>
+  <span class="n">sx, sy, skew, z, rotX, rotY, anchorX, anchorY</span>,
+  <span class="n">action, actionSpeed, blend, layers: [{ pose, parts, weight }]</span>,
+  <span class="n">view, lookAt, expressionTransition: 'cut' | 'take'</span>,
+}
+Element += {
+  type: 'character' | 'prop' | 'text' | <span class="n">'shape' | 'comp' | 'particles' | 'chart' | 'null'</span>,
+  <span class="n">parent: { element, part? }</span>,              <span class="c">// attache : suit la main droite de…</span>
+  <span class="n">constraints: [{ ik: { chain, target } } | { lookAt } | { plant: 'feet' }]</span>,
+  <span class="n">mask: { shape | element, mode: 'alpha' | 'luma', invert, feather }</span>,
+  <span class="n">blend: 'multiply' | 'screen' | 'overlay' | …</span>,
+  <span class="n">effects: [{ blur } | { shadow } | { glow } | { levels } | { lut } | { noise } | …]</span>,
+  <span class="n">motionBlur: { shutter: 180 }</span>,
+  <span class="n">expr: { "x": "wiggle(2, 12)", "rotation": "valueAt('roue', t) * 0.5" }</span>,
+  <span class="n">formats: { "9:16": { x, y, scale } }</span>,        <span class="c">// retouche par format</span>
+}
+Asset += {
+  <span class="n">rig: 'humanoid' | 'quadruped' | 'custom'</span>,   <span class="c">// noms de parties standard → actions réutilisables</span>
+  <span class="n">views: { front, q34, side, back }</span>,
+  <span class="n">actions: { throw: { duration, loop, tracks: { arm_r: [{ t, rot, sx, sy, ease }] } } }</span>,
+  <span class="n">bones, skin</span>,                          <span class="c">// déformation par os</span>
+  <span class="n">springs: { tail: { stiffness, damping, gravity } }</span>,
+  <span class="n">visemes: { rest, A, E, O, MBP, FV, L }</span>,
+}
+Project += {
+  <span class="n">comps: { id: { width, height, duration, elements } }</span>,
+  <span class="n">variables: { titre: { type: 'text', value } }, data: { ventes: [[…]] }</span>,
+  <span class="n">brand: { fonts, colors, logos }</span>,
+  fps: 24 | 25 | 30 | <span class="n">50 | 60</span>,
+}</pre>
+  </section>
+
+  <!-- ============================================================ principles -->
+  <section id="principes" aria-labelledby="h-pr">
+    <h2 id="h-pr">Des principes d'animation aux fonctions</h2>
+    <p class="intro">Deux grilles de métier servent de liste de contrôle : les douze principes de l'animation (Disney, Thomas et Johnston) pour les personnages, et les principes du motion design d'interface (Issara Willenskomer) pour le graphisme. Chaque principe doit avoir une fonction qui le rend possible et une mesure qui le vérifie.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th scope="col">Principe</th><th scope="col">Fonction qui le rend possible</th><th scope="col">Ce qui le vérifie</th><th scope="col">Phase</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Écrasement-étirement</th><td class="ink">clés <code>sx, sy</code> à volume constant, écrasement auto à l'atterrissage</td><td>volume du personnage ± 10 %</td><td>3</td></tr>
+          <tr><th scope="row">Anticipation</th><td class="ink">actions avec préparation, intention « saut » qui l'ajoute, transition d'humeur « take »</td><td>0,15 à 0,3 s de préparation avant un saut</td><td>3, 4</td></tr>
+          <tr><th scope="row">Mise en scène</th><td class="ink">intention de cadrage (plan moyen, tiers gauche), zones libres</td><td>une lecture à la fois : au plus 2 mouvements majeurs simultanés</td><td>1, 4</td></tr>
+          <tr><th scope="row">Toute l'action / pose à pose</th><td class="ink">clés et actions ; formules pour l'enchaîné continu</td><td>—</td><td>2</td></tr>
+          <tr><th scope="row">Continuité et chevauchement</th><td class="ink">ressorts secondaires, retard par partie dans la hiérarchie</td><td>retard des extrémités de 2 à 6 images</td><td>3</td></tr>
+          <tr><th scope="row">Ralentis</th><td class="ink">Bézier temporel, ressorts, préréglages d'accélération</td><td>aucun déplacement linéaire brut au-delà de 0,5 s</td><td>2</td></tr>
+          <tr><th scope="row">Trajectoires en arc</th><td class="ink">tangentes spatiales automatiques, intention « arc »</td><td>courbure non nulle sur les gestes des membres</td><td>2</td></tr>
+          <tr><th scope="row">Action secondaire</th><td class="ink">couches d'animation par partie</td><td>—</td><td>2</td></tr>
+          <tr><th scope="row">Timing</th><td class="ink">ancrage sur les répliques et les temps de la musique, tenues</td><td>durées de lecture, cadence ≤ 5 Hz</td><td>1, 5</td></tr>
+          <tr><th scope="row">Exagération</th><td class="ink">intensité réglable des actions (0 à 2)</td><td>—</td><td>3</td></tr>
+          <tr><th scope="row">Dessin en volume</th><td class="ink">vues multiples, fiches de rotation</td><td>relecture visuelle des fiches</td><td>3, 4</td></tr>
+          <tr><th scope="row">Charme</th><td class="ink">règles de dessin dans les consignes, relecture comparée au modèle</td><td>relecture visuelle</td><td>4</td></tr>
+          <tr><th scope="row">Décalage et délai</th><td class="ink">décalage dans le temps des répétiteurs et des animateurs de texte</td><td>—</td><td>5</td></tr>
+          <tr><th scope="row">Transformation</th><td class="ink">morphing de formes, raccord de forme entre plans</td><td>continuité de forme à la coupe</td><td>3, 5</td></tr>
+          <tr><th scope="row">Changement de valeur</th><td class="ink">compteurs exacts, graphiques animés</td><td>valeur finale = valeur du brief</td><td>5</td></tr>
+          <tr><th scope="row">Masquage et révélation</th><td class="ink">masques animés, caches</td><td>—</td><td>5</td></tr>
+          <tr><th scope="row">Parallaxe et profondeur</th><td class="ink">profondeur z, perspective, parallaxe automatique</td><td>—</td><td>5</td></tr>
+          <tr><th scope="row">Travelling et zoom</th><td class="ink">caméra 2,5D, travelling compensé (effet Vertigo)</td><td>—</td><td>5</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ P0 -->
+  <section id="p0" class="phase" aria-labelledby="h-p0">
+    <header>
+      <div class="phead"><span class="pnum">PHASE 0</span><h2 id="h-p0">Fondations</h2></div>
+      <div class="meta"><span class="pill">3 semaines</span><span class="pill">moteur, styles</span><span class="pill">≈ 5 semaines-dév.</span></div>
+      <p class="intro">Préparer le terrain sans rien changer à l'image : format v2, pistes de valeurs, arbre de composition et outils de test. Tout le reste s'y appuie.</p>
+    </header>
+    <div class="lots">
+      <div class="lot"><h4><span class="id">0.1</span>Format v2 et migration</h4>
+        <ul><li><b>SCHEMA_VERSION 2</b>, <code>migrateProject()</code> qui accepte v1 et renvoie v2. Appliqué à la lecture en base, à l'import d'un fichier et dans la génération.</li><li>Les schémas JSON envoyés au modèle ne montrent que les champs utiles à l'étape en cours, pour ne pas le noyer.</li></ul>
+        <span class="where">packages/schema/src/index.ts, apps/api (lecture des projets), migration SQL sans changement de colonnes</span></div>
+      <div class="lot"><h4><span class="id">0.2</span>Pistes de valeurs</h4>
+        <ul><li><b>Refonte interne</b> : les clés d'un élément deviennent une piste par propriété (x, y, échelle…), précalculée une fois par scène dans l'évaluateur (temps résolus, tangentes).</li><li>L'échantillonnage passe d'un parcours linéaire à une recherche dichotomique : O(log n) par valeur.</li></ul>
+        <span class="where">packages/engine/src/animate.ts, nouveau tracks.ts</span></div>
+      <div class="lot"><h4><span class="id">0.3</span>Arbre de composition et compositeur commun</h4>
+        <ul><li><b>Nouvelle primitive <code>group</code></b> (enfants, opacité, fusion, masque, effets) dans la Frame.</li><li>Un compositeur commun (<code>styles/src/composite.ts</code>) rend chaque groupe dans un canevas hors écran quand il le faut (masque, effet, fusion), sinon directement.</li><li>Réserve de canevas réutilisés, pour éviter l'allocation à chaque image.</li></ul>
+        <span class="where">packages/engine/src/primitives.ts, packages/styles/src/common.ts, composite.ts</span></div>
+      <div class="lot"><h4><span class="id">0.4</span>Mesures de texte dans le moteur</h4>
+        <ul><li>Les métriques des 4 polices livrées (avances, crénage, ascendante) sont extraites des TTF au build (opentype.js) dans <code>fonts-metrics.json</code>.</li><li>La mise en page du texte devient identique au navigateur et à Node, et le moteur connaît la boîte de chaque lettre : c'est indispensable pour les animateurs de texte et les mesures.</li></ul>
+        <span class="where">packages/engine/src/text-layout.ts, scripts de build</span></div>
+      <div class="lot"><h4><span class="id">0.5</span>Bancs de test</h4>
+        <ul>
+          <li><b>Tests dorés</b> : images de référence par style, comparées avec une tolérance (1 % de pixels, écart moyen ≤ 2/255), dans Node et dans Chromium.</li>
+          <li><b>Déterminisme</b> : l'empreinte de 20 images doit être identique en 1 et en 4 morceaux.</li>
+          <li><b>Performance</b> : ms par image mesurées en intégration continue sur le banc d'essai.</li>
+        </ul>
+        <span class="where">packages/styles/test, packages/render/test, nouveau bench/</span></div>
+    </div>
+    <div class="accept"><h4>Accepté quand</h4><ul><li>Les 3 modèles de projets et le projet d'exemple donnent les mêmes images, au pixel près, qu'en v1.</li><li>Tous les tests existants passent, et les tests dorés et de déterminisme tournent en intégration continue.</li></ul></div>
+  </section>
+
+  <!-- ============================================================ P1 -->
+  <section id="p1" class="phase" aria-labelledby="h-p1">
+    <header>
+      <div class="phead"><span class="pnum">PHASE 1</span><h2 id="h-p1">Voir et mesurer</h2></div>
+      <div class="meta"><span class="pill">3 semaines</span><span class="pill">IA, moteur, éditeur</span><span class="pill">≈ 7 semaines-dév.</span><span class="pill acc">jalon J1</span></div>
+      <p class="intro">Le modèle d'IA regarde enfin les scènes en mouvement, et chaque film reçoit un rapport chiffré. C'est l'équivalent des planches, rubans et <code>check-motion</code> du film Maelia, intégrés à la plateforme.</p>
+    </header>
+    <div class="lots">
+      <div class="lot"><h4><span class="id">1.1</span>measure.ts</h4>
+        <ul>
+          <li><b>Échantillonnage</b> de chaque scène à 12 images/s (24 pour les à-coups).</li>
+          <li><b>Critères</b> :
+            <ul>
+              <li>à-coups au-delà de 60 px ou 0,7 rad par image ;</li>
+              <li>glissement des pieds ;</li>
+              <li>bande des sous-titres ;</li>
+              <li>temps de lecture des textes (0,3 s + 1 s par 15 caractères) ;</li>
+              <li>personnage qui parle hors cadre ou caché ;</li>
+              <li>chevauchement de textes ;</li>
+              <li>plan immobile plus de 4 s ;</li>
+              <li>plus de 2 mouvements majeurs en même temps ;</li>
+              <li>flashs (au plus 3 par seconde, règle d'accessibilité contre l'épilepsie photosensible).</li>
+            </ul>
+          </li>
+          <li><b>Chaque écart</b> est un <code>Issue</code> avec son chemin (<code>scenes.2.elements.1.keys.3</code>), son image, sa gravité et un conseil de correction.</li>
+        </ul>
+        <span class="where">nouveau packages/engine/src/measure.ts</span></div>
+      <div class="lot"><h4><span class="id">1.2</span>Contraste mesuré sur l'image rendue</h4>
+        <ul><li>Rendu en style plat, puis couleur du fond échantillonnée sous la boîte de chaque texte.</li><li>Rapport de contraste WCAG : 4,5:1 au moins, 3:1 pour les titres de plus de 48 px.</li></ul>
+        <span class="where">packages/render/src/still.ts, measure-render.ts</span></div>
+      <div class="lot"><h4><span class="id">1.3</span>Planche, ruban et gros plan</h4>
+        <ul>
+          <li><b>Planche</b> : 8 à 12 images d'une scène avec leur temps.</li>
+          <li><b>Ruban</b> : chaque image d'un geste repéré par les mesures ou par l'action principale.</li>
+          <li><b>Gros plan</b> sur le visage de celui qui parle.</li>
+          <li>Les images sont réduites (1024 px de large au plus) pour limiter le coût du modèle qui voit.</li>
+        </ul>
+        <span class="where">packages/ai/src/preview.ts, packages/render/src/still.ts</span></div>
+      <div class="lot"><h4><span class="id">1.4</span>Relecture du mouvement et correctifs ciblés</h4>
+        <ul>
+          <li><b>Nouvelle étape <code>motion</code></b> dans la génération : le modèle reçoit la planche, le ruban, les mesures et la liste de contrôle du guide.</li>
+          <li><b>Réponse</b> : <code>{ ok, problems, patch }</code>, où <code>patch</code> est un sous-ensemble de JSON Patch (RFC 6902) limité aux clés, aux actions et aux paramètres de la scène.</li>
+          <li><b>Boucle</b> de 3 tours au plus, qui s'arrête quand les mesures passent et que la relecture dit bon.</li>
+        </ul>
+        <span class="where">packages/ai/src/pipeline.ts, prompts.ts, nouveau patch.ts</span></div>
+      <div class="lot"><h4><span class="id">1.5</span>Rapport de génération</h4>
+        <ul>
+          <li><code>generation.report</code> : critères contrôlés (valeur, seuil, statut), non contrôlés (jeu de la voix, humour) et défauts connus.</li>
+          <li>Affiché sur la page de la génération et gardé avec le projet.</li>
+        </ul>
+        <span class="where">apps/api/src/routes/generations.ts, apps/web/src/pages/Generate.tsx</span></div>
+      <div class="lot"><h4><span class="id">1.6</span>Panneau des mesures dans l'éditeur</h4>
+        <ul><li>La liste des écarts de la scène ; un clic amène à l'image concernée et sélectionne l'élément.</li><li>Mesures recalculées à la sauvegarde.</li></ul>
+        <span class="where">apps/web/src/components/MeasuresPanel.tsx</span></div>
+      <div class="lot"><h4><span class="id">1.7</span>Gains rapides : flou de mouvement et 60 i/s</h4>
+        <ul>
+          <li><b>Flou de mouvement</b> : obturateur de 180° par défaut ; 3 à 8 sous-instants, selon la vitesse maximale dans l'image (pas de sous-instant si rien ne bouge de plus de 8 px par image) ; accumulation dans un tampon en virgule flottante pour éviter les bandes.</li>
+          <li><b>Cadences</b> : ajout de 50 et 60 images/s.</li>
+        </ul>
+        <span class="where">packages/styles/src/output.ts, packages/render, schema (fps)</span></div>
+    </div>
+    <div class="accept"><h4>Accepté quand</h4><ul><li>Sur le banc d'essai, le nombre d'écarts mesurés baisse d'au moins 70 % entre le premier jet et la fin de la boucle.</li><li>Chaque génération affiche son rapport.</li><li>Le flou de mouvement ne coûte rien sur une image fixe.</li></ul></div>
+  </section>
+
+  <!-- ============================================================ P2 -->
+  <section id="p2" class="phase" aria-labelledby="h-p2">
+    <header>
+      <div class="phead"><span class="pnum">PHASE 2</span><h2 id="h-p2">Fluidité</h2></div>
+      <div class="meta"><span class="pill">3 à 4 semaines</span><span class="pill">moteur, éditeur</span><span class="pill">≈ 8 semaines-dév.</span></div>
+      <p class="intro">Supprimer les saccades : les mouvements ne s'arrêtent plus à chaque clé, les poses se fondent, et tout peut suivre une formule.</p>
+    </header>
+    <div class="lots">
+      <div class="lot"><h4><span class="id">2.1</span>Bézier temporel</h4>
+        <ul><li>Accélération par courbe de Bézier cubique, comme en CSS ou avec l'influence et la vitesse d'After Effects. Les préréglages actuels deviennent des courbes nommées.</li><li>Résolution de x(u) = s par Newton, avec repli par dichotomie : précision de 1e-6, sans allocation.</li></ul>
+        <span class="where">packages/engine/src/math.ts, tracks.ts</span></div>
+      <div class="lot"><h4><span class="id">2.2</span>Trajectoires spatiales</h4>
+        <ul>
+          <li><b>Chemin par défaut</b> : Catmull-Rom centripète (α = 0,5, sans boucle ni rebroussement) avec tangentes automatiques. Poignées explicites possibles.</li>
+          <li><b>Clés « itinérantes »</b> : vitesse constante le long du chemin, par reparamétrage à l'abscisse curviligne (table de 64 échantillons).</li>
+          <li><b>Orientation automatique</b> selon la tangente (un avion, une flèche).</li>
+        </ul>
+        <span class="where">packages/engine/src/tracks.ts, geometry.ts</span></div>
+      <div class="lot"><h4><span class="id">2.3</span>Ressorts analytiques</h4>
+        <ul><li>Interpolation <code>spring</code> par la solution exacte de l'oscillateur amorti (sous-amorti, critique ou sur-amorti), sans simulation.</li><li>La vitesse héritée de la clé précédente préserve la continuité. Préréglages « doux », « vif », « rebond ».</li></ul>
+        <span class="where">packages/engine/src/math.ts</span></div>
+      <div class="lot"><h4><span class="id">2.4</span>Fondu entre poses, couches, accord des phases</h4>
+        <ul>
+          <li><b>Fondu</b> : de 0,2 à 0,4 s par défaut, en interpolant les angles par le plus court chemin.</li>
+          <li><b>Couches</b> : chaque couche vise un groupe de parties (haut du corps, bas du corps, ou une liste) avec un poids.</li>
+          <li><b>Accord des phases</b> : en passant de marche à course, la phase du cycle est conservée, pour que les pieds ne sautent pas.</li>
+        </ul>
+        <span class="where">packages/engine/src/assets.ts, nouveau rig.ts</span></div>
+      <div class="lot"><h4><span class="id">2.5</span>Formules sûres</h4>
+        <ul>
+          <li><b>Analyseur</b> de Pratt écrit à la main, qui produit un arbre de syntaxe. 200 nœuds et une profondeur de 16 au plus.</li>
+          <li><b>Fonctions permises</b> : <code>sin cos abs min max clamp lerp smooth</code>, <code>noise(t, seed)</code>, <code>wiggle(freq, amp)</code>, <code>spring</code>, <code>loopOut('cycle' | 'pingpong')</code>, <code>valueAt(élément, t)</code>, <code>time</code>, <code>index</code>, <code>beat</code>, <code>amp</code>, <code>var('nom')</code>.</li>
+          <li>Aucune boucle, aucune affectation. Toute erreur est signalée au modèle avec sa position.</li>
+        </ul>
+        <span class="where">nouveau packages/engine/src/expr.ts</span></div>
+      <div class="lot"><h4><span class="id">2.6</span>Remappage du temps</h4>
+        <ul><li>Ralenti, accéléré, arrêt sur image, boucle et aller-retour, pour un élément ou une composition (voir 5.8).</li><li>Une piste <code>time</code> est elle-même animable (effet « bullet time »).</li></ul>
+        <span class="where">packages/engine/src/timing.ts</span></div>
+      <div class="lot"><h4><span class="id">2.7</span>Éditeur de courbes et trajectoires à l'écran</h4>
+        <ul><li>Graphe de valeur et de vitesse par propriété, avec des poignées de Bézier.</li><li>Trajectoire dessinée sur la scène, avec des poignées déplaçables. Pelures d'oignon à ± 3 images.</li></ul>
+        <span class="where">apps/web/src/components/GraphEditor.tsx, Stage</span></div>
+    </div>
+    <div class="accept"><h4>Accepté quand</h4><ul>
+      <li>Tests de propriétés : avec les tangentes automatiques, la vitesse est continue à chaque clé intérieure (écart ≤ 1 %).</li>
+      <li>Un changement de pose ne fait pas tourner une partie de plus de 0,1 rad d'une image à l'autre.</li>
+      <li>Le ressort critique atteint sa cible à ± 0,5 px sans la dépasser.</li>
+      <li>Aucun à-coup mesuré sur les films 1, 5 et 9 du banc d'essai.</li>
+    </ul></div>
+  </section>
+
+  <!-- ============================================================ P3 -->
+  <section id="p3" class="phase" aria-labelledby="h-p3">
+    <header>
+      <div class="phead"><span class="pnum">PHASE 3</span><h2 id="h-p3">Personnages</h2></div>
+      <div class="meta"><span class="pill">6 semaines</span><span class="pill">moteur, IA, éditeur</span><span class="pill">≈ 14 semaines-dév.</span><span class="pill acc">jalon J2</span></div>
+      <p class="intro">Le niveau du film Maelia, écrit en données : gestes qui commencent et finissent, objets tenus, pieds plantés, vues multiples, visages vivants.</p>
+    </header>
+    <div class="lots">
+      <div class="lot"><h4><span class="id">3.1</span>Rig standard</h4>
+        <ul>
+          <li><b>Nomenclature</b> <code>humanoid</code> : <code>hips, torso, neck, head, arm_l/r, forearm_l/r, hand_l/r, leg_l/r, shin_l/r, foot_l/r</code>, plus les groupes <code>eyes</code> et <code>mouth</code>. Même principe pour <code>quadruped</code>.</li>
+          <li><b>Vérification</b> : la hiérarchie et les pivots sont contrôlés à la génération du dessin.</li>
+          <li><b>Réutilisation</b> : c'est ce qui permet de rejouer une même action sur n'importe quel personnage, par retargeting avec mise à l'échelle des longueurs de membres.</li>
+        </ul>
+        <span class="where">packages/schema, packages/ai/src/drawing.ts (consignes et contrôle)</span></div>
+      <div class="lot"><h4><span class="id">3.2</span>Actions à clés et bibliothèque</h4>
+        <ul>
+          <li><b>Définition</b> : une action est un ensemble de pistes par partie (angle, décalage, échelle), jouée une fois ou en boucle, avec une intensité de 0 à 2.</li>
+          <li><b>Bibliothèque de départ</b> (≈ 40 actions humanoïdes) : marcher, courir, sauter avec anticipation, s'asseoir, se lever, lancer, attraper, pointer, applaudir, hausser les épaules, trébucher, danser (3 styles), saluer, se gratter la tête, taper du pied…</li>
+          <li>Chaque action a sa planche de contrôle.</li>
+        </ul>
+        <span class="where">nouveau packages/engine/src/rig.ts, packages/library/src/actions/</span></div>
+      <div class="lot"><h4><span class="id">3.3</span>Parentage entre éléments et attaches</h4>
+        <ul><li><code>parent: { element, part }</code> : un objet suit la matrice d'une partie d'un autre élément, avec un décalage local. Les cycles de parentage sont refusés à la validation.</li><li>Changement de parent en cours de scène (attraper, puis lancer) sans saut : la position mondiale est conservée à l'instant du changement.</li></ul>
+        <span class="where">packages/engine/src/evaluate.ts, nouveau constraints.ts</span></div>
+      <div class="lot"><h4><span class="id">3.4</span>IK</h4>
+        <ul>
+          <li><b>Chaînes à 2 os</b> (bras, jambes) : solution analytique par la loi des cosinus, avec le sens de pliure choisi (le coude va vers l'extérieur).</li>
+          <li><b>Chaînes plus longues</b> (queue, tentacule) : FABRIK, en 10 itérations au plus.</li>
+          <li><b>Cibles</b> : un point, un élément ou une partie d'élément. Mélange IK / cinématique directe par un poids animable.</li>
+        </ul>
+        <span class="where">packages/engine/src/constraints.ts</span></div>
+      <div class="lot"><h4><span class="id">3.5</span>Locomotion et pieds plantés</h4>
+        <ul><li>La phase du cycle se calcule à partir de la distance parcourue et de la longueur de foulée (déduite de la jambe) : la marche suit la vitesse réelle.</li><li>Pendant l'appui, l'IK de jambe verrouille le pied à sa position au sol. Les pentes suivent une ligne de sol décrite par le décor.</li></ul>
+        <span class="where">packages/engine/src/rig.ts, constraints.ts</span></div>
+      <div class="lot"><h4><span class="id">3.6</span>Mouvement secondaire</h4>
+        <ul>
+          <li><b>Ressorts angulaires</b> sur les parties déclarées (tresse, queue, oreilles, chapeau, écharpe), excités par l'accélération réelle de leur parent.</li>
+          <li><b>Intégration</b> semi-implicite à pas fixe (1/240 s), avec des points de reprise toutes les 0,5 s mis en cache : on accède à n'importe quel instant sans tout rejouer, et les morceaux restent identiques.</li>
+        </ul>
+        <span class="where">nouveau packages/engine/src/secondary.ts</span></div>
+      <div class="lot"><h4><span class="id">3.7</span>Déformation</h4>
+        <ul>
+          <li><b>Squash &amp; stretch</b> par partie, à volume constant (sy = 1/sx), plus un écrasement automatique à l'atterrissage, déduit de la vitesse verticale.</li>
+          <li><b>Membres souples</b> (style « rubber hose ») : le bras devient une courbe de l'épaule à la main, en passant par le coude.</li>
+          <li><b>Peau sur os</b> : poids calculés automatiquement par distance aux os, fusion linéaire des matrices.</li>
+        </ul>
+        <span class="where">packages/engine/src/assets.ts, nouveau deform.ts</span></div>
+      <div class="lot"><h4><span class="id">3.8</span>Vues multiples</h4>
+        <ul><li>Un dessin peut avoir des vues <code>front, q34, side, back</code>, qui partagent les noms de parties : poses et actions s'appliquent à toutes.</li><li>Se retourner passe par les vues intermédiaires, en 2 à 3 images chacune, avec un léger étirement de mouvement.</li></ul>
+        <span class="where">packages/schema, engine/src/assets.ts, ai/src/drawing.ts</span></div>
+      <div class="lot"><h4><span class="id">3.9</span>Transitions d'humeur</h4>
+        <ul><li>Mode <code>take</code> : plissement d'anticipation (0,1 s), changement d'expression sous le plissement, réaction avec dépassement, puis retour au calme (0,25 s). Les petites clés de tête et d'échelle sont générées automatiquement, comme <code>actP</code> dans Maelia.</li></ul>
+        <span class="where">packages/engine/src/rig.ts</span></div>
+      <div class="lot"><h4><span class="id">3.10</span>Visage vivant</h4>
+        <ul>
+          <li><b>V1, visèmes</b> tirés de l'enveloppe de la voix (RMS sur 10 ms, 4 ouvertures de bouche).</li>
+          <li><b>V2, visèmes</b> calés sur les phonèmes : règles graphème → visème du français, alignées sur les temps des mots (Whisper). Classes <code>A E O MBP FV L repos</code>.</li>
+          <li><b>Clignement</b> automatique toutes les 2 à 6 s, tirage semé, double clignement une fois sur cinq.</li>
+          <li><b>Regard</b> vers une cible, par décalage des pupilles.</li>
+        </ul>
+        <span class="where">packages/audio, engine/src/rig.ts</span></div>
+      <div class="lot"><h4><span class="id">3.11</span>Foules</h4>
+        <ul><li>Instances d'un même dessin avec variations semées : palette, échelle ± 10 %, décalage de phase, choix de pose. Le coût reste linéaire en nombre d'instances.</li></ul>
+        <span class="where">packages/engine, library</span></div>
+      <div class="lot"><h4><span class="id">3.12</span>Côté IA et éditeur</h4>
+        <ul><li>Les consignes de dessin imposent le rig standard. Chaque dessin produit une fiche (poses, expressions, vues) relue par le modèle qui voit.</li><li>L'éditeur ajoute un panneau de rig (parties, IK et cibles déplaçables à la souris), la bibliothèque d'actions avec aperçu, et les clés par partie dans la frise.</li></ul>
+        <span class="where">packages/ai/src/drawing.ts, apps/web</span></div>
+    </div>
+    <div class="accept"><h4>Accepté quand</h4><ul>
+      <li>Sur la scène de marche de test, le pied glisse de 4 px au plus pendant l'appui.</li>
+      <li>L'IK atteint une cible accessible à 1 px près.</li>
+      <li>Une action rejouée sur 3 personnages de proportions différentes reste lisible à la relecture.</li>
+      <li>Le film 3 du banc d'essai (dialogue à deux personnages) tient tous les critères.</li>
+      <li>Les morceaux restent identiques avec des ressorts.</li>
+    </ul></div>
+  </section>
+
+  <!-- ============================================================ P4 -->
+  <section id="p4" class="phase" aria-labelledby="h-p4">
+    <header>
+      <div class="phead"><span class="pnum">PHASE 4</span><h2 id="h-p4">La méthode Maelia dans la génération</h2></div>
+      <div class="meta"><span class="pill">4 semaines, puis 3 pour les intentions</span><span class="pill">IA, API, éditeur</span><span class="pill">≈ 9 semaines-dév.</span></div>
+      <p class="intro">Reprendre la démarche qui a fait la qualité du film Maelia : un contrat, la voix d'abord, une validation avant d'animer, une scène modèle, un vocabulaire de haut niveau.</p>
+    </header>
+    <div class="lots">
+      <div class="lot"><h4><span class="id">4.1</span>Brief-contrat</h4>
+        <ul><li>Après le storyboard, le modèle extrait les faits, noms propres, chiffres (avec leur format) et éléments à montrer, ainsi que le ton et la durée.</li><li>L'utilisateur valide ce contrat avec le storyboard. Les mesures de fidélité le comparent aux textes des scènes, puis aux répliques retranscrites par Whisper.</li></ul>
+        <span class="where">packages/ai/src/storyboard.ts, apps/api (stockage), audio (transcription)</span></div>
+      <div class="lot"><h4><span class="id">4.2</span>La voix d'abord</h4>
+        <ul><li>Les répliques sont enregistrées juste après la validation du storyboard, avant l'écriture des scènes. Le modèle écrit sur les vrais temps.</li><li>Sans fournisseur de voix, on garde les durées estimées, et c'est dit dans le rapport.</li></ul>
+        <span class="where">apps/api/src/routes/generations.ts, voices.ts</span></div>
+      <div class="lot"><h4><span class="id">4.3</span>Fiches et images de style, validées par l'utilisateur</h4>
+        <ul><li>Nouveau point d'arrêt (facultatif, activé par défaut) : fiches de chaque personnage, une image de style par décor avec les personnages, écoute de la voix, et la liste des décisions à prendre. L'utilisateur corrige par une instruction, comme pour le storyboard.</li></ul>
+        <span class="where">apps/web/src/pages/Generate.tsx, api</span></div>
+      <div class="lot"><h4><span class="id">4.4</span>Scène modèle</h4>
+        <ul><li>La scène 1 est écrite, mesurée et relue jusqu'à passer tous les critères, puis envoyée comme exemple complet pour l'écriture des autres scènes, en parallèle. La continuité (tailles, côtés, costumes) est vérifiée d'une scène à l'autre.</li></ul>
+        <span class="where">packages/ai/src/pipeline.ts</span></div>
+      <div class="lot"><h4><span class="id">4.5</span>Guide d'animation chiffré et exemples</h4>
+        <ul><li>Le guide est en consigne, avec des nombres : anticipation, limites par image, lectures, zones libres, chaque plan bouge.</li><li>Une bibliothèque d'exemples choisis par genre (explication, publicité, histoire, typographie animée, données) ; on ne montre au modèle que ceux du genre demandé.</li></ul>
+        <span class="where">packages/ai/src/prompts.ts, examples/</span></div>
+      <div class="lot"><h4><span class="id">4.6</span>Intentions compilées en clés</h4>
+        <ul>
+          <li><b>Vocabulaire</b> :
+            <ul>
+              <li>mouvement : <code>enter(from)</code>, <code>exit(to)</code>, <code>walkTo(x, speed)</code>, <code>runTo</code>, <code>jump(height)</code> ;</li>
+              <li>objets : <code>throwTo(prop, cible)</code>, <code>hold(prop, main)</code> ;</li>
+              <li>jeu : <code>lookAt</code>, <code>say(ligne)</code>, <code>react(humeur)</code> ;</li>
+              <li>caméra : <code>frame(sujet, 'plan moyen', 'tiers gauche')</code>, <code>pushIn</code> ;</li>
+              <li>texte : <code>reveal(texte, style)</code>, <code>countTo(n)</code>.</li>
+            </ul>
+          </li>
+          <li><b>Compilation</b> par le moteur, de façon déterministe, avec anticipation, arcs et durées tirés du guide.</li>
+          <li>Le modèle peut mélanger intentions et clés.</li>
+        </ul>
+        <span class="where">nouveau packages/engine/src/intents.ts, schema</span></div>
+      <div class="lot"><h4><span class="id">4.7</span>Le modèle interroge le moteur</h4>
+        <ul>
+          <li><b>Appel d'outils</b> ajouté aux fournisseurs (OpenAI, Anthropic, Gemini, Mistral).</li>
+          <li><b>Outils</b> :
+            <ul>
+              <li><code>positionOf(élément, partie, t)</code> ;</li>
+              <li><code>boundsOf(élément, t)</code> ;</li>
+              <li><code>cues()</code>, les temps des répliques ;</li>
+              <li><code>actionsOf(dessin)</code> ;</li>
+              <li><code>freeRegions(t)</code>, les zones libres pour poser un texte.</li>
+            </ul>
+          </li>
+          <li>8 appels au plus par scène.</li>
+        </ul>
+        <span class="where">packages/providers/src, packages/ai/src/tools.ts</span></div>
+    </div>
+    <div class="accept"><h4>Accepté quand</h4><ul>
+      <li>Sur le banc d'essai, 100 % des chiffres du brief sont respectés et aucun n'est ajouté.</li>
+      <li>La scène modèle passe tous les critères.</li>
+      <li>Les scènes suivantes ont 50 % d'écarts en moins au premier jet que sans scène modèle.</li>
+      <li>La relecture humaine juge la continuité bonne sur 11 films sur 12.</li>
+    </ul></div>
+  </section>
+
+  <!-- ============================================================ P5 -->
+  <section id="p5" class="phase" aria-labelledby="h-p5">
+    <header>
+      <div class="phead"><span class="pnum">PHASE 5</span><h2 id="h-p5">Motion design</h2></div>
+      <div class="meta"><span class="pill">8 à 9 semaines</span><span class="pill">moteur, styles, IA, éditeur</span><span class="pill">≈ 20 semaines-dév.</span><span class="pill acc">jalon J3</span></div>
+      <p class="intro">Tout ce qu'un motion designer attend : calques de formes, typographie animée, masques, effets, fusion, 2,5D, compositions réutilisables, gabarits, données et musique qui pilotent l'animation.</p>
+    </header>
+    <div class="lots">
+      <div class="lot"><h4><span class="id">5.1</span>Calques de formes</h4>
+        <ul>
+          <li><b>Formes de base</b> : élément <code>shape</code> avec rectangle arrondi, ellipse, étoile, polygone et chemin, tous animables.</li>
+          <li><b>Contours</b> : pointillés, extrémités, jonctions, et épaisseur variable le long du tracé (contour effilé).</li>
+          <li><b>Remplissages</b> : dégradés linéaires et radiaux animables.</li>
+        </ul>
+        <span class="where">nouveau packages/engine/src/shapes.ts, primitives.ts, styles</span></div>
+      <div class="lot"><h4><span class="id">5.2</span>Opérateurs de formes</h4>
+        <ul>
+          <li><b>Tracé progressif</b> : début, fin et décalage, coupés à l'abscisse curviligne, calculés dans le moteur pour que tous les styles en profitent.</li>
+          <li><b>Répétiteur</b> : copies avec transformation cumulée, dégradé d'opacité et décalage dans le temps.</li>
+          <li><b>Déformations</b> : décalage de contour, onde, zigzag, torsion, arrondi des angles, gonflement.</li>
+          <li><b>Fusion booléenne</b> (union, différence, intersection) par la bibliothèque polygon-clipping (licence MIT).</li>
+        </ul>
+        <span class="where">packages/engine/src/shapes.ts</span></div>
+      <div class="lot"><h4><span class="id">5.3</span>Morphing</h4>
+        <ul>
+          <li><b>Préparation</b> : les deux formes sont rééchantillonnées au même nombre de points, par abscisse curviligne.</li>
+          <li><b>Alignement</b> : on choisit le point de départ et le sens qui minimisent la distance entre les deux formes.</li>
+          <li><b>Formes à plusieurs sous-chemins</b> : appariement par aire et par centre.</li>
+          <li><b>Raccord de forme</b> entre deux plans : la dernière forme de A devient la première de B.</li>
+        </ul>
+        <span class="where">packages/engine/src/geometry.ts</span></div>
+      <div class="lot"><h4><span class="id">5.4</span>Typographie animée</h4>
+        <ul>
+          <li><b>Animateurs</b> par glyphe, mot ou ligne, grâce aux métriques de 0.4.</li>
+          <li><b>Sélecteurs de plage</b> : début, fin, décalage ; forme carrée, rampe, triangle ou douce ; ordre aléatoire semé.</li>
+          <li><b>Propriétés animées</b> : position, échelle, rotation, opacité, flou, couleur, crénage.</li>
+          <li><b>Préréglages</b> : machine à écrire, vague, rebond par lettre, glissement par ligne, flou vers net.</li>
+        </ul>
+        <span class="where">packages/library/src/text.ts, engine/src/text-layout.ts</span></div>
+      <div class="lot"><h4><span class="id">5.5</span>Texte sur chemin, compteurs, écriture manuscrite</h4>
+        <ul>
+          <li><b>Texte sur chemin</b> : il suit une courbe ou un cercle, avec un décalage animable.</li>
+          <li><b>Compteurs</b> : un formateur propre (espace fine insécable, virgule décimale) et non Intl, pour un résultat identique partout. Le défilement s'arrête net sur la valeur exacte.</li>
+          <li><b>Écriture manuscrite</b> : tracé progressif sur une police à trait unique (Hershey, domaine public).</li>
+        </ul>
+        <span class="where">library/src/text.ts, polices</span></div>
+      <div class="lot"><h4><span class="id">5.6</span>Masques, caches, fusion</h4>
+        <ul>
+          <li><b>Masques</b> : forme animée, avec contour adouci, expansion et inversion.</li>
+          <li><b>Caches</b> alpha et luminance à partir d'un autre élément, rendus hors écran puis appliqués par <code>destination-in</code>.</li>
+          <li><b>Modes de fusion</b> natifs du Canvas : produit, écran, incrustation, lumière tamisée, différence, teinte, luminosité…</li>
+          <li>Tous vérifiés en tests dorés dans Node et Chromium.</li>
+        </ul>
+        <span class="where">styles/src/composite.ts</span></div>
+      <div class="lot"><h4><span class="id">5.7</span>Effets</h4>
+        <ul>
+          <li><b>Flou et ombres</b> : flou gaussien (3 flous en boîte successifs, rapides en CPU), ombre portée, lueur extérieure et intérieure.</li>
+          <li><b>Couleur</b> : niveaux, teinte et saturation, teinte en deux couleurs, table de correspondance 3D (fichier .cube, interpolation trilinéaire).</li>
+          <li><b>Matière</b> : grain et bruit, déplacement par turbulence (réservé au rendu GPU s'il coûte trop), aberration chromatique.</li>
+          <li>Paramètres animables. Chaque effet déclare son coût, et le budget par image est respecté.</li>
+        </ul>
+        <span class="where">styles/src/effects/</span></div>
+      <div class="lot"><h4><span class="id">5.8</span>Compositions imbriquées</h4>
+        <ul><li><code>project.comps</code> et un élément <code>comp</code> : un bloc animé réutilisé, avec remappage du temps, boucle et décalage. Profondeur de 8 au plus, cycles refusés.</li><li>Les formes et les textes d'une composition figée sont mis en cache en image.</li></ul>
+        <span class="where">schema, engine/src/evaluate.ts</span></div>
+      <div class="lot"><h4><span class="id">5.9</span>Transitions</h4>
+        <ul>
+          <li><b>Recouvrement</b> : la timeline permet à deux scènes de se chevaucher pendant la transition. <code>frameAt</code> évalue alors les deux scènes et les compose.</li>
+          <li><b>Bibliothèque</b> : volet (linéaire, radial, horloge), iris en forme, poussée, glissement, zoom, panoramique filé (flou et décalage), pinceau (comme Maelia), coupure numérique, raccord de forme.</li>
+        </ul>
+        <span class="where">engine/src/timing.ts, evaluate.ts, styles</span></div>
+      <div class="lot"><h4><span class="id">5.10</span>2,5D et caméra</h4>
+        <ul>
+          <li><b>Calques en profondeur</b> : profondeur z, rotation en X et en Y de calques plats (points transformés en 3D puis projetés, correct pour des plans), tri par z.</li>
+          <li><b>Caméra</b> : focale, parallaxe automatique, travelling compensé (effet Vertigo).</li>
+          <li><b>Profondeur de champ</b> quantifiée en 3 niveaux de flou.</li>
+          <li><b>Ombres</b> au sol par projection de la silhouette.</li>
+          <li><b>Préréglages de caméra</b> : travelling avant et arrière, panoramique, plongée, orbite.</li>
+        </ul>
+        <span class="where">engine/src/evaluate.ts, animate.ts</span></div>
+      <div class="lot"><h4><span class="id">5.11</span>Gabarits, variables, charte</h4>
+        <ul>
+          <li><b>Variables</b> typées (texte, couleur, image, nombre), liées aux paramètres.</li>
+          <li><b>Rendu par lots</b> depuis un tableau (CSV) : cent versions d'une vidéo.</li>
+          <li><b>Charte de marque</b> au niveau de l'espace (polices, couleurs, logos), imposée à la génération et vérifiée : couleurs hors charte signalées.</li>
+          <li><b>Retouche par format</b> (<code>formats</code>) en plus du recadrage automatique.</li>
+        </ul>
+        <span class="where">schema, apps/api (lots, charte), ai/src/prompts.ts</span></div>
+      <div class="lot"><h4><span class="id">5.12</span>Données et musique</h4>
+        <ul>
+          <li><b>Élément <code>chart</code></b> : barres, lignes, secteurs, aires et cartes simples, à partir d'un tableau.</li>
+          <li><b>Animations de graphique</b> : croissance, ligne tracée, étiquettes qui comptent jusqu'à la valeur exacte.</li>
+          <li><b>Musique</b> : temps exposés dans la timeline (<code>{ beat }</code>), exacts pour la musique composée, estimés pour une musique jointe.</li>
+          <li><b>Formules audio</b> : <code>amp</code> (amplitude) et <code>beat</code> dans les formules.</li>
+        </ul>
+        <span class="where">nouveau library/src/charts.ts, audio, engine</span></div>
+      <div class="lot"><h4><span class="id">5.13</span>Côté IA et éditeur</h4>
+        <ul>
+          <li><b>IA</b> : les consignes de motion design (règles de mise en page, hiérarchie, rythme de lecture), avec des exemples par genre.</li>
+          <li><b>Éditeur</b> :
+            <ul>
+              <li>outils rectangle, ellipse et plume ;</li>
+              <li>panneau des opérateurs ;</li>
+              <li>animateurs de texte avec préréglages ;</li>
+              <li>panneau des effets ;</li>
+              <li>masques dessinés à la plume ;</li>
+              <li>variables et rendu par lots.</li>
+            </ul>
+          </li>
+        </ul>
+        <span class="where">ai/src/prompts.ts, apps/web</span></div>
+    </div>
+    <div class="accept"><h4>Accepté quand</h4><ul>
+      <li>Les films 4 (typographie animée), 6 (révélation de logo), 7 (données) et 10 (clip de paroles) du banc d'essai tiennent tous les critères.</li>
+      <li>Les effets restent dans le budget par image.</li>
+      <li>Les tests dorés de fusion et de masques sont identiques dans Node et Chromium, à la tolérance près.</li>
+    </ul></div>
+  </section>
+
+  <!-- ============================================================ P6 -->
+  <section id="p6" class="phase" aria-labelledby="h-p6">
+    <header>
+      <div class="phead"><span class="pnum">PHASE 6</span><h2 id="h-p6">Simulation, sorties, éditeur</h2></div>
+      <div class="meta"><span class="pill">9 semaines</span><span class="pill">moteur, rendu, éditeur</span><span class="pill">≈ 9 semaines-dév.</span><span class="pill acc">jalon J4</span></div>
+    </header>
+    <div class="lots">
+      <div class="lot"><h4><span class="id">6.1</span>Particules sans état</h4>
+        <ul>
+          <li><b>Principe</b> : l'état d'une particule est une fonction pure de son âge, jamais un résultat de simulation.</li>
+          <li><b>Naissance</b> : l'instant i/débit, avec des paramètres semés.</li>
+          <li><b>Mouvement</b> : balistique avec traînée, en solution exacte ; turbulence par un bruit de curl échantillonné selon l'âge.</li>
+          <li><b>Émetteurs</b> : point, ligne, rectangle, cercle ou chemin ; flux continu ou salve.</li>
+          <li><b>Évolution sur la vie</b> : taille, couleur, opacité, rotation.</li>
+          <li><b>Apparence</b> : forme, dessin ou glyphe. Rebond sur le sol.</li>
+          <li><b>Coût</b> proportionnel au nombre de particules vivantes, sans aucun état à garder.</li>
+        </ul>
+        <span class="where">nouveau packages/engine/src/particles.ts</span></div>
+      <div class="lot"><h4><span class="id">6.2</span>Cordes et tissus simples</h4>
+        <ul><li>Verlet à pas fixe avec contraintes de distance, pour les écharpes, drapeaux et câbles. Points de reprise, comme en 3.6.</li></ul>
+        <span class="where">packages/engine/src/secondary.ts</span></div>
+      <div class="lot"><h4><span class="id">6.3</span>Rendu GPU</h4>
+        <ul>
+          <li><b>Base</b> : un moteur de rendu WebGL2 pour le style plat d'abord. Les chemins sont triangulés (earcut) et les effets passent en shaders.</li>
+          <li><b>Aperçu</b> : utilisé en temps réel dans l'éditeur.</li>
+          <li><b>Serveur</b> : en option, par WebGL logiciel (SwiftShader, comme Maelia) ou sur une machine avec GPU.</li>
+          <li>Les tests dorés comparent le rendu GPU au rendu Canvas.</li>
+        </ul>
+        <span class="where">nouveau packages/styles/src/gpu/</span></div>
+      <div class="lot"><h4><span class="id">6.4</span>Exports</h4>
+        <ul>
+          <li><b>Lottie</b> (pour le web et les applications) : sous-ensemble vectoriel en style plat, avec formes, clés, masques et textes. La relecture compare le rendu de lottie-web au nôtre.</li>
+          <li><b>Vidéo avec transparence</b> : WebM VP9 <code>yuva420p</code>, ProRes 4444.</li>
+          <li><b>Autres</b> : séquence PNG, pistes audio séparées (voix, musique, bruitages).</li>
+        </ul>
+        <span class="where">nouveau render/src/lottie.ts, render/src/ffmpeg.ts</span></div>
+      <div class="lot"><h4><span class="id">6.5</span>Plusieurs langues</h4>
+        <ul><li>Traduction des répliques et des textes par le modèle, avec le brief-contrat préservé (chiffres, noms), voix par langue et timeline recalculée.</li><li>Les textes à l'écran sont remis en page (écriture de droite à gauche comprise).</li></ul>
+        <span class="where">ai, audio, engine/src/text-layout.ts</span></div>
+      <div class="lot"><h4><span class="id">6.6</span>Performance</h4>
+        <ul><li>Cache par élément : quand ses primitives ne changent pas d'une image à l'autre (empreinte identique), son image est réutilisée.</li><li>Aperçus à mi-résolution pendant qu'on fait défiler la frise. Profilage par étape de <code>frameAt</code> affiché dans l'éditeur.</li></ul>
+        <span class="where">styles, apps/web</span></div>
+    </div>
+    <div class="accept"><h4>Accepté quand</h4><ul>
+      <li>10 000 particules restent sous 50 ms par image en style plat.</li>
+      <li>Un export Lottie se superpose au rendu d'origine à 1 px près.</li>
+      <li>L'aperçu GPU tient 60 images/s sur les films 4 et 6 du banc d'essai.</li>
+    </ul></div>
+  </section>
+
+  <!-- ============================================================ bench -->
+  <section id="banc" aria-labelledby="h-banc">
+    <h2 id="h-banc">Banc d'essai : 12 films de référence</h2>
+    <p class="intro">Chaque phase se juge sur les mêmes 12 brefs, générés de bout en bout et notés selon les critères chiffrés de la page du moteur. Le tableau de bord suit leur score d'une phase à l'autre, ce qui empêche une amélioration d'en casser une autre sans qu'on le voie.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th scope="col">#</th><th scope="col">Film</th><th scope="col">Ce qu'il éprouve</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">1</th><td class="ink">Explication de 60 s avec narrateur</td><td>rythme de lecture, caméra, pictogrammes</td></tr>
+          <tr><th scope="row">2</th><td class="ink">Publicité de 30 s avec mascotte jointe</td><td>dessin d'après modèle, IK, énergie</td></tr>
+          <tr><th scope="row">3</th><td class="ink">Dialogue à deux personnages</td><td>visèmes, regards, transitions d'humeur, cadrage</td></tr>
+          <tr><th scope="row">4</th><td class="ink">Typographie animée sur une citation</td><td>animateurs de texte, rythme, musique</td></tr>
+          <tr><th scope="row">5</th><td class="ink">Scène d'action : poursuite et saut</td><td>arcs, anticipation, flou de mouvement, pieds</td></tr>
+          <tr><th scope="row">6</th><td class="ink">Révélation de logo</td><td>formes, tracé progressif, masques, lueur</td></tr>
+          <tr><th scope="row">7</th><td class="ink">Histoire de données : 4 graphiques</td><td>exactitude des valeurs, compteurs, lisibilité</td></tr>
+          <tr><th scope="row">8</th><td class="ink">Démonstration d'une interface d'application</td><td>curseur, zooms, transitions, 2,5D</td></tr>
+          <tr><th scope="row">9</th><td class="ink">Conte de 3 minutes en aquarelle (type Maelia)</td><td>continuité, vues, décors, voix</td></tr>
+          <tr><th scope="row">10</th><td class="ink">Clip de paroles vertical 9:16</td><td>temps de la musique, recadrage, zones sûres</td></tr>
+          <tr><th scope="row">11</th><td class="ink">Infographie à déclinaisons (gabarit, 5 langues)</td><td>variables, traduction, mise en page</td></tr>
+          <tr><th scope="row">12</th><td class="ink">Cérémonie : foule, confettis, feux d'artifice</td><td>particules, foules, performance</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ tests -->
+  <section id="tests" aria-labelledby="h-tests">
+    <h2 id="h-tests">Stratégie de tests</h2>
+    <div class="grid2">
+      <div class="card"><h3>Unitaires et propriétés</h3><p>Chaque algorithme a des valeurs de référence : Bézier, ressort, IK, morphing, découpe à l'abscisse curviligne, formules. Des tests de propriétés (fast-check) vérifient la continuité des trajectoires, l'atteinte des cibles d'IK, le volume constant du squash et l'absence de NaN.</p></div>
+      <div class="card"><h3>Images dorées</h3><p>Un jeu d'images de référence par style et par fonction (fusion, masque, effet, texte). Comparaison avec tolérance, dans Node (@napi-rs/canvas) et dans Chromium. Une différence volontaire se valide en régénérant la référence, avec l'image de la différence jointe à la revue.</p></div>
+      <div class="card"><h3>Déterminisme et reprise</h3><p>Une même scène rendue en 1, 2 et 4 morceaux donne les mêmes empreintes. Sauter à t = 17,3 s directement donne la même image que dérouler depuis 0, ressorts et cordes compris.</p></div>
+      <div class="card"><h3>Génération complète</h3><p>Les tests de la chaîne IA passent par un modèle bouchon, comme aujourd'hui : relecture du mouvement, correctifs, intentions, outils, rapport. Le banc d'essai tourne chaque semaine avec un vrai modèle et publie son tableau de bord.</p></div>
+      <div class="card"><h3>Performance</h3><p>Budget par image et par style suivi en intégration continue sur les 12 films. Une régression de plus de 15 % bloque la fusion.</p></div>
+      <div class="card"><h3>Compatibilité</h3><p>Migration v1 → v2 vérifiée sur tous les projets de test et sur une copie anonymisée des projets réels, avant chaque mise en production.</p></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ risks -->
+  <section id="risques" aria-labelledby="h-risk">
+    <h2 id="h-risk">Risques et parades</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th scope="col">Risque</th><th scope="col">Parade</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Le format devient trop riche pour le modèle d'IA</th><td class="ink">Intentions et préréglages d'abord. Les consignes ne montrent que les fonctions utiles à la scène. La validation stricte et les correctifs ciblés restent en place.</td></tr>
+          <tr><th scope="row">Les effets coûtent trop en CPU</th><td class="ink">Coût déclaré par effet, budget par image, cache par élément, qualité réduite à l'aperçu, rendu GPU en phase 6.</td></tr>
+          <tr><th scope="row">Rendu différent entre le navigateur et le serveur</th><td class="ink">Tests dorés dans les deux. Métriques de texte dans le moteur. Formateur de nombres maison. Effets écrits en JS là où Canvas diffère.</td></tr>
+          <tr><th scope="row">États de simulation qui cassent le déterminisme</th><td class="ink">Particules sans état. Ressorts et cordes à pas fixe avec points de reprise. Tests de reprise à un instant quelconque.</td></tr>
+          <tr><th scope="row">Coût des relectures en images (jetons, temps)</th><td class="ink">Images réduites, 3 tours au plus, arrêt dès que les mesures passent, quotas par plan (les relectures comptent comme des actions d'IA).</td></tr>
+          <tr><th scope="row">Régressions sur les projets existants</th><td class="ink">Champs facultatifs, migration testée, images dorées des modèles au pixel près.</td></tr>
+          <tr><th scope="row">Polices et chartes : licences</th><td class="ink">Polices livrées sous licence libre ; les polices importées sont réservées à l'espace qui les importe et ne sont jamais publiées dans la communauté.</td></tr>
+          <tr><th scope="row">Accessibilité (flashs, mouvement)</th><td class="ink">Mesure des flashs (au plus 3 par seconde) bloquante à la publication. Variante « mouvement réduit » proposée à l'export.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ done -->
+  <section id="fini" aria-labelledby="h-done">
+    <h2 id="h-done">Ce que « fini » veut dire pour un lot</h2>
+    <div class="card">
+      <ul>
+        <li><b>Format</b> : champs facultatifs, décrits en français dans le schéma, validés, migration à jour.</li>
+        <li><b>Moteur</b> : déterministe, avec tests unitaires et de propriétés ; aucune image changée sur les projets v1.</li>
+        <li><b>Styles</b> : fonctionne dans les 6 styles, ou déclare pourquoi il ne s'applique pas à l'un d'eux ; images dorées.</li>
+        <li><b>IA</b> : consignes et exemples à jour ; le contrôle signale les erreurs avec leur chemin ; test avec le modèle bouchon.</li>
+        <li><b>Mesures</b> : critère ajouté à <code>measure.ts</code> quand la fonction peut mal tourner.</li>
+        <li><b>Éditeur</b> : réglable à la main, avec un test de bout en bout.</li>
+        <li><b>Documentation</b> : README et ARCHITECTURE à jour.</li>
+        <li><b>Performance</b> : budget par image respecté sur le banc d'essai.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+</body>
+</html>
