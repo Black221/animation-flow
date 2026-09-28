@@ -151,8 +151,16 @@ projet (espace A) ──publier──► publication : copie figée du projet en
   la connexion.
 - `components/ui.tsx` : dialogues (`<dialog>` modaux), confirmations et questions attendues (`useUI().confirm`,
   `prompt`, `info`), notifications (`toast`), menus. Sur téléphone, les dialogues montent du bas ; sur tablette en paysage, l'éditeur passe en deux colonnes (scènes en bandeau, aperçu, inspecteur).
-- `components/Motion.tsx` : un film des modèles joué en direct par le moteur (accueil, connexion), les cartes qui
-  jouent leur film au survol, les squelettes de chargement ; tout s'arrête avec `prefers-reduced-motion`.
+- `components/Motion.tsx` et la fin de `styles.css` : l'interface parle le langage de l'animation, sans film de
+  démonstration. Les options de l'IA sont les pistes d'une frise (la durée sur une règle, avec sa tête de lecture) ;
+  la suite (storyboard, dessins, voix et musique, animation, film) est une frise d'images clés que parcourt la tête de
+  lecture au lancement. Chaque carte montre la frise de son film (une plage par scène : `scenes`, la durée de chaque
+  scène, dans les listes de projets et de publications) et la parcourt en jouant au survol, dans le cadre de la
+  caméra. La connexion montre un storyboard (une image par scène : `/api/templates/:nom/thumbnail.png?scene=n`,
+  public). Chargement : une balle qui rebondit (écrasement, étirement) ; états vides : une pelure d'oignon ; la
+  barre latérale marque la page comme une tête de lecture ; le défilement fait avancer une tête de lecture en haut de
+  la page. Les mouvements suivent les principes de l'animation (écrasement à l'appui, dépassement à l'arrivée,
+  cartes en cascade, coupe entre les pages) ; tout s'arrête avec `prefers-reduced-motion`.
 
 ## Rendu vidéo (`packages/render`, `apps/api/src/render`)
 

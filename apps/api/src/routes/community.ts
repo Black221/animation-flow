@@ -29,7 +29,7 @@ type License = keyof typeof LICENSES;
 
 interface PubRow {
   id: string; project_id: string | null; workspace_id: string; author_id: string | null; author_name: string | null;
-  title: string; description: string; tags: string[]; license: License; data: unknown; project_version: number; duration: number;
+  title: string; description: string; tags: string[]; license: License; data: unknown; project_version: number; duration: number; scenes?: number[];
   remix_of: string | null; remixes: number; likes: number; views: number; created_at: Date; updated_at: Date;
   parent_title?: string | null; parent_author?: string | null; parent_author_id?: string | null; liked?: boolean;
 }
@@ -42,13 +42,13 @@ const Meta = z.object({
   license: z.enum(Object.keys(LICENSES) as [License, ...License[]]).default('cc-by'),
 });
 const SELECT = `SELECT p.id, p.project_id, p.workspace_id, p.author_id, u.name AS author_name, p.title, p.description, p.tags, p.license,
-  p.project_version, p.duration, p.remix_of, p.remixes, p.likes, p.views, p.created_at, p.updated_at,
+  p.project_version, p.duration, p.scenes, p.remix_of, p.remixes, p.likes, p.views, p.created_at, p.updated_at,
   o.title AS parent_title, ou.name AS parent_author, o.author_id AS parent_author_id
   FROM publications p LEFT JOIN users u ON u.id = p.author_id
   LEFT JOIN publications o ON o.id = p.remix_of LEFT JOIN users ou ON ou.id = o.author_id`;
 
 const summary = (r: PubRow) => ({
-  id: r.id, title: r.title, description: r.description, tags: r.tags, license: r.license, duration: r.duration,
+  id: r.id, title: r.title, description: r.description, tags: r.tags, license: r.license, duration: r.duration, scenes: r.scenes ?? [],
   author: r.author_id ? { id: r.author_id, name: r.author_name ?? 'ancien membre' } : null,
   remixOf: r.remix_of ? { id: r.remix_of, title: r.parent_title ?? '', author: r.parent_author ?? null, authorId: r.parent_author_id ?? null } : null,
   remixes: r.remixes, likes: r.likes, views: r.views, liked: !!r.liked, createdAt: r.created_at, updatedAt: r.updated_at, version: r.project_version,
@@ -104,7 +104,8 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     const { rows } = await db.query<{ data: unknown; version: number; remix_of: string | null }>('SELECT data, version, remix_of FROM projects WHERE id = $1 AND workspace_id = $2', [p.data.id, ws]);
     const parsed = rows[0] ? parseProject(rows[0].data) : null;
     if (!rows[0] || !parsed?.ok) return reply.code(404).send({ error: 'projet introuvable' });
-    const project = parsed.project, duration = Math.round(timeProject(project).duration * 10) / 10;
+    const project = parsed.project, timeline = timeProject(project), duration = Math.round(timeline.duration * 10) / 10;
+    const scenes = JSON.stringify(timeline.scenes.map((s) => Math.round(s.duration * 10) / 10));
     // a remix of a share-alike work stays share-alike
     let license = b.data.license;
     if (rows[0].remix_of) { const parent = (await db.query<{ license: License }>('SELECT license FROM publications WHERE id = $1', [rows[0].remix_of])).rows[0]; if (parent?.license === 'cc-by-sa') license = 'cc-by-sa'; }
@@ -112,12 +113,12 @@ export function communityRoutes(app: FastifyInstance, db: Db, dirs: { voicesDir:
     const id = existing?.id ?? randomUUID(), data = JSON.stringify(project), tags = JSON.stringify([...new Set(b.data.tags)]);
     copyMedia(ws, id, project);
     if (existing) {
-      await db.query(`UPDATE publications SET title = $2, description = $3, tags = $4, license = $5, data = $6, project_version = $7, duration = $8, updated_at = now() WHERE id = $1`,
-        [id, b.data.title, b.data.description, tags, license, data, rows[0].version, duration]);
+      await db.query(`UPDATE publications SET title = $2, description = $3, tags = $4, license = $5, data = $6, project_version = $7, duration = $8, scenes = $9, updated_at = now() WHERE id = $1`,
+        [id, b.data.title, b.data.description, tags, license, data, rows[0].version, duration, scenes]);
     } else {
-      await db.query(`INSERT INTO publications (id, project_id, workspace_id, author_id, title, description, tags, license, data, project_version, duration, remix_of)
-                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [id, p.data.id, ws, user.id, b.data.title, b.data.description, tags, license, data, rows[0].version, duration, rows[0].remix_of]);
+      await db.query(`INSERT INTO publications (id, project_id, workspace_id, author_id, title, description, tags, license, data, project_version, duration, scenes, remix_of)
+                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [id, p.data.id, ws, user.id, b.data.title, b.data.description, tags, license, data, rows[0].version, duration, scenes, rows[0].remix_of]);
     }
     return reply.code(existing ? 200 : 201).send(summary((await load(id, user.id))!));
   });

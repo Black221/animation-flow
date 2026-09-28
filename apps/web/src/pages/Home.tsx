@@ -5,7 +5,7 @@ import { Api, type Generation, type ProjectSummary, type Publication } from '../
 import { AiPrompt, useCreate } from '../components/Create';
 import { Icon } from '../components/Icon';
 import { useSession } from '../session';
-import { LiveStage, MotionPath, SkeletonGrid } from '../components/Motion';
+import { SkeletonGrid } from '../components/Motion';
 import { PubCard } from './Community';
 import { ProjectCard } from './Projects';
 
@@ -28,14 +28,12 @@ export function Home() {
   return (
     <div className="page home">
       {editable ? (
-        <section className="hero hero-split" aria-label="créer avec l'IA">
-          <MotionPath className="hero-deco" />
+        <section className="hero" aria-label="créer avec l'IA">
           <div className="hero-text">
           <h2>{hello()} {me?.user?.name.split(' ')[0]}, que voulez-vous <span className="grad">animer</span> ?</h2>
           <p className="lead">Décrivez votre idée, collez un script ou un texte. L'IA écrit le storyboard, dessine tout ce qu'il faut, compose la musique et anime chaque scène.</p>
           <AiPrompt />
           </div>
-          <LiveStage />
           {running.length > 0 && (
             <ul className="gen-list" aria-label="générations en cours">
               {running.map((g) => <li key={g.id}><Link to={`/g/${g.id}`}><Icon name="sparkles" size={14} /> {g.storyboard?.title ?? `${g.input.text.slice(0, 40)}…`} <span className="badge accent">{GEN_STATUS[g.status]}</span></Link></li>)}

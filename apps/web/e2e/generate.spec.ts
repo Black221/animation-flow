@@ -60,7 +60,14 @@ test('text → storyboard (reviewed and edited) → scenes → project, then an 
   const ai = page.getByRole('region', { name: "créer avec l'IA" });
   await ai.getByLabel('texte source').fill("Awa est agricultrice. Elle rêve d'un jumeau numérique de son territoire, et Jumo, son drone, l'aide la nuit.");
   await ai.getByLabel('style du film').selectOption('flat');
+  // the options are the tracks of a timeline: the length on a ruler (its playhead follows), the rest as clips
+  await ai.getByRole('button', { name: 'Plus d’options' }).click();
+  await ai.getByRole('radiogroup', { name: 'durée' }).getByRole('radio', { name: '1 min' }).click();
+  await expect(ai.getByRole('radio', { name: '1 min' })).toHaveAttribute('aria-checked', 'true');
+  await ai.getByRole('radiogroup', { name: 'Ton' }).getByRole('radio', { name: 'Poétique' }).click();
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/generations') && r.method() === 'POST');
   await ai.getByRole('button', { name: 'Générer' }).click();
+  expect((await sent).postDataJSON()).toMatchObject({ targetSeconds: 60, instructions: 'Ton : poétique.' });
   await expect(page).toHaveURL(/\/g\/[0-9a-f-]{36}$/);
   await expect(page.getByTestId('gen-status')).toContainText('Relisez', { timeout: 20_000 });
   await expect(page.getByTestId('gen-status')).toContainText('OpenAI · gpt-story');

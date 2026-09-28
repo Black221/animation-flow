@@ -30,11 +30,11 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
 }
 
 export interface Warning { path: string; message: string }
-export interface ProjectSummary { id: string; title: string; version: number; createdAt: string; updatedAt: string; updatedBy: string | null; createdBy: string | null; remixOf?: { id: string; title: string } | null; publicationId?: string | null }
+export interface ProjectSummary { id: string; title: string; version: number; createdAt: string; updatedAt: string; updatedBy: string | null; createdBy: string | null; remixOf?: { id: string; title: string } | null; publicationId?: string | null; scenes?: number[] }
 export type License = 'cc-by' | 'cc-by-sa' | 'cc0';
 export const LICENSE_LABEL: Record<License, string> = { 'cc-by': 'CC BY — citer l’auteur', 'cc-by-sa': 'CC BY-SA — citer l’auteur, même licence', cc0: 'CC0 — domaine public' };
 export interface Publication {
-  id: string; title: string; description: string; tags: string[]; license: License; duration: number; version: number;
+  id: string; title: string; description: string; tags: string[]; license: License; duration: number; version: number; scenes?: number[];
   author: { id: string; name: string } | null; remixOf: { id: string; title: string; author: string | null; authorId: string | null } | null;
   remixes: number; likes: number; views: number; liked: boolean; createdAt: string; updatedAt: string;
 }

@@ -23,7 +23,7 @@ describe('upgrading a database from before accounts', { timeout: 30_000 }, () =>
     const voices = mkdtempSync(join(tmpdir(), 'af-v-')), asset = 'a'.repeat(32);
     mkdirSync(voices, { recursive: true }); writeFileSync(join(voices, `${asset}.wav`), 'RIFF');
 
-    expect(await migrate(db)).toBe(7); // accounts, comments, password resets, live log, drawings and sound of generations, community
+    expect(await migrate(db)).toBe(8); // accounts, comments, password resets, live log, drawings and sound of generations, community, scene lengths
     const ws = (await db.query<{ id: string }>('SELECT id FROM workspaces')).rows;
     expect(ws).toHaveLength(1);
     for (const t of ['projects', 'credentials', 'model_assignments', 'generations']) {

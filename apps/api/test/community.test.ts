@@ -43,6 +43,10 @@ describe('community', () => {
     const r = await awa.inject({ method: 'POST', url: `/api/projects/${projectId}/publish`, payload: { title: 'Pizza Time, la pub', description: 'Une pub pour une pizzeria.', tags: ['Pub', 'pizza', 'pizza'], license: 'cc-by-sa' } });
     expect(r.statusCode).toBe(201);
     pubId = r.json().id;
+    // the length of each scene, for the card's timeline, adding up to the film
+    expect(r.json().scenes.length).toBeGreaterThan(3);
+    expect(r.json().scenes.reduce((a: number, b: number) => a + b, 0)).toBeCloseTo(r.json().duration, 0);
+    expect((await awa.inject({ url: '/api/community' })).json().items[0].scenes).toEqual(r.json().scenes);
     expect(r.json()).toMatchObject({ title: 'Pizza Time, la pub', tags: ['pub', 'pizza'], license: 'cc-by-sa', author: { name: 'Awa' }, version: 2, remixes: 0, likes: 0 });
     expect((await awa.inject({ url: `/api/projects/${projectId}/publication` })).json().publication.id).toBe(pubId);
 

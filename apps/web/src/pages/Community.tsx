@@ -8,7 +8,7 @@ import { Icon } from '../components/Icon';
 import { Player } from '../components/Player';
 import { Playback } from '../playback';
 import { useUI } from '../components/ui';
-import { HoverPlay, MotionPath, SkeletonGrid, useHover } from '../components/Motion';
+import { HoverPlay, Loading, SceneStrip, SkeletonGrid, SpacingChart, useHover } from '../components/Motion';
 import { useSession } from '../session';
 
 const fmtDur = (s: number) => (s >= 60 ? `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, '0')}` : `${Math.round(s)} s`);
@@ -20,8 +20,8 @@ export function PubCard({ p }: { p: Publication }) {
   const hover = useHover();
   return (
     <li className="project-card pub-card" {...hover.bind}>
-      <HoverPlay active={hover.on} still={thumb(p)} load={() => Api.publication(p.id).then((d) => d.project)} />
-      <span className="dur">{fmtDur(p.duration)}</span>
+      <HoverPlay active={hover.on} onTime={hover.setT} still={thumb(p)} load={() => Api.publication(p.id).then((d) => d.project)} />
+      <SceneStrip scenes={p.scenes ?? []} total={p.duration} t={hover.t} />
       <div className="body">
         <Link to={`/c/${p.id}`} className="title">{p.title}</Link>
         <span className="meta">
@@ -62,7 +62,7 @@ export function Community() {
   return (
     <div className="page community">
       <section className="hero community-hero">
-        <MotionPath className="hero-deco" />
+        <SpacingChart className="hero-deco" />
         <h2>La <span className="grad">communauté</span></h2>
         <p className="lead">Des films faits par d'autres : regardez-les, aimez-les, et remixez-les pour en faire les vôtres. Tout y a été dessiné, composé et animé pour chaque histoire.</p>
         <div className="search-row">
@@ -109,7 +109,7 @@ export function PublicationPage() {
   const soundtrack = useSoundtrack(p?.project ?? EMPTY, sound && !!p, media.voices);
 
   if (error) return <div className="page"><p className="error">{error}</p><Link to="/c">← La communauté</Link></div>;
-  if (!p) return <div className="page muted">Chargement…</div>;
+  if (!p) return <Loading />;
   const signedIn = !!me?.user, canRemix = signedIn && can('editor');
   const like = async () => {
     if (!signedIn) return nav('/login', { state: { from: at.pathname } });
@@ -193,7 +193,7 @@ export function AuthorPage() {
     Api.community({ author: id, limit: 60 }).then((r) => setItems(r.items)).catch(() => setItems([]));
   }, [id]);
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!a) return <div className="page muted">Chargement…</div>;
+  if (!a) return <Loading />;
   return (
     <div className="page">
       <Link to="/c" className="muted row back-link"><Icon name="back" size={16} /> La communauté</Link>

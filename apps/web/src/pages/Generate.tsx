@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { Api, type Generation, type StoryboardT, type StorySceneT, type StoryThing } from '../api';
 import { useSession } from '../session';
 import { Icon } from '../components/Icon';
+import { Loading } from '../components/Motion';
 import { useUI } from '../components/ui';
 
 const STAGES: { id: Generation['status'][]; label: string }[] = [
@@ -93,7 +94,7 @@ export function Generate() {
   const busy = g?.status === 'storyboard' || g?.status === 'assets' || g?.status === 'music' || g?.status === 'scenes';
   useEffect(() => { if (!busy) return; const t = setInterval(() => void refresh(), 1000); return () => clearInterval(t); }, [busy, refresh]);
 
-  if (!g) return <div className="page muted">{error || 'Chargement…'}</div>;
+  if (!g) return error ? <div className="page"><div className="alert error" role="alert">{error}</div></div> : <Loading />;
   const edit = (next: StoryboardT) => { setSb(next); setDirty(true); };
   const act = async (f: () => Promise<Generation>) => { setError(''); try { const x = await f(); setG(x); if (!dirty) setSb(x.storyboard); } catch (e) { const b = (e as { body?: { issues?: { path: string; message: string }[] } }).body; setError(`${(e as Error).message}${b?.issues?.length ? ` : ${b.issues.slice(0, 3).map((i) => `${i.path} ${i.message}`).join(' ; ')}` : ''}`); } };
   const writeScenes = () => act(async () => { if (dirty && sb) { await Api.saveStoryboard(g.id, { ...sb, scenes: sb.scenes.map((s) => ({ ...s, shots: s.shots.filter((x) => x.trim()), narration: s.narration.filter((l) => l.text.trim()) })) }); setDirty(false); } return Api.writeScenes(g.id); });

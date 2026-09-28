@@ -281,6 +281,8 @@ const MIGRATIONS: string[] = [
      PRIMARY KEY (publication_id, user_id)
    );
    ALTER TABLE projects ADD COLUMN remix_of uuid REFERENCES publications(id) ON DELETE SET NULL`,
+  // a publication keeps the length of each of its scenes: its card shows the film's timeline
+  `ALTER TABLE publications ADD COLUMN scenes jsonb NOT NULL DEFAULT '[]'`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */

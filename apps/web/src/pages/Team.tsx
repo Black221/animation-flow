@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Api, RANK, ROLE_LABEL, type Role, type WorkspaceInfo } from '../api';
 import { Icon } from '../components/Icon';
+import { Loading } from '../components/Motion';
 import { Dialog, useUI } from '../components/ui';
 import { useSession } from '../session';
 
@@ -72,7 +73,7 @@ export function Team() {
     setError('');
     try { await f(); if (done) ui.toast(done); after?.(); await load(); } catch (e) { ui.toast((e as Error).message, 'error'); }
   };
-  if (!info) return <div className="page muted">{error || 'Chargement…'}</div>;
+  if (!info) return error ? <div className="page"><div className="alert error" role="alert">{error}</div></div> : <Loading />;
   const admin = can('admin'), myId = me?.user?.id;
   const ask = (title: string, message: string, confirm: string, danger = false) => ui.confirm({ title, message, confirm, danger });
 

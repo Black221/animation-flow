@@ -11,6 +11,7 @@ import { VoicesPanel } from '../components/VoicesPanel';
 import { DrawingsPanel } from '../components/DrawingsPanel';
 import { MusicPanel } from '../components/MusicPanel';
 import { Icon, type IconName } from '../components/Icon';
+import { Loading } from '../components/Motion';
 import { SceneForm } from '../components/SceneForm';
 import { SceneThumb } from '../components/SceneThumb';
 import { PublishDialog } from '../components/PublishDialog';
@@ -147,7 +148,7 @@ export function Editor() {
   useEffect(() => { if (liveOn) live.presence(sceneId, tab); }, [liveOn, sceneId, tab, live.presence]);
 
   if (error && !project) return <div className="page"><p className="error">{error}</p><Link to="/">← Projets</Link></div>;
-  if (!project || !doc || !timeline || !thumbs) return <div className="page muted">Chargement…</div>;
+  if (!project || !doc || !timeline || !thumbs) return <Loading />;
   const draft = project; // what the editor shows and edits, live or not
   const scene = draft.scenes[i]!;
   const open = openThreads(comments.list);

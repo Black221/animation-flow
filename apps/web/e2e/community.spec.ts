@@ -57,6 +57,12 @@ test('on a phone, the navigation is a drawer and dialogs rise from the bottom', 
     await page.goto(path);
     await page.waitForLoadState('networkidle');
     expect(await page.evaluate(() => document.documentElement.scrollWidth), path).toBeLessThanOrEqual(390);
+    // nor cut off inside the page (a card, a hero clips what sticks out of it): the idea box, its button
+    for (const sel of ['.prompt', '.prompt .cta']) {
+      if (!(await page.locator(sel).count())) continue;
+      const box = await page.locator(sel).first().boundingBox();
+      expect(box && box.x + box.width, `${path} ${sel}`).toBeLessThanOrEqual(390);
+    }
   }
   await newProject(page, 'Pizza');
   await expect(page.getByTestId('preview')).toBeVisible();

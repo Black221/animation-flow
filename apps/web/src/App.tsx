@@ -9,7 +9,7 @@ import { ROLE_LABEL } from './api';
 import { CreateProvider, useCreate } from './components/Create';
 import { Icon, type IconName } from './components/Icon';
 import { Menu, UIProvider } from './components/ui';
-import { LiveStage } from './components/Motion';
+import { Loading, Storyboard } from './components/Motion';
 import { Forgot, Invite, Login, Reset, Signup } from './pages/Auth';
 import { AuthorPage, Community, PublicationPage } from './pages/Community';
 import { Editor } from './pages/Editor';
@@ -159,7 +159,7 @@ function AppLayout() {
         <Sidebar onNavigate={() => setDrawer(false)} />
       </div>
       {drawer && <div className="scrim" onClick={() => setDrawer(false)} aria-hidden />}
-      <main className="app-main"><Outlet /></main>
+      <main className="app-main"><div className="scrub" aria-hidden><i /></div><Outlet /></main>
     </div>
   );
 }
@@ -182,7 +182,7 @@ function AuthLayout() {
             <li><span className="dot"><Icon name="users" size={15} /></span> Édition à plusieurs, en temps réel</li>
           </ul>
         </div>
-        <LiveStage caption={false} />
+        <Storyboard />
         <NavLink to="/c" className="auth-explore"><Icon name="globe" size={15} /> Explorer la communauté sans compte</NavLink>
       </aside>
       <div className="auth-side">
@@ -201,7 +201,7 @@ const NotFound = () => <div className="page"><div className="empty"><h2>Page int
 function Shell() {
   const { me, loading, workspace, epoch } = useSession();
   const at = useLocation().pathname;
-  if (loading) return <div className="page muted">Chargement…</div>;
+  if (loading) return <Loading />;
   const community = <>
     <Route path="/c" element={<Community />} />
     <Route path="/c/:id" element={<PublicationPage />} />

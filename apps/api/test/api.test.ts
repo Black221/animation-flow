@@ -67,6 +67,12 @@ describe('projects', () => {
     const t = await c.inject({ url: '/api/templates/example/thumbnail.png' });
     expect(t.statusCode).toBe(200);
     expect((await c.inject({ url: '/api/templates/nope/thumbnail.png' })).statusCode).toBe(404);
+    // public, and one frame per scene (the sign-in page's storyboard)
+    const anon = await app.inject({ url: '/api/templates/pizza/thumbnail.png?scene=2' });
+    expect(anon.statusCode).toBe(200);
+    expect(anon.headers['cache-control']).toMatch(/^public/);
+    expect(anon.rawPayload.equals((await app.inject({ url: '/api/templates/pizza/thumbnail.png' })).rawPayload)).toBe(false); // not the first scene's frame
+    expect((await app.inject({ url: '/api/templates/pizza/thumbnail.png?scene=99' })).statusCode).toBe(404);
     // from another workspace, the project does not exist
     const other = (await c.inject({ method: 'POST', url: '/api/workspaces', payload: { name: 'Ailleurs' } })).json();
     expect((await c.inject({ url: `/api/projects/${created.id}/thumbnail.png?ws=${other.id}` })).statusCode).toBe(404);
@@ -100,6 +106,7 @@ describe('projects', () => {
 
   it('lists, reads, exports subtitles and deletes', async () => {
     expect((await c.inject({ url: '/api/projects' })).json()[0]).toMatchObject({ id, title: 'Renommé' });
+    expect((await c.inject({ url: '/api/projects' })).json()[0].scenes).toHaveLength(2); // each scene's length: the card's timeline
     expect((await c.inject({ url: `/api/projects/${id}` })).json().project.scenes.length).toBe(2);
     const srt = await c.inject({ url: `/api/projects/${id}/subtitles.srt` });
     expect(srt.headers['content-type']).toContain('application/x-subrip');

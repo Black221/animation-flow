@@ -6,7 +6,7 @@ import { Api, getWorkspace, type ProjectSummary } from '../api';
 import { useCreate } from '../components/Create';
 import { Icon } from '../components/Icon';
 import { Menu, useUI } from '../components/ui';
-import { HoverPlay, SkeletonGrid, useHover } from '../components/Motion';
+import { HoverPlay, SceneStrip, SkeletonGrid, useHover } from '../components/Motion';
 import { useSession } from '../session';
 
 export const ago = (d: string | Date) => {
@@ -37,7 +37,8 @@ export function ProjectCard({ p, onChange }: { p: ProjectSummary; onChange: () =
   };
   return (
     <li className="project-card" {...hover.bind}>
-      <HoverPlay active={hover.on} still={`/api/projects/${p.id}/thumbnail.png?v=${p.version}&ws=${ws}`} load={() => Api.project(p.id).then((d) => d.project)} />
+      <HoverPlay active={hover.on} onTime={hover.setT} still={`/api/projects/${p.id}/thumbnail.png?v=${p.version}&ws=${ws}`} load={() => Api.project(p.id).then((d) => d.project)} />
+      {p.scenes && p.scenes.length > 0 && <SceneStrip scenes={p.scenes} t={hover.t} />}
       <div className="body">
         <Link to={`/p/${p.id}`} className="title">{p.title}</Link>
         <span className="meta">

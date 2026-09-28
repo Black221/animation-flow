@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router';
 import { stylePacks } from '@af/styles';
 import { Api } from '../api';
 import { Icon, type IconName } from './Icon';
+import { Pipeline, timecode } from './Motion';
 import { Dialog, useUI } from './ui';
 
 export const TEMPLATE_INFO: Record<string, { label: string; hint: string; icon: IconName }> = {
@@ -25,20 +26,47 @@ const AUDIENCES = ['Tout public', 'Enfants', 'Adolescents', 'Professionnels'];
 const VOICES: [string, string][] = [['narrator', 'Un narrateur'], ['cast', 'Les personnages parlent'], ['both', 'Narrateur et personnages'], ['none', 'Sans voix (texte à l’écran)']];
 const MUSIC = ['Entraînante', 'Douce', 'Épique', 'Mystérieuse', 'Sans musique'];
 const PACE = ['Posé', 'Dynamique', 'Très rythmé'];
-const LENGTHS: [number, string][] = [[0, 'Auto'], [15, '15 s'], [30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min']];
+const MARKS: [number, string][] = [[15, '15 s'], [30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min']];
+/** where a length sits on the ruler: a log scale from 10 s to 5 min */
+const rulerAt = (s: number) => Math.log(Math.min(300, Math.max(10, s)) / 10) / Math.log(30);
 
-function Chips<T extends string | number>({ label, options, value, onChange }: { label: string; options: [T, string][]; value: T; onChange: (v: T) => void }) {
+/** an option as a track of a timeline: its header (a colour, an icon, a name), its choices as clips on the lane */
+function Track({ label, icon, color, children }: { label: string; icon: IconName; color: number; children: ReactNode }) {
   return (
-    <div className="opt-group" role="radiogroup" aria-label={label}>
-      <span className="opt-label">{label}</span>
-      <div className="chips">{options.map(([v, l]) => <button key={String(v)} type="button" className="chip" role="radio" aria-checked={value === v} aria-pressed={value === v} onClick={() => onChange(value === v && typeof v === 'string' ? ('' as T) : v)}>{l}</button>)}</div>
+    <div className="opt-group track" style={{ '--track': `var(--track-${color})` } as React.CSSProperties}>
+      <span className="opt-label"><Icon name={icon} size={14} /> {label}</span>
+      <div className="lane">{children}</div>
     </div>
+  );
+}
+function Chips<T extends string | number>({ label, icon, color, options, value, onChange }: { label: string; icon: IconName; color: number; options: [T, string][]; value: T; onChange: (v: T) => void }) {
+  return (
+    <Track label={label} icon={icon} color={color}>
+      <div className="chips" role="radiogroup" aria-label={label}>{options.map(([v, l]) => <button key={String(v)} type="button" className="chip clip" role="radio" aria-checked={value === v} aria-pressed={value === v} onClick={() => onChange(value === v && typeof v === 'string' ? ('' as T) : v)}>{l}</button>)}</div>
+    </Track>
+  );
+}
+/** the length as a ruler, like the editor's timeline: marks to click, the playhead on the one chosen */
+function DurationRuler({ seconds, custom, onPick, onCustom }: { seconds: number; custom: string; onPick: (s: number) => void; onCustom: (v: string) => void }) {
+  const target = +custom > 0 ? +custom : seconds;
+  return (
+    <Track label="Durée" icon="clock" color={1}>
+      <div className="ruler-row" role="radiogroup" aria-label="durée">
+        <button type="button" className="chip clip" role="radio" aria-checked={!custom && seconds === 0} aria-pressed={!custom && seconds === 0} onClick={() => { onPick(0); onCustom(''); }}>Auto</button>
+        <div className="ruler">
+          <span className="ticks" aria-hidden />
+          {MARKS.map(([v, l]) => <button key={v} type="button" role="radio" className="mark" aria-checked={!custom && seconds === v} aria-pressed={!custom && seconds === v} style={{ left: `${rulerAt(v) * 100}%` }} onClick={() => { onPick(v); onCustom(''); }}><span>{l}</span></button>)}
+          {target > 0 && <i className="playhead" aria-hidden style={{ left: `${rulerAt(target) * 100}%` }} />}
+        </div>
+        <input type="number" min={10} max={1800} value={custom} onChange={(e) => onCustom(e.target.value)} placeholder="autre (s)" aria-label="durée visée" className="chip-input" />
+      </div>
+    </Track>
   );
 }
 
 /** the idea box: the text, then as many options as wanted (language, style, length, tone, audience, voices, music,
- *  rhythm, instructions), then the generation page. The options the API has no field for go to the model as
- *  instructions, in words. */
+ *  rhythm, instructions) laid out as the tracks of a timeline, then the generation page. The options the API has no
+ *  field for go to the model as instructions, in words. Below, what happens next, as a timeline too. */
 export function AiPrompt({ autoFocus = false, full = false, onStarted }: { autoFocus?: boolean; full?: boolean; onStarted?: () => void }) {
   const nav = useNavigate();
   const [text, setText] = useState('');
@@ -59,6 +87,7 @@ export function AiPrompt({ autoFocus = false, full = false, onStarted }: { autoF
     music && (music === 'Sans musique' ? 'Pas de musique.' : `Musique ${music.toLowerCase()}.`), pace && `Rythme : ${pace.toLowerCase()}.`, extra.trim(),
   ].filter(Boolean).join(' ');
   const chosen = [tone, audience, voices && VOICES.find((v) => v[0] === voices)?.[1], music, pace, extra.trim() && 'consignes'].filter(Boolean).length;
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0, ready = text.trim().length >= 10;
   const generate = async () => {
     setError(''); setBusy(true);
     try {
@@ -69,39 +98,41 @@ export function AiPrompt({ autoFocus = false, full = false, onStarted }: { autoF
   return (
     <div className={`ai-prompt${full ? ' full' : ''}`}>
       <div className="prompt">
-        <textarea rows={full ? 7 : 4} value={text} onChange={(e) => setText(e.target.value)} autoFocus={autoFocus} aria-label="texte source"
-          placeholder="Ex. : une pub de 30 secondes pour une boulangerie de quartier, chaleureuse et drôle… ou collez un script, un article, un cours."
-          onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && text.trim().length >= 10) void generate(); }} />
+        <div className="slate" aria-hidden>
+          <span className="kf" /> <strong>SC 00</strong> · votre idée
+          <span className="spacer" />
+          <span className="tc">{words} mot{words > 1 ? 's' : ''} · {target > 0 ? timecode(target) : 'durée auto'}</span>
+        </div>
+        <div className="safe-frame">
+          <textarea rows={full ? 7 : 4} value={text} onChange={(e) => setText(e.target.value)} autoFocus={autoFocus} aria-label="texte source"
+            placeholder="Ex. : une pub de 30 secondes pour une boulangerie de quartier, chaleureuse et drôle… ou collez un script, un article, un cours."
+            onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && ready) void generate(); }} />
+        </div>
         <div className="bar">
           <span className="opt">Langue <select value={language} onChange={(e) => setLanguage(e.target.value)} aria-label="langue">{LANGS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></span>
           <span className="opt">Style <select value={style} onChange={(e) => setStyle(e.target.value)} aria-label="style du film">{Object.values(stylePacks).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></span>
           <label className="switch opt" title="vous relisez et corrigez le storyboard avant que l'IA ne dessine et n'anime"><input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} /> Relire le storyboard</label>
           {!full && <button type="button" className="ghost small" aria-expanded={more} onClick={() => setMore((m) => !m)}><Icon name="sliders" size={15} /> {more ? 'Moins d’options' : 'Plus d’options'}{chosen > 0 && !more ? ` (${chosen})` : ''}</button>}
           <span className="spacer" />
-          <button className="cta" onClick={() => void generate()} disabled={busy || text.trim().length < 10} title="Ctrl + Entrée"><Icon name="sparkles" /> {busy ? 'Lancement…' : 'Générer'}</button>
+          <button className="cta" onClick={() => void generate()} disabled={busy || !ready} title="Ctrl + Entrée"><Icon name="sparkles" /> {busy ? 'Lancement…' : 'Générer'}</button>
         </div>
         {more && (
-          <div className="options" aria-label="options">
-            <div className="opt-group" role="radiogroup" aria-label="durée">
-              <span className="opt-label">Durée</span>
-              <div className="chips">
-                {LENGTHS.map(([v, l]) => <button key={v} type="button" className="chip" role="radio" aria-checked={!custom && seconds === v} aria-pressed={!custom && seconds === v} onClick={() => { setSeconds(v); setCustom(''); }}>{l}</button>)}
-                <input type="number" min={10} max={1800} value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="autre (s)" aria-label="durée visée" className="chip-input" />
-              </div>
-            </div>
-            <Chips label="Ton" options={TONES.map((t) => [t, t] as [string, string])} value={tone} onChange={setTone} />
-            <Chips label="Public" options={AUDIENCES.map((t) => [t, t] as [string, string])} value={audience} onChange={setAudience} />
-            <Chips label="Voix" options={VOICES} value={voices} onChange={setVoices} />
-            <Chips label="Musique" options={MUSIC.map((t) => [t, t] as [string, string])} value={music} onChange={setMusic} />
-            <Chips label="Rythme" options={PACE.map((t) => [t, t] as [string, string])} value={pace} onChange={setPace} />
-            <label className="opt-group"><span className="opt-label">Consignes</span>
+          <div className="options tracks" aria-label="options">
+            <DurationRuler seconds={seconds} custom={custom} onPick={setSeconds} onCustom={setCustom} />
+            <Chips label="Ton" icon="sparkles" color={2} options={TONES.map((t) => [t, t] as [string, string])} value={tone} onChange={setTone} />
+            <Chips label="Public" icon="users" color={3} options={AUDIENCES.map((t) => [t, t] as [string, string])} value={audience} onChange={setAudience} />
+            <Chips label="Voix" icon="mic" color={4} options={VOICES} value={voices} onChange={setVoices} />
+            <Chips label="Musique" icon="music" color={5} options={MUSIC.map((t) => [t, t] as [string, string])} value={music} onChange={setMusic} />
+            <Chips label="Rythme" icon="film" color={6} options={PACE.map((t) => [t, t] as [string, string])} value={pace} onChange={setPace} />
+            <Track label="Consignes" icon="edit" color={7}>
               <textarea rows={2} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="« le héros est une girafe », « finir sur le logo », « couleurs pastel »…" aria-label="consignes supplémentaires" />
-            </label>
+            </Track>
           </div>
         )}
       </div>
-      {!text && <div className="chips" aria-label="idées"><span className="opt-label">Idées</span>{IDEAS.map((i) => <button key={i} type="button" className="chip" onClick={() => setText(i)}>{i.length > 58 ? `${i.slice(0, 56)}…` : i}</button>)}</div>}
+      {!text && <div className="chips ideas" aria-label="idées"><span className="opt-label">Idées</span>{IDEAS.map((i) => <button key={i} type="button" className="chip" onClick={() => setText(i)}>{i.length > 58 ? `${i.slice(0, 56)}…` : i}</button>)}</div>}
       {error && <div className="alert error" role="alert"><Icon name="alert" size={16} /><span>{error}</span>{/Fournisseurs/.test(error) && <Link to="/settings" onClick={onStarted}>Ouvrir les fournisseurs</Link>}</div>}
+      <Pipeline ready={ready} running={busy} />
     </div>
   );
 }
