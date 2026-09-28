@@ -4,9 +4,9 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { Link, useNavigate } from 'react-router';
 import { stylePacks } from '@af/styles';
 import { Api } from '../api';
-import { Icon, type IconName } from './Icon';
+import { Icon, type IconName } from '@af/ui';
 import { Pipeline, timecode } from './Motion';
-import { Dialog, useUI } from './ui';
+import { Dialog, useUI } from '@af/ui';
 
 export const TEMPLATE_INFO: Record<string, { label: string; hint: string; icon: IconName }> = {
   blank: { label: 'Projet vide', hint: 'Une scène à remplir, à la main ou avec l’IA.', icon: 'plus' },

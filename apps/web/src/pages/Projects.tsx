@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Api, getWorkspace, type ProjectSummary } from '../api';
 import { useCreate } from '../components/Create';
-import { Icon } from '../components/Icon';
-import { Menu, useUI } from '../components/ui';
+import { Icon } from '@af/ui';
+import { Menu, useUI } from '@af/ui';
 import { HoverPlay, SceneStrip, SkeletonGrid, useHover } from '../components/Motion';
 import { useSession } from '../session';
 

@@ -35,7 +35,7 @@ export async function sessionUser(db: Db, token: string | null): Promise<Session
   const id = hashToken(token);
   // a suspended account has no session
   const { rows } = await db.query<{ id: string; email: string; name: string; last_seen_at: Date; platform_admin: boolean }>(
-    `SELECT u.id, u.email, u.name, u.platform_admin, s.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = $1 AND s.expires_at > now() AND u.suspended_at IS NULL`, [id]);
+    `SELECT u.id, u.email, u.name, u.platform_admin, s.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = $1 AND s.scope = 'app' AND s.expires_at > now() AND u.suspended_at IS NULL`, [id]);
   const r = rows[0];
   if (!r) return null;
   // sliding expiry, written at most once an hour

@@ -6,7 +6,7 @@ import type { Project } from '@af/schema';
 import { getStyle, stylePacks, type Renderer } from '@af/styles';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePictures, type LinksFn } from '../pictures';
-import { Icon } from './Icon';
+import { Icon } from '@af/ui';
 import { fmtTime, usePlayback, type Playback } from '../playback';
 
 const QUALITIES = [640, 960, 1280, 1920];

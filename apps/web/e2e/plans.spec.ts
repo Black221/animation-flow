@@ -1,5 +1,5 @@
 import { expect, test, type Browser } from '@playwright/test';
-import { signedIn } from './auth';
+import { backOffice, signedIn } from './auth';
 
 const H = { 'x-requested-with': 'animation-flow' };
 
@@ -40,17 +40,15 @@ test('the free plan: a limit reached explains itself and leads to the plans; the
   await expect(nina.getByRole('button', { name: 'Plan actuel' })).toBeDisabled();
   await expect(nina.getByText("Le paiement en ligne n'est pas activé")).toBeVisible();
 
-  // the platform admin (the first account) finds her and moves her workspace to Basique
-  await page.goto('/admin');
-  await expect(page.getByRole('heading', { name: 'Administration' })).toBeVisible();
-  await page.getByRole('tab', { name: 'Utilisateurs' }).click();
-  await page.getByLabel('chercher un utilisateur').fill('nina');
-  await page.getByRole('button', { name: 'Nina', exact: true }).click();
-  const detail = page.getByRole('dialog', { name: 'Nina', exact: true });
-  await detail.getByLabel(`plan de Studio de Nina`).selectOption('basic');
-  await page.getByRole('dialog', { name: /Passer « Studio de Nina » au plan Basique/ }).getByRole('button', { name: 'Changer de plan' }).click();
-  await expect(detail.getByLabel('plan de Studio de Nina')).toHaveValue('basic');
-  await page.keyboard.press('Escape');
+  // the platform admin (the first account), in the back office, finds her and moves her workspace to Basique
+  const bo = await backOffice(browser);
+  await bo.getByRole('navigation', { name: 'back-office' }).getByRole('link', { name: 'Utilisateurs' }).click();
+  await bo.getByLabel('chercher un utilisateur').fill('nina');
+  await bo.getByRole('link', { name: 'Nina', exact: true }).click();
+  await bo.getByLabel('plan de Studio de Nina').selectOption('basic');
+  await bo.getByRole('dialog', { name: /Passer « Studio de Nina » au plan Basique/ }).getByRole('button', { name: 'Changer de plan' }).click();
+  await expect(bo.getByRole('region', { name: 'espace Studio de Nina' })).toContainText('Basique');
+  await bo.context().close();
 
   // she can go on
   await nina.goto('/plans');
@@ -72,12 +70,14 @@ test('reporting a film, and the moderation hiding it from the community', async 
   await dlg.getByRole('button', { name: 'Signaler' }).click();
   await expect(tom.getByText('la modération va regarder')).toBeVisible();
 
-  await page.goto('/admin?tab=reports');
-  const item = page.getByRole('list', { name: 'signalements' }).getByRole('listitem').filter({ hasText: pub.title });
+  const bo = await backOffice(browser);
+  await bo.getByRole('navigation', { name: 'back-office' }).getByRole('link', { name: /Modération/ }).click();
+  const item = bo.getByRole('list', { name: 'signalements' }).getByRole('listitem').filter({ hasText: pub.title });
   await expect(item).toContainText('la musique est reprise sans accord');
   await item.getByRole('button', { name: 'Masquer' }).click();
-  await page.getByRole('dialog', { name: /Masquer/ }).getByRole('button', { name: 'Masquer' }).click();
+  await bo.getByRole('dialog', { name: /Masquer/ }).getByRole('button', { name: 'Masquer' }).click();
   await expect(item).toHaveCount(0);
+  await bo.context().close();
   // gone for others, still there for its author (who is told)
   expect((await tom.request.get(`/api/community/${pub.id}`)).status()).toBe(404);
   await page.goto(`/c/${pub.id}`);

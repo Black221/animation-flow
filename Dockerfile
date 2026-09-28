@@ -1,4 +1,4 @@
-# animation-flow: one image serving the API and the built editor.
+# animation-flow: one image serving the API and the built editor, and the back office on a port of its own.
 #   docker compose up --build        (see docker-compose.yml and .env.example)
 
 FROM node:22-bookworm-slim AS build
@@ -15,14 +15,16 @@ RUN pnpm --filter @af/api deploy --prod --legacy /out
 FROM node:22-bookworm-slim
 # FFmpeg encodes the rendered frames into MP4
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST=/app/web DATA_DIR=/data
+# the back office listens on its own port (3001); docker-compose.yml publishes it on this machine only
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST=/app/web DATA_DIR=/data ADMIN_HOST=0.0.0.0 ADMIN_PORT=3001 ADMIN_DIST=/app/admin
 WORKDIR /app
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /out/package.json ./package.json
 COPY --from=build /src/apps/api/dist ./dist
 COPY --from=build /src/apps/web/dist ./web
+COPY --from=build /src/apps/admin/dist ./admin
 RUN mkdir -p /data && chown node:node /data
 USER node
-EXPOSE 3000
+EXPOSE 3000 3001
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/main.js"]

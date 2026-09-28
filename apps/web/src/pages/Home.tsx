@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { Api, type Generation, type ProjectSummary, type Publication } from '../api';
 import { AiPrompt, useCreate } from '../components/Create';
-import { Icon } from '../components/Icon';
+import { Icon } from '@af/ui';
 import { useSession } from '../session';
 import { SkeletonGrid } from '../components/Motion';
 import { PubCard } from './Community';

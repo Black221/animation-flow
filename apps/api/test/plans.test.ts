@@ -12,11 +12,12 @@ import { signPayload, type StripeFetch } from '../src/billing';
 import { secretBox } from '../src/crypto';
 import type { Db } from '../src/db';
 import { buildServer } from '../src/server';
-import { signIn, signUp, type Client } from './client';
+import { adminSignIn, signIn, signUp, type Client } from './client';
+import { buildAdminServer } from '../src/admin/server';
 import { openTestDb } from './testdb';
 
 const WHSEC = 'whsec_test_0000000000', PRICES = { basic: 'price_basic', premium: 'price_premium', pro: 'price_pro' };
-let db: Db, app: FastifyInstance, root: Client, ben: Client;
+let db: Db, app: FastifyInstance, adm: FastifyInstance, root: Client, ben: Client, boss: Client;
 const stripeCalls: { url: string; auth: string; body: URLSearchParams }[] = [];
 const stripeFetch: StripeFetch = async (url, init) => {
   stripeCalls.push({ url, auth: init.headers.authorization ?? '', body: new URLSearchParams(init.body ?? '') });
@@ -35,8 +36,11 @@ beforeAll(async () => {
     stripe: { secretKey: 'sk_test_secret', webhookSecret: WHSEC, prices: PRICES, appUrl: 'https://anim.example.org' }, stripeFetch });
   root = await signUp(app, 'root@example.org', { name: 'Root' });
   ben = await signUp(app, 'ben@example.org', { name: 'Ben' });
+  // the back office: its own server on the same database; the first account signs in there too
+  adm = await buildAdminServer({ db, voicesDir: mkdtempSync(join(tmpdir(), 'af-pv-')), imagesDir: mkdtempSync(join(tmpdir(), 'af-pi-')), communityDir: mkdtempSync(join(tmpdir(), 'af-pc-')), stripe: null });
+  boss = await adminSignIn(adm, 'root@example.org');
 });
-afterAll(async () => { await app.close(); await db.close(); });
+afterAll(async () => { await adm.close(); await app.close(); await db.close(); });
 
 describe('plans', () => {
   it('lists the plans for anyone; the first account is the platform admin, on Pro; the next start free', async () => {
@@ -72,7 +76,7 @@ describe('plans', () => {
     const used = (await plan(ben)).usage.renderMinutes;
     expect(used).toBeGreaterThan(0.5); // a 41 s film
     // the admin leaves one minute a month: a second one does not fit
-    await root.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: { renderMinutes: 1 } } });
+    await boss.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: { renderMinutes: 1 } } });
     const over = await ben.inject({ method: 'POST', url: `/api/projects/${pizza}/renders`, payload: { width: 640 } });
     expect(over.statusCode).toBe(402);
     expect(over.json().error).toMatch(/il en reste 0\.\d/);
@@ -80,7 +84,7 @@ describe('plans', () => {
     expect((await ben.inject({ method: 'POST', url: `/api/renders/${r.json().id}/cancel` })).statusCode).toBe(200);
     expect((await plan(ben)).usage.renderMinutes).toBe(0);
     expect((await ben.inject({ method: 'POST', url: `/api/projects/${pizza}/renders`, payload: { width: 640 } })).statusCode).toBe(202);
-    await root.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: {} } });
+    await boss.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: {} } });
   });
 
   it('counts members with pending invitations; no third free workspace; decors painted from Premium on', async () => {
@@ -98,11 +102,11 @@ describe('plans', () => {
   });
 
   it('counts films generated this month (before asking for a model)', async () => {
-    await root.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: { generations: 0 } } });
+    await boss.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: { generations: 0 } } });
     const r = await ben.inject({ method: 'POST', url: '/api/generations', payload: { text: 'Une pub de 30 secondes pour une pizzeria.', style: 'flat' } });
     expect(r.statusCode).toBe(402);
     expect(r.json().quota).toMatchObject({ metric: 'generations', limit: 0 });
-    await root.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: {} } });
+    await boss.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: {} } });
   });
 
   it('with plans off, nothing is limited', async () => {
@@ -163,33 +167,36 @@ describe('payments', () => {
   });
 });
 
-describe('administration', () => {
+describe('administration (the back office)', () => {
   it('is for platform admins only', async () => {
-    for (const url of ['/api/admin/overview', '/api/admin/users', '/api/admin/reports']) expect((await ben.inject(url)).statusCode, url).toBe(403);
-    const o = (await root.inject('/api/admin/overview')).json();
+    // not on the app's server any more; on the back office, not with the app's cookie
+    expect((await root.inject('/api/admin/overview')).statusCode).toBe(404);
+    for (const url of ['/api/admin/overview', '/api/admin/users', '/api/admin/reports']) expect((await adm.inject({ url, headers: { cookie: ben.cookie } })).statusCode, url).toBe(401);
+    expect((await adm.inject({ url: '/api/admin/overview', headers: { cookie: root.cookie } })).statusCode).toBe(401);
+    const o = (await boss.inject('/api/admin/overview')).json();
     expect(o).toMatchObject({ users: 2, openReports: 0 });
     expect(o.byPlan.pro).toBe(1);
   });
 
   it('finds accounts, shows their workspaces, plans and usage; changes a plan', async () => {
-    const list = (await root.inject('/api/admin/users?q=ben')).json();
+    const list = (await boss.inject('/api/admin/users?q=ben')).json();
     expect(list.total).toBe(1);
     expect(list.items[0]).toMatchObject({ email: 'ben@example.org', admin: false, suspended: false });
-    const detail = (await root.inject(`/api/admin/users/${ben.user.id}`)).json();
+    const detail = (await boss.inject(`/api/admin/users/${ben.user.id}`)).json();
     expect(detail.workspaces[0]).toMatchObject({ role: 'owner', plan: 'free', usage: { projects: 3 } });
-    const r = await root.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { plan: 'basic', quotas: { projects: 4 } } });
+    const r = await boss.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { plan: 'basic', quotas: { projects: 4 } } });
     expect(r.json()).toMatchObject({ plan: 'basic', limits: { projects: 4, maxWidth: 1920 } });
-    expect((await root.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: { projects: -1 } } })).statusCode).toBe(400);
+    expect((await boss.inject({ method: 'PATCH', url: `/api/admin/workspaces/${ben.workspaces[0]!.id}`, payload: { quotas: { projects: -1 } } })).statusCode).toBe(400);
   });
 
   it('suspends an account (signed out everywhere, no signing in) and restores it; never oneself', async () => {
-    expect((await root.inject({ method: 'PATCH', url: `/api/admin/users/${root.user.id}`, payload: { suspended: true } })).statusCode).toBe(400);
-    expect((await root.inject({ method: 'PATCH', url: `/api/admin/users/${ben.user.id}`, payload: { suspended: true } })).statusCode).toBe(200);
+    expect((await boss.inject({ method: 'PATCH', url: `/api/admin/users/${root.user.id}`, payload: { suspended: true } })).statusCode).toBe(400);
+    expect((await boss.inject({ method: 'PATCH', url: `/api/admin/users/${ben.user.id}`, payload: { suspended: true } })).statusCode).toBe(200);
     expect((await ben.inject('/api/projects')).statusCode).toBe(401);
     const login = await app.inject({ method: 'POST', url: '/api/auth/login', headers: { 'x-requested-with': 'animation-flow' }, payload: { email: 'ben@example.org', password: 'mot-de-passe-solide-1' } });
     expect(login.statusCode).toBe(403);
     expect(login.json().error).toMatch(/suspendu/);
-    await root.inject({ method: 'PATCH', url: `/api/admin/users/${ben.user.id}`, payload: { suspended: false } });
+    await boss.inject({ method: 'PATCH', url: `/api/admin/users/${ben.user.id}`, payload: { suspended: false } });
     ben = await signIn(app, 'ben@example.org');
     expect((await ben.inject('/api/projects')).statusCode).toBe(200);
   });
@@ -200,16 +207,16 @@ describe('administration', () => {
     expect((await root.inject({ method: 'POST', url: `/api/community/${pub}/report`, payload: { reason: 'nope' } })).statusCode).toBe(400);
     expect((await root.inject({ method: 'POST', url: `/api/community/${pub}/report`, payload: { reason: 'copyright', message: 'une pub copiée' } })).statusCode).toBe(201);
     expect((await root.inject({ method: 'POST', url: `/api/community/${pub}/report`, payload: { reason: 'spam' } })).statusCode).toBe(201); // once per person: updated
-    const reports = (await root.inject('/api/admin/reports')).json();
+    const reports = (await boss.inject('/api/admin/reports')).json();
     expect(reports).toHaveLength(1);
     expect(reports[0]).toMatchObject({ reason: 'spam', publication: { id: pub, title: 'Pizza Time', openReports: 1, author: { name: 'Ben' } } });
-    expect((await root.inject({ method: 'POST', url: `/api/admin/reports/${reports[0].id}`, payload: { action: 'hide' } })).json()).toMatchObject({ status: 'hidden' });
+    expect((await boss.inject({ method: 'POST', url: `/api/admin/reports/${reports[0].id}`, payload: { action: 'hide' } })).json()).toMatchObject({ status: 'hidden' });
     expect((await app.inject(`/api/community/${pub}`)).statusCode).toBe(404);
     expect((await app.inject('/api/community')).json().items.find((i: { id: string }) => i.id === pub)).toBeUndefined();
     expect((await ben.inject(`/api/community/${pub}`)).json()).toMatchObject({ hidden: true, canManage: true });
-    expect((await root.inject('/api/admin/reports')).json()).toHaveLength(0);
+    expect((await boss.inject('/api/admin/reports')).json()).toHaveLength(0);
     // back in the community
-    await root.inject({ method: 'PATCH', url: `/api/admin/publications/${pub}`, payload: { hidden: false } });
+    await boss.inject({ method: 'PATCH', url: `/api/admin/publications/${pub}`, payload: { hidden: false } });
     expect((await app.inject(`/api/community/${pub}`)).statusCode).toBe(200);
   });
 });

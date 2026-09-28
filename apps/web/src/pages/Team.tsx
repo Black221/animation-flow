@@ -2,9 +2,9 @@
 // of who may do what is confirmed in a dialog; deleting the workspace asks for its name.
 import { useCallback, useEffect, useState } from 'react';
 import { Api, RANK, ROLE_LABEL, type Role, type WorkspaceInfo } from '../api';
-import { Icon } from '../components/Icon';
+import { Icon } from '@af/ui';
 import { Loading } from '../components/Motion';
-import { Dialog, useUI } from '../components/ui';
+import { Dialog, useUI } from '@af/ui';
 import { useSession } from '../session';
 
 const ROLES: Role[] = ['viewer', 'editor', 'admin'];

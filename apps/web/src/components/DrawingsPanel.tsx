@@ -8,8 +8,8 @@ import { usePlan } from '../plan';
 import { addPicture } from '../pictures';
 import { AssetView } from './AssetView';
 import { JsonEditor, type JsonIssue } from './JsonEditor';
-import { Icon } from './Icon';
-import { Dialog, useUI } from './ui';
+import { Icon } from '@af/ui';
+import { Dialog, useUI } from '@af/ui';
 import { Link } from 'react-router';
 
 const KIND_LABEL: Record<Asset['kind'], string> = { character: 'personnage', prop: 'accessoire', decor: 'décor' };

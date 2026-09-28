@@ -3,7 +3,9 @@
 // Dialogs are native <dialog> elements opened as modals: focus stays inside, Escape closes, the page behind is inert.
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
-import { lastQuota } from '../api';
+
+/** which toasts to show: an app holds back those that say what a dialog just said (a plan's limit, say) */
+export const toastFilter: { allow: (text: string, kind: string) => boolean } = { allow: () => true };
 
 // ---------------------------------------------------------------- dialog
 export function Dialog({ open, onClose, title, description, icon, tone = 'accent', size = 'md', children, footer, label }: {
@@ -62,7 +64,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [value, setValue] = useState('');
   const seq = useRef(0);
   const toast = useCallback((text: string, kind: ToastKind = 'success', action?: Toast['action']) => {
-    if (kind === 'error' && text === lastQuota.text && Date.now() - lastQuota.at < 5000) return;
+    if (!toastFilter.allow(text, kind)) return;
     const id = ++seq.current;
     setToasts((t) => [...t.slice(-3), { id, kind, text, ...(action ? { action } : {}) }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 7000 : 4000);

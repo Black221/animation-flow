@@ -328,6 +328,20 @@ const MIGRATIONS: string[] = [
    );
    CREATE INDEX reports_open ON reports (status, created_at);
    CREATE UNIQUE INDEX reports_once ON reports (publication_id, reporter_id) WHERE status = 'open'`,
+  // the back office, a server of its own: its sessions apart from the app's (scope), and a log of what admins do
+  `ALTER TABLE sessions ADD COLUMN scope text NOT NULL DEFAULT 'app';
+   CREATE TABLE admin_audit (
+     id uuid PRIMARY KEY,
+     admin_id uuid REFERENCES users(id) ON DELETE SET NULL,
+     admin_name text NOT NULL,
+     action text NOT NULL,
+     target_type text NOT NULL,
+     target_id text,
+     summary text NOT NULL,
+     ip text,
+     created_at timestamptz NOT NULL DEFAULT now()
+   );
+   CREATE INDEX admin_audit_time ON admin_audit (created_at DESC)`,
 ];
 
 /** apply the migrations not applied yet (`upTo` stops after that one: tests of the upgrade path) */

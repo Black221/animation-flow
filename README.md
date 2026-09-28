@@ -15,19 +15,21 @@ Prérequis : Node 22+, pnpm 10 (`corepack enable`), FFmpeg (pour le rendu vidéo
 ```bash
 pnpm install
 pnpm dev            # API sur :3000 (base PostgreSQL embarquée, PGlite) + éditeur sur http://localhost:5173
+                    # + back-office : serveur sur :3001, application sur http://localhost:5174
 ```
 
 Sans `DATABASE_URL`, l'API utilise une base PostgreSQL embarquée (PGlite) dans `.data/`, et génère une clé de
 chiffrement de développement dans `.data/` (jamais versionnée). Rien d'autre à installer.
 
 Au premier lancement, l'éditeur demande de créer le **premier compte** : il devient propriétaire de l'espace de
-travail (et de tout ce qui existait avant les comptes), puis invite l'équipe depuis la page **Équipe**.
+travail (et de tout ce qui existait avant les comptes) et administrateur de la plateforme, puis invite l'équipe
+depuis la page **Équipe**. Le back-office s'ouvre avec le même e-mail et le même mot de passe, sur sa propre adresse.
 
 ### Avec Docker (application + PostgreSQL)
 
 ```bash
 cp .env.example .env              # puis remplir APP_ENCRYPTION_KEY : openssl rand -base64 32
-docker compose up --build         # → http://localhost:3000
+docker compose up --build         # → http://localhost:3000, back-office sur http://localhost:3001 (cette machine seulement)
 docker compose --profile workers up --build --scale worker=2   # avec deux machines de rendu en plus
 # plusieurs processus d'API derrière un répartiteur de charge (nginx, deploy/nginx.conf), sans affinité :
 docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build --scale app=2
@@ -95,9 +97,15 @@ part avec un lien construit sur `APP_URL`.
   baisse garde ce qui existe ; seules les créations au-delà de la limite sont refusées. Une personne possède au plus
   deux espaces gratuits. Le paiement passe par **Stripe** (Checkout pour s'abonner, espace client pour changer de
   plan, de carte ou résilier) : seul le propriétaire de l'espace paie. Sans Stripe, l'administrateur change les plans.
-- **Administration** (administrateurs de la plateforme : le premier compte, et ceux qu'il nomme) : vue d'ensemble
-  (comptes, actifs, espaces par plan, revenu mensuel, utilisation du mois, signalements), recherche des comptes, plan
-  et **limites sur mesure** d'un espace, suspension (sessions fermées, connexion refusée), modération.
+- **Back-office** (`apps/admin`) : une **application à part**, servie par son propre serveur sur son propre port
+  (3001 ; par défaut joignable depuis la machine seulement), réservée aux administrateurs de la plateforme (le premier
+  compte, et ceux qu'il nomme). Tableau de bord (comptes, actifs, revenu mensuel, paiements en retard, inscriptions
+  des 30 derniers jours, espaces par plan, consommation du mois, ce qui attend), **utilisateurs** (recherche, fiche,
+  suspension, déconnexion partout, droits d'administration), **espaces** (plan, limites sur mesure, jauges, membres,
+  facturation avec les références Stripe, activité récente), **abonnements** (Stripe, offerts, terminés ; revenu par
+  plan), **plans** (les limites côte à côte, les prix Stripe), **modération** des signalements, **films publiés**
+  (masquer, remettre, retirer) et **journal** de toutes les actions (qui, quoi, quand, d'où). L'application de
+  création n'a plus de page d'administration : ses administrateurs y trouvent un lien vers le back-office.
 - **Interface** : une barre latérale (recherche, communauté, créer, mon espace, compte) ; l'éditeur et les
   générations en plein écran ; création par l'IA sur sa propre page avec toutes ses options (ton, public, voix,
   musique, rythme, consignes) ; dialogues pour créer, confirmer et voir le détail, notifications ; une interface
@@ -144,6 +152,14 @@ part avec un lien construit sur `APP_URL`.
   accordé que par le webhook, dont la signature (HMAC SHA-256 du corps brut, horodatage de moins de 5 minutes) est
   vérifiée en temps constant ; chaque événement n'est appliqué qu'une fois. Le webhook est la seule route d'écriture
   sans l'en-tête CSRF : elle prouve son origine par cette signature.
+- **Back-office** : un serveur à part, qui ne sert que l'administration (l'API de l'application n'a plus aucune route
+  d'administration). Il n'écoute par défaut que sur la machine (tunnel SSH, VPN, ou proxy qui authentifie devant) et
+  peut être limité à des adresses (`ADMIN_ALLOWED_IPS`). Ses sessions sont à part : cookie `af_admin`, `HttpOnly`,
+  `SameSite=Strict`, 12 heures sans prolongation ; la session de l'application n'y ouvre rien et inversement. Le
+  droit d'administrateur est revérifié à chaque requête : le retirer ferme l'accès. Une seule réponse pour un mauvais
+  mot de passe et pour un compte sans accès ; tentatives limitées (5 par compte et adresse, 20 par adresse, sur 15
+  minutes). Toute écriture exige son propre en-tête CSRF et s'inscrit au journal ; réponses jamais mises en cache ni
+  affichables dans un cadre.
 - Un compte suspendu perd toutes ses sessions et ne peut plus se connecter ; seul qui connaît le mot de passe apprend
   qu'il est suspendu. Un administrateur ne peut ni se suspendre ni se retirer ses propres droits.
 - Inscription : `SIGNUP=invite` (défaut : le premier compte, puis sur invitation) ou `SIGNUP=open` (chacun crée
@@ -187,6 +203,11 @@ part avec un lien construit sur `APP_URL`.
 | `MAIL_FROM` | expéditeur, par exemple `animation-flow <noreply@example.org>` (obligatoire avec `SMTP_URL`) |
 | `APP_URL` | adresse publique de l'application, par exemple `https://anim.example.org` (obligatoire avec `SMTP_URL` : les liens des e-mails en partent ; et avec Stripe : le paiement y revient) |
 | `PLANS` | `on` (défaut) : plans et limites ; `off` : rien n'est limité (un serveur privé) |
+| `ADMIN_PORT` | port du back-office, un serveur à part (défaut `3001` ; `off` : pas de back-office sur ce processus) |
+| `ADMIN_HOST` | où il écoute (défaut `127.0.0.1` : cette machine seulement ; `0.0.0.0` dans l'image Docker, que `docker-compose.yml` ne publie que sur `127.0.0.1`) |
+| `ADMIN_URL` | adresse publique du back-office : le lien donné aux administrateurs dans l'application |
+| `ADMIN_ALLOWED_IPS` | adresses ou plages IPv4 (`10.0.0.0/8,203.0.113.7`) seules autorisées à joindre le back-office |
+| `ADMIN_DIST` | back-office construit à servir (défaut `../admin/dist`) |
 | `STRIPE_SECRET_KEY` | `sk_…` : active le paiement des plans. Avec elle, les quatre suivantes |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` : le secret de signature du webhook, à pointer sur `APP_URL/api/billing/webhook` (événements `checkout.session.completed`, `customer.subscription.*`, `invoice.payment_failed`) |
 | `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_PREMIUM`, `STRIPE_PRICE_PRO` | `price_…` : le prix mensuel de chaque plan payant, créé dans Stripe |
@@ -273,8 +294,10 @@ pnpm --filter @af/styles still -- --style=watercolor --t=1,4,9   # images fixes 
 | `packages/ai` | génération : storyboard, scènes, correction guidée par les erreurs, scène de secours, retouche |
 | `packages/audio` | musique et bruitages synthétisés, placement des voix, mixage, sonie (navigateur et Node) |
 | `packages/render` | rendu vidéo : moteur + style dans Node, blocs parallèles, FFmpeg, MP4 avec son et sous-titres |
-| `apps/api` | Fastify : comptes et équipes, projets versionnés, clés chiffrées, fournisseurs, file et workers de rendu ; sert l'éditeur construit |
-| `apps/web` | l'éditeur (Vite + React) |
+| `packages/ui` | ce que l'application et le back-office partagent : icônes, dialogues, thème, jetons de design, jauges des plans |
+| `apps/api` | Fastify : comptes et équipes, projets versionnés, clés chiffrées, fournisseurs, plans, paiements, file et workers de rendu ; sert l'éditeur construit ; et le serveur du back-office, sur son propre port |
+| `apps/web` | l'éditeur et la communauté (Vite + React) |
+| `apps/admin` | le back-office : l'administration de la plateforme, une application à part (Vite + React) |
 
 Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

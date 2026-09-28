@@ -6,8 +6,8 @@ import { parseProject, type Project } from '@af/schema';
 import { useState } from 'react';
 import { Api } from '../api';
 import { JsonEditor, type JsonIssue } from './JsonEditor';
-import { Icon } from './Icon';
-import { Dialog, useUI } from './ui';
+import { Icon } from '@af/ui';
+import { Dialog, useUI } from '@af/ui';
 
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
 const issuesOf = (candidate: unknown): JsonIssue[] => { const r = parseProject(candidate); return r.ok ? [] : r.issues; };

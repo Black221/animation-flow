@@ -22,6 +22,9 @@
 //   MAIL_FROM                  sender, e.g. "animation-flow <noreply@example.org>" (required with SMTP_URL)
 //   APP_URL                    public address of the app, e.g. https://anim.example.org (required with SMTP_URL:
 //                              links in e-mails are built from it, never from the request; and with Stripe)
+//   ADMIN_PORT                 the back office, a server of its own (default 3001; off: none). ADMIN_HOST: where it
+//                              listens (default 127.0.0.1: this machine only). ADMIN_URL: its public address (a link
+//                              for platform admins). ADMIN_ALLOWED_IPS: addresses or IPv4 ranges allowed to reach it
 //   PLANS                      on (default: plans and quotas, Gratuit · Basique · Premium · Pro) · off (nothing limited)
 //   STRIPE_SECRET_KEY          sk_… : enables paying for a plan (Checkout, customer portal). With it, all of:
 //   STRIPE_WEBHOOK_SECRET      whsec_… : the signing secret of the webhook pointed at APP_URL/api/billing/webhook
@@ -52,6 +55,9 @@ export interface Config {
   trustProxy: boolean | number | string;
   plans: boolean;
   stripe: StripeConfig | null;
+  admin: { port: number; host: string; dist: string | null; url: string | null; allowedIps: string[] } | null;
+  /** the app's public address (APP_URL), when given */
+  appUrl: string | null;
 }
 
 /** all of the Stripe settings or none; the error names what is missing, never a value */
@@ -126,5 +132,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     plans: env.PLANS !== 'off',
     stripe: stripeConfig(env),
+    appUrl: (() => { try { const u = new URL(env.APP_URL ?? ''); return /^https?:$/.test(u.protocol) ? u.origin + u.pathname.replace(/\/+$/, '') : null; } catch { return null; } })(),
+    admin: env.ADMIN_PORT === 'off' ? null : {
+      port: Number(env.ADMIN_PORT ?? 3001), host: env.ADMIN_HOST ?? '127.0.0.1',
+      dist: [env.ADMIN_DIST ? resolve(env.ADMIN_DIST) : null, resolve('../admin/dist')].find((d): d is string => !!d && existsSync(join(d, 'index.html'))) ?? null,
+      url: env.ADMIN_URL ? new URL(env.ADMIN_URL).origin : null,
+      allowedIps: (env.ADMIN_ALLOWED_IPS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+    },
   };
 }

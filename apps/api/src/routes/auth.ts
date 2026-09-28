@@ -42,13 +42,13 @@ export async function acceptInvitation(q: Queryable, inv: { id: string; workspac
   await q.query(`UPDATE invitations SET accepted_by = $2, accepted_at = now() WHERE id = $1`, [inv.id, userId]);
 }
 
-export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode, mail: MailSetup | null = null, hub?: LiveHub) {
+export function authRoutes(app: FastifyInstance, db: Db, signup: SignupMode, mail: MailSetup | null = null, hub?: LiveHub, adminUrl: string | null = null) {
   // failed sign-ins only: 10 per account and address, 50 per address (an office or a school shares one)
   const logins = new Limiter(10, 15 * 60_000), failsByIp = new Limiter(50, 15 * 60_000), signups = new Limiter(20, 60 * 60_000), resets = new Limiter(5, 60 * 60_000);
   const ip = (req: FastifyRequest) => req.ip;
   const me = async (userId: string) => {
     const { rows } = await db.query<{ id: string; email: string; name: string; created_at: Date; admin: boolean }>('SELECT id, email, name, created_at, platform_admin AS admin FROM users WHERE id = $1', [userId]);
-    return { user: rows[0], workspaces: await workspacesOf(db, userId) };
+    return { user: rows[0], workspaces: await workspacesOf(db, userId), ...(rows[0]?.admin && adminUrl ? { adminUrl } : {}) };
   };
   const hasUsers = async () => (await db.query('SELECT 1 FROM users LIMIT 1')).rows.length > 0;
 

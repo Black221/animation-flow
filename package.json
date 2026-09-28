@@ -9,8 +9,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @af/api --filter @af/web dev",
-    "build": "pnpm --filter @af/web build && pnpm --filter @af/api build",
+    "dev": "pnpm --parallel --filter @af/api --filter @af/web --filter @af/admin dev",
+    "build": "pnpm --filter @af/web build && pnpm --filter @af/admin build && pnpm --filter @af/api build",
     "start": "pnpm --filter @af/api start",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",

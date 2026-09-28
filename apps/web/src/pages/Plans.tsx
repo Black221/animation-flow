@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Api, type Plan } from '../api';
-import { Icon } from '../components/Icon';
+import { Icon } from '@af/ui';
 import { Loading } from '../components/Motion';
-import { useUI } from '../components/ui';
+import { useUI } from '@af/ui';
 import { limitText, METRICS, PlanBadge, UsageMeter, usePlan, widthText } from '../plan';
 import { useSession } from '../session';
 

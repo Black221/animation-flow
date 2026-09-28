@@ -7,12 +7,11 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { ROLE_LABEL } from './api';
 import { CreateProvider, useCreate } from './components/Create';
-import { Icon, type IconName } from './components/Icon';
-import { Menu, UIProvider } from './components/ui';
+import { Icon, type IconName } from '@af/ui';
+import { Menu, UIProvider } from '@af/ui';
 import { Loading, Storyboard } from './components/Motion';
 import { PlanBadge, PlanProvider, UsageMeter, usePlan } from './plan';
 import { Plans } from './pages/Plans';
-import { Admin } from './pages/Admin';
 import { Forgot, Invite, Login, Reset, Signup } from './pages/Auth';
 import { AuthorPage, Community, PublicationPage } from './pages/Community';
 import { Editor } from './pages/Editor';
@@ -24,7 +23,7 @@ import { Projects } from './pages/Projects';
 import { Settings } from './pages/Settings';
 import { Team } from './pages/Team';
 import { SessionProvider, useSession } from './session';
-import { useTheme, type ThemeChoice } from './theme';
+import { useTheme, type ThemeChoice } from '@af/ui';
 
 export const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') || '?';
 
@@ -134,10 +133,10 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       )}
       {signedIn && workspace && plan?.enabled && <SideMeter />}
-      {me?.user?.admin && (
+      {me?.user?.admin && me.adminUrl && (
         <div className="side-section">
           <span className="side-label">Plateforme</span>
-          <Item to="/admin" icon="shield" onClick={go}>Administration</Item>
+          <a href={me.adminUrl} target="_blank" rel="noopener"><Icon name="shield" size={18} /> <span>Back-office</span></a>
         </div>
       )}
       <span className="spacer" />
@@ -260,7 +259,6 @@ function Shell() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/team" element={<Team />} />
           <Route path="/plans" element={<Plans />} />
-          <Route path="/admin" element={<Admin />} />
           <Route path="/reset/:token" element={<Reset />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="/signup" element={<Navigate to="/" replace />} />

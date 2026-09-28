@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { Api, type Generation, type StoryboardT, type StorySceneT, type StoryThing } from '../api';
 import { useSession } from '../session';
-import { Icon } from '../components/Icon';
+import { Icon } from '@af/ui';
 import { Loading } from '../components/Motion';
-import { useUI } from '../components/ui';
+import { useUI } from '@af/ui';
 
 const STAGES: { id: Generation['status'][]; label: string }[] = [
   { id: ['storyboard'], label: 'Storyboard' },

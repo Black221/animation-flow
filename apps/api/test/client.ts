@@ -38,3 +38,18 @@ export async function signIn(app: FastifyInstance, email: string, password = PAS
   if (r.statusCode !== 200) throw new Error(`login ${email}: ${r.statusCode} ${r.body}`);
   return client(app, cookieOf(r.headers['set-cookie']), r.json());
 }
+
+/** a back-office client: signs in on the back-office server, keeps its own cookie, sends its own CSRF header */
+export async function adminSignIn(adm: FastifyInstance, email: string, password = PASSWORD): Promise<Client> {
+  const r = await adm.inject({ method: 'POST', url: '/api/auth/login', headers: { 'x-requested-with': 'animation-flow-admin' }, payload: { email, password } });
+  if (r.statusCode !== 200) throw new Error(`back-office login ${email}: ${r.statusCode} ${r.body}`);
+  const c: Client = {
+    user: r.json().user, workspaces: [], ws: null, cookie: cookieOf(r.headers['set-cookie']),
+    inject(o) {
+      const opts: InjectOptions = typeof o === 'string' ? { url: o } : { ...o };
+      opts.headers = { cookie: c.cookie, 'x-requested-with': 'animation-flow-admin', ...(opts.headers ?? {}) };
+      return adm.inject(opts);
+    },
+  };
+  return c;
+}

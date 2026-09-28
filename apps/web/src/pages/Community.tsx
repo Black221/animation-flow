@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { Api, communityMedia, LICENSE_LABEL, REPORT_REASON, type AuthorInfo, type Publication, type PublicationDetail, type ReportReason } from '../api';
 import { useSoundtrack } from '../audio/useSoundtrack';
-import { Icon } from '../components/Icon';
+import { Icon } from '@af/ui';
 import { Player } from '../components/Player';
 import { Playback } from '../playback';
-import { Dialog, useUI } from '../components/ui';
+import { Dialog, useUI } from '@af/ui';
 import { HoverPlay, Loading, SceneStrip, SkeletonGrid, SpacingChart, useHover } from '../components/Motion';
 import { useSession } from '../session';
 

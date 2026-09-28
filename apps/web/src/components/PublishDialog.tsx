@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Api, LICENSE_LABEL, type License, type Publication } from '../api';
-import { Icon } from './Icon';
-import { Dialog, useUI } from './ui';
+import { Icon } from '@af/ui';
+import { Dialog, useUI } from '@af/ui';
 
 export function PublishDialog({ projectId, title, unsaved, save, publication, onDone, onClose }: {
   projectId: string; title: string; unsaved: boolean; save: () => Promise<boolean>; publication: Publication | null;

@@ -164,9 +164,18 @@ projet (espace A) ──publier──► publication : copie figée du projet en
   ligne est retirée pour que Stripe réessaie) puis applique : `checkout.session.completed` → le plan payé ;
   `customer.subscription.updated` → le plan du prix (actif, essai) ou seulement l'état (retard de paiement) ;
   `deleted`, `canceled`, `unpaid` → retour au plan Gratuit. Le serveur ne décide jamais seul qu'un plan est payé.
-- Administration de la plateforme (`users.platform_admin`, route `{ auth: 'admin' }`) : le premier compte, puis ceux
-  qu'il nomme. Suspension : `users.suspended_at` (les sessions sont supprimées, `sessionUser` ignore un compte
+- Administration de la plateforme (`users.platform_admin`) : le premier compte, puis ceux qu'il nomme. Elle vit dans
+  le **back-office**, un serveur à part (`apps/api/src/admin/server.ts`, `routes.ts`) et une application à part
+  (`apps/admin`) : sessions à part (`sessions.scope = 'admin'`, cookie `af_admin`), en-tête CSRF à part, journal
+  `admin_audit` de chaque écriture. `main.ts` démarre les deux serveurs sur la même base. Suspension : `users.suspended_at` (les sessions sont supprimées, `sessionUser` ignore un compte
   suspendu). Modération : `reports` (un signalement ouvert par personne et par film) et `publications.hidden_at`.
+
+## Paquet partagé (`packages/ui`)
+
+Ce que l'application et le back-office ont en commun : icônes, dialogues, confirmations et notifications
+(`UIProvider`, `useUI`), menus, thème clair / sombre / automatique, ce qu'est un plan (limites, jauge, badge) et la
+feuille de base `@af/ui/base.css` (jetons de design, contrôles, dialogues, jauges). Chaque application y ajoute sa
+propre feuille.
 
 ## Interface (`apps/web`)
 

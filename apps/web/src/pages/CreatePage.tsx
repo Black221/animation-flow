@@ -1,6 +1,6 @@
 // Creating with the AI: the idea box with all its options (the tracks of a timeline), on a page of its own.
 import { AiPrompt } from '../components/Create';
-import { Icon } from '../components/Icon';
+import { Icon } from '@af/ui';
 
 export function CreatePage() {
   return (

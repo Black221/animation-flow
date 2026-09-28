@@ -2,7 +2,7 @@
 // keys, camera) is changed by the AI box above, or in the scene's code (advanced).
 import { catalog } from '@af/library';
 import type { Project, Scene } from '@af/schema';
-import { Icon } from './Icon';
+import { Icon } from '@af/ui';
 
 const KIND: Record<string, string> = { character: 'personnage', prop: 'accessoire', text: 'texte' };
 

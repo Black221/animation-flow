@@ -25,7 +25,6 @@ import { signer, type Signer } from './render/sign';
 import type { MailSetup } from './mail';
 import { QuotaError, quotas } from './plans';
 import { planRoutes } from './routes/plans';
-import { adminRoutes } from './routes/admin';
 import { stripeClient, type StripeConfig, type StripeFetch } from './billing';
 
 export interface ServerDeps {
@@ -62,6 +61,8 @@ export interface ServerDeps {
   stripe?: StripeConfig | null;
   /** for Stripe (tests) */
   stripeFetch?: StripeFetch;
+  /** the back office's public address: platform admins get a link to it (the back office is a server of its own) */
+  adminUrl?: string | null;
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
@@ -88,7 +89,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true }));
-  authRoutes(app, deps.db, deps.signup ?? 'invite', deps.mail ?? null, hub);
+  authRoutes(app, deps.db, deps.signup ?? 'invite', deps.mail ?? null, hub, deps.adminUrl ?? null);
   const imagesDir = deps.imagesDir ?? join(deps.voicesDir, '_images'), communityDir = deps.communityDir ?? join(deps.voicesDir, '_community');
   const quota = quotas(deps.db, { enabled: deps.plans ?? true, voicesDir: deps.voicesDir, imagesDir });
   workspaceRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, hub, deps.mail ?? null, quota);
@@ -103,7 +104,6 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   imageRoutes(app, deps.db, deps.box, sign, imagesDir, deps.llmFetch, quota);
   const thumbnail = thumbnailRoutes(app, deps.db, imagesDir, deps.fontsDir);
   communityRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, thumbnail, quota);
-  adminRoutes(app, deps.db, quota, communityDir);
   planRoutes(app, deps.db, quota, deps.stripe ? { stripe: stripeClient(deps.stripe, deps.stripeFetch), config: deps.stripe } : null);
 
   if (deps.webDist && existsSync(deps.webDist)) {

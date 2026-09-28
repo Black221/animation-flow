@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Api, type Assignment, type Credential, type ProviderInfo, type TaskInfo, type TestResult } from '../api';
 import { useSession } from '../session';
-import { Icon } from '../components/Icon';
-import { Dialog, useUI } from '../components/ui';
+import { Icon } from '@af/ui';
+import { Dialog, useUI } from '@af/ui';
 
 function AddKey({ providers, onAdded, onClose }: { providers: ProviderInfo[]; onAdded: () => void; onClose: () => void }) {
   const [provider, setProvider] = useState(providers[0]?.id ?? '');

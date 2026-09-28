@@ -25,7 +25,7 @@ export default defineConfig({
   webServer: PORTS.map((port, i) => ({
     command: i === 0 ? 'node ../api/scripts/reset-db.mjs && tsx ../api/src/main.ts' : `until curl -sf http://127.0.0.1:${PORTS[0]}/api/health >/dev/null; do sleep 0.3; done; tsx ../api/src/main.ts`,
     url: `http://127.0.0.1:${port}/api/health`,
-    env: { PORT: String(port), HOST: '127.0.0.1', DATABASE_URL: db, APP_ENCRYPTION_KEY: key, DATA_DIR: mkdtempSync(join(tmpdir(), 'af-cl-')), WEB_DIST: 'dist', ROLE: i === 0 ? 'all' : 'api' },
+    env: { PORT: String(port), HOST: '127.0.0.1', DATABASE_URL: db, APP_ENCRYPTION_KEY: key, DATA_DIR: mkdtempSync(join(tmpdir(), 'af-cl-')), WEB_DIST: 'dist', ROLE: i === 0 ? 'all' : 'api', ADMIN_PORT: 'off' },
     reuseExistingServer: false,
     timeout: 60_000,
   })),

@@ -44,6 +44,10 @@ services:
       APP_URL: ${APP_URL:-}
       # plans and quotas: on (Gratuit · Basique · Premium · Pro) or off (nothing limited, e.g. for a private server)
       PLANS: ${PLANS:-on}
+      # the back office's public address (a link for platform admins), and the addresses allowed to reach it
+      ADMIN_PORT: ${ADMIN_PORT:-3001}
+      ADMIN_URL: ${ADMIN_URL:-}
+      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-}
       # paying for a plan, optional: all five together, with APP_URL; the webhook goes to APP_URL/api/billing/webhook
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -55,6 +59,8 @@ services:
     ports:
       # local only; put a reverse proxy with HTTPS in front before exposing it
       - "127.0.0.1:${PORT:-3000}:3000"
+      # the back office: this machine only; reach it through an SSH tunnel or a VPN, never the open internet
+      - "127.0.0.1:${ADMIN_HOST_PORT:-3001}:3001"
     restart: unless-stopped
 
   # extra render workers (optional): no HTTP, they only take jobs from the queue

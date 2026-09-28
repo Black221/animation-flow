@@ -1,5 +1,5 @@
 // Video renders of the project: choose the options, start a render of the saved version, follow it live, watch it.
-import { Icon } from './Icon';
+import { Icon } from '@af/ui';
 import type { Project } from '@af/schema';
 import { stylePacks } from '@af/styles';
 import { useCallback, useEffect, useState } from 'react';

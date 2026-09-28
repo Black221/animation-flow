@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { Project } from '@af/schema';
 import { Api, type Comment, type NewComment } from '../api';
 import { fmtTime, usePlayback, type Playback } from '../playback';
-import { useUI } from './ui';
+import { useUI } from '@af/ui';
 
 /** `reload`: a change too big to be carried between server processes; the list is fetched again */
 export type CommentEvent = { kind: 'upsert'; comment: Comment } | { kind: 'delete'; id: string } | { kind: 'reload' };

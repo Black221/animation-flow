@@ -1,4 +1,5 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Browser, type Page } from '@playwright/test';
+import { ADMIN } from '../playwright.config';
 
 export const OWNER = { email: 'owner@example.org', name: 'Olga', password: 'mot-de-passe-solide-1' };
 
@@ -19,4 +20,17 @@ export async function newProject(page: Page, template = 'Awa et Jumo', title?: s
   if (title) await dlg.getByLabel('titre', { exact: true }).fill(title);
   await dlg.getByRole('button', { name: 'Créer', exact: true }).click();
   await expect(page).toHaveURL(/\/p\/[0-9a-f-]{36}$/);
+}
+
+/** the back office, in a browser of its own, signed in as the owner (the platform admin) through its sign-in form */
+export async function backOffice(browser: Browser, viewport = { width: 1440, height: 900 }) {
+  const ctx = await browser.newContext({ viewport, baseURL: ADMIN, extraHTTPHeaders: {} });
+  const page = await ctx.newPage();
+  await page.goto('/');
+  const form = page.getByRole('form', { name: 'connexion au back-office' });
+  await form.getByLabel('E-mail').fill(OWNER.email);
+  await form.getByLabel('Mot de passe').fill(OWNER.password);
+  await form.getByRole('button', { name: 'Se connecter' }).click();
+  await expect(page.getByRole('heading', { name: 'Tableau de bord' })).toBeVisible();
+  return page;
 }
