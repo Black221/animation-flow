@@ -24,7 +24,7 @@ export function Subscriptions() {
       {!data.payments && <div className="alert info"><Icon name="info" size={16} /><span>Stripe n'est pas configuré sur ce serveur : aucun abonnement payé, les plans sont offerts depuis les fiches des espaces.</span></div>}
       <Tiles items={[
         { label: 'Revenu mensuel', value: `${total} €`, sub: `${data.revenue.reduce((a, r) => a + r.count, 0)} abonnement(s) Stripe`, icon: 'sparkles' },
-        ...data.revenue.map((r) => ({ label: PLAN_LABEL[r.plan], value: `${r.monthly} €`, sub: `${r.count} × ${r.count ? r.monthly / r.count : 0} €`, icon: 'card' as const })),
+        ...data.revenue.map((r) => ({ label: PLAN_LABEL[r.plan], value: `${r.monthly} €`, sub: `${r.count} abonnement${r.count > 1 ? "s" : ""} Stripe`, icon: 'card' as const })),
         { label: 'En retard', value: late.length, warn: late.length > 0, sub: 'paiement à régulariser', icon: 'alert' },
       ]} />
       <div className="search-row">
