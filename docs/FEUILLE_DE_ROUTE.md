@@ -14,6 +14,9 @@ Les améliorations du moteur d'animation ont leur propre plan : [docs/moteur/pla
 57 lots), et leurs schémas : [docs/moteur/moteur.html](moteur/moteur.html). Ici, on ne reprend que la part du moteur
 utile avant l'ouverture.
 
+Pour réaliser ces tâches, les prompts à donner à chaque session de travail sont dans
+[NEXT_PROMPTS.md](../NEXT_PROMPTS.md), dans l'ordre conseillé, avec leurs critères de fin.
+
 **Priorités**
 
 | code | sens |
