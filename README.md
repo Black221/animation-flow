@@ -2,7 +2,7 @@
 
 Générer des animations à partir d'une interface web. Une animation est décrite dans un **format de données** (JSON
 validé) : ce qui se passe à l'écran, pas la façon de le dessiner. Le même projet se prévisualise en direct dans
-l'éditeur et se rend dans **plusieurs styles** (vectoriel plat, aquarelle…). Les modèles d'IA sont **au choix** :
+l'éditeur et se rend dans **six styles** (vectoriel plat, aquarelle, papier découpé, crayonné, bande dessinée, néon), puis se livre en paysage, vertical, carré ou portrait, en MP4, WebM ou GIF. Les modèles d'IA sont **au choix** :
 chaque équipe enregistre ses propres clés d'API et choisit un modèle par tâche.
 
 État : **étapes 1 à 5** (fondations, rendu vidéo, narration et son, génération par IA, multi-utilisateur). Voir la
@@ -130,10 +130,25 @@ part avec un lien construit sur `APP_URL`.
 - **Musique** (onglet « Musique ») : la partition composée pour le film et ses bruitages, à écouter, à recomposer
   avec une direction (« plus joyeux ») ou à reconcevoir un par un.
 - **Son dans l'aperçu** : voix, musique et bruitages mixés dans le navigateur avec le même code que le rendu.
-- **Rendu vidéo** depuis l'éditeur (panneau « Vidéo ») : style, largeur (640 à 1920 px), qualité, film entier ou une
-  scène, sous-titres intégrés comme piste. Le rendu porte sur la version enregistrée ; la progression s'affiche en direct,
-  on peut l'annuler, puis regarder ou télécharger le MP4 (H.264 + AAC, sonie −16 LUFS). Le rendu signale les répliques
-  encore sans voix.
+- **Styles** : six façons de dessiner le même film, à choisir en les voyant (une carte par style, le film d'exemple
+  dessiné dedans, qui bouge au survol) et à changer à tout moment : *vectoriel plat* (rapide), *aquarelle* (lavis, grain
+  du papier), *papier découpé* (pièces coupées aux ciseaux, ombres portées, carton kraft, saccade de l'image par image),
+  *crayonné* (hachures, traits repris, crayon de couleur), *bande dessinée* (encrage noir, trames de points, case) et
+  *néon* (silhouettes sombres, contours lumineux, ciel étoilé). L'IA choisit la palette qui convient au style.
+- **Rendu vidéo** depuis l'éditeur (panneau « Vidéo ») : une destination règle tout d'un clic (YouTube, TikTok · Reels
+  · Shorts, Instagram carré ou portrait, site web, GIF animé), ou chaque réglage à part :
+  - **cadre** : paysage 16:9, vertical 9:16, carré 1:1, portrait 4:5. Un film composé en 16:9 est **recadré** : le
+    cadre suit l'action (les personnages, surtout celui qui parle, un groupe gardé entier ; le mouvement est lissé, sans
+    à-coups), reste au centre, ou montre l'image entière sur un fond flou. Les titres ne sont jamais coupés : chacun est
+    replacé en entier dans le nouveau cadre. L'aperçu de l'éditeur montre le cadre (« Cadre », sous le lecteur) ;
+  - **fichier** : MP4 (H.264 + AAC, se lit partout), WebM (VP9 + Opus, plus léger) ou GIF animé (sans son, 15 images/s,
+    60 s et 540 lignes au plus) ;
+  - **taille** en lignes (360p à 1080p, la même netteté quel que soit le cadre : 720p, c'est 1280×720 ou 720×1280) ;
+  - **sous-titres** en piste activable, incrustés dans l'image (pour les réseaux, qui ne lisent pas les pistes ; en
+    vertical, ils se placent plus haut, hors des boutons des applis) ou aucun ;
+  - style, qualité, film entier ou une scène, son.
+  Le rendu porte sur la version enregistrée ; la progression s'affiche en direct, on peut l'annuler, puis regarder ou
+  télécharger le fichier (sonie −16 LUFS). Le rendu signale les répliques encore sans voix.
 - **Fournisseurs de modèles** : Anthropic, OpenAI, Google Gemini, Mistral, OpenRouter, serveur local compatible OpenAI
   (Ollama, LM Studio, vLLM), et pour la voix Fish Audio et ElevenLabs. Plusieurs clés par fournisseur, test de la clé,
   liste des modèles, un modèle par tâche (storyboard, scènes, narration).
@@ -264,6 +279,7 @@ Depuis l'éditeur, ou en ligne de commande :
 
 ```bash
 pnpm --filter @af/render render -- --out=out/film.mp4 --style=watercolor --width=1920 --threads=3   # projet d'exemple
+pnpm --filter @af/render render -- --out=out/short.mp4 --style=comic --aspect=9:16 --width=1080 --burn   # vertical
 pnpm --filter @af/render render -- --project=mon-projet.json --from=0 --to=10 --width=1280
 ```
 
@@ -291,6 +307,7 @@ TEST_DATABASE_URL=postgres://… pnpm vitest run apps/api --no-file-parallelism 
 pnpm e2e                                     # éditeur complet dans Chromium (Playwright)
 CLUSTER_DATABASE_URL=postgres://… pnpm --filter @af/web e2e:cluster   # deux processus d'API, un navigateur sur chacun (base effacée !)
 pnpm --filter @af/styles still -- --style=watercolor --t=1,4,9   # images fixes dans out/stills
+pnpm --filter @af/styles exec tsx scripts/formats.ts --style=neon  # le même film en 9:16, 1:1 et 4:5
 ```
 
 ## Organisation
@@ -300,11 +317,11 @@ pnpm --filter @af/styles still -- --style=watercolor --t=1,4,9   # images fixes 
 | `packages/schema` | le format d'animation (Zod), validation, schéma JSON, projet d'exemple |
 | `packages/engine` | horloge des répliques, images clés, caméra, calcul d'une image en primitives, sous-titres |
 | `packages/library` | personnages (`person`, `drone`), accessoires, décors, textes : indépendants du style |
-| `packages/styles` | packs de style `flat` et `watercolor` (Canvas 2D : navigateur et Node, sans GPU) |
+| `packages/styles` | six packs de style (`flat`, `watercolor`, `papercut`, `sketch`, `comic`, `neon` ; Canvas 2D : navigateur et Node, sans GPU) et la composition des sorties recadrées |
 | `packages/providers` | fournisseurs : catalogue, test d'une clé, modèles de texte (`complete`), synthèse vocale |
 | `packages/ai` | génération : storyboard, scènes, correction guidée par les erreurs, scène de secours, retouche |
 | `packages/audio` | musique et bruitages synthétisés, placement des voix, mixage, sonie (navigateur et Node) |
-| `packages/render` | rendu vidéo : moteur + style dans Node, blocs parallèles, FFmpeg, MP4 avec son et sous-titres |
+| `packages/render` | rendu vidéo : moteur + style dans Node, blocs parallèles, FFmpeg ; MP4, WebM ou GIF, recadré, avec son et sous-titres |
 | `packages/ui` | ce que l'application et le back-office partagent : icônes, dialogues, thème, jetons de design, jauges des plans |
 | `apps/api` | Fastify : comptes et équipes, projets versionnés, clés chiffrées, fournisseurs, plans, paiements, file et workers de rendu ; sert l'éditeur construit ; et le serveur du back-office, sur son propre port |
 | `apps/web` | l'éditeur et la communauté (Vite + React) |
@@ -321,7 +338,8 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 5. **Multi-utilisateur** (fait) : comptes, espaces de travail, rôles, invitations, isolation des données, auteur de chaque version.
 6. **Travail d'équipe** (fait) : édition à plusieurs en temps réel, commentaires sur les scènes, invitations et mot de passe oublié par e-mail.
 7. **Communauté, plans et paiements** (fait) : publier, remixer, signaler ; plans et limites par espace, paiement Stripe, administration de la plateforme.
-8. **Ensuite** : modèles de projets, packs de styles supplémentaires.
+8. **Styles et formats** (fait) : quatre styles de plus (papier découpé, crayonné, bande dessinée, néon) ; vertical, carré et portrait recadrés en suivant l'action ; MP4, WebM et GIF ; sous-titres incrustés.
+9. **Ensuite** : modèles de projets.
 
 ## Crédits
 

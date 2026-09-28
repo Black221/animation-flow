@@ -40,9 +40,15 @@ export interface Frame {
   /** 0 = none … 1 = black, for fade transitions */
   fade: number;
   subtitle: { speaker: string; text: string } | null;
+  /** the cast id of who speaks now (null: the narrator, or silence) */
+  speakerId: string | null;
+  /** where the characters and props of the world are on screen: what a reframed output follows */
+  subjects: Subject[];
   /** changes 8 times a second: styles re-seed hand-drawn wobble on it ("boil") */
   boil: number;
 }
+
+export interface Subject { id: string; type: 'character' | 'prop'; ref: string | null; x0: number; y0: number; x1: number; y1: number }
 
 const FADE = 0.5;
 const CULL_PAD = 60;
@@ -71,6 +77,19 @@ export function transformPrim(p: Prim, m: Mat, opacity = 1): Prim {
       return { ...p, x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0, opacity: (p.opacity ?? 1) * opacity };
     }
   }
+}
+
+/** the screen box of a primitive (texts and glows approximately) */
+export function primBox(p: Prim): { x0: number; y0: number; x1: number; y1: number } {
+  if (p.kind === 'path') { const b = bounds(p.points), pad = (p.width ?? 0) / 2 + (p.strokeWidth ?? 0); return { x0: b.x0 - pad, y0: b.y0 - pad, x1: b.x1 + pad, y1: b.y1 + pad }; }
+  if (p.kind === 'text') { const lines = p.text.split('\n'), half = (Math.max(...lines.map((l) => l.length)) * p.size * 0.55) / 2, hh = (lines.length * p.size * 1.15) / 2; const x = p.align === 'left' ? p.x + half : p.align === 'right' ? p.x - half : p.x; return { x0: x - half, y0: p.y - hh, x1: x + half, y1: p.y + hh }; }
+  if (p.kind === 'glow') return { x0: p.x - p.radius * 0.5, y0: p.y - p.radius * 0.5, x1: p.x + p.radius * 0.5, y1: p.y + p.radius * 0.5 };
+  return { x0: p.x, y0: p.y, x1: p.x + p.w, y1: p.y + p.h };
+}
+export function primsBox(ps: readonly Prim[]) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of ps) { const b = primBox(p); if (b.x0 < x0) x0 = b.x0; if (b.y0 < y0) y0 = b.y0; if (b.x1 > x1) x1 = b.x1; if (b.y1 > y1) y1 = b.y1; }
+  return { x0, y0, x1, y1 };
 }
 
 function visibleBox(p: Prim, w: number, h: number): boolean {
@@ -130,7 +149,7 @@ export function createEvaluator(project: Project, base: Registry): Evaluator {
     const ts: TimedScene = sceneAt(timeline, t), scene = project.scenes[ts.index]!, st = t - ts.start, at = ts.at;
     const { width: W, height: H } = project;
     const cam = sampleCamera(scene.camera, st, at, W, H), view = viewMatrix(cam, W, H);
-    const items: { layer: number; order: number; prims: Prim[] }[] = [];
+    const items: { layer: number; order: number; prims: Prim[] }[] = [], subjects: Subject[] = [];
 
     const d = decorOf(project, reg, scene);
     if (d?.out.live) items.push({ layer: -1e9, order: 0, prims: d.out.live(st).map((p) => transformPrim(p, view)).filter((p) => visibleBox(p, W, H)) });
@@ -142,8 +161,10 @@ export function createEvaluator(project: Project, base: Registry): Evaluator {
       if (s.opacity <= 0.001) return;
       const { fn, params } = componentFor(project, reg, e);
       const local = fn({ t: st, local: st - t0, id: e.id, params, state: { pose: s.pose, expression: s.expression, facing: s.facing, text: s.text } });
-      const m = mul(e.space === 'screen' ? [1, 0, 0, 1, 0, 0] : view, trs(s.x, s.y, s.rotation, s.scale * s.facing, s.scale));
-      items.push({ layer: e.layer, order: order + 1, prims: local.map((p) => transformPrim(p, m, s.opacity)).filter((p) => visibleBox(p, W, H)) });
+      const screen = e.space === 'screen', m = mul(screen ? [1, 0, 0, 1, 0, 0] : view, trs(s.x, s.y, s.rotation, s.scale * s.facing, s.scale));
+      const prims = local.map((p) => (screen ? { ...transformPrim(p, m, s.opacity), overlay: e.id } : transformPrim(p, m, s.opacity))).filter((p) => visibleBox(p, W, H));
+      items.push({ layer: e.layer, order: order + 1, prims });
+      if (!screen && e.type !== 'text' && prims.length) { const b = primsBox(prims); subjects.push({ id: e.id, type: e.type, ref: e.ref ?? null, ...b }); }
     });
     items.sort((a, b) => a.layer - b.layer || a.order - b.order);
 
@@ -158,6 +179,8 @@ export function createEvaluator(project: Project, base: Registry): Evaluator {
       items: items.flatMap((i) => i.prims),
       fade: Math.max(fadeIn, fadeOut),
       subtitle: line ? { speaker, text: line.text } : null,
+      speakerId: line && line.speaker !== 'narrator' ? line.speaker : null,
+      subjects,
       boil: Math.floor(st * 8),
     };
   };

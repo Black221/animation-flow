@@ -1,6 +1,7 @@
 // Render a project to MP4 from the command line:
 //   pnpm --filter @af/render render -- [--project=file.json] [--out=out/video.mp4] [--style=watercolor]
 //        [--width=1280] [--from=0 --to=10] [--crf=20] [--threads=3]
+//        [--format=mp4|webm|gif] [--aspect=16:9|9:16|1:1|4:5] [--framing=follow|center|fit] [--burn]
 // Without --project it renders the example project.
 import { exampleProject } from '@af/schema';
 import { availableParallelism } from 'node:os';
@@ -16,6 +17,10 @@ const r = await renderVideo({
   out: a.out ?? 'out/video.mp4',
   style: a.style,
   width: num('width'),
+  format: a.format as 'mp4' | 'webm' | 'gif' | undefined,
+  aspect: a.aspect as '16:9' | '9:16' | '1:1' | '4:5' | undefined,
+  framing: a.framing as 'follow' | 'center' | 'fit' | undefined,
+  burnSubtitles: a.burn === 'true',
   crf: num('crf'),
   threads: num('threads') ?? Math.max(1, availableParallelism() - 1),
   range: a.from != null || a.to != null ? { from: num('from') ?? 0, to: num('to') ?? Infinity } : undefined,

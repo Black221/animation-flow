@@ -1,7 +1,7 @@
 import { encodeWav, mixSoundtrack, SR } from '@af/audio';
 import { timeProject } from '@af/engine';
 import { exampleProject, parseProject } from '@af/schema';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -50,6 +50,38 @@ describe('renderVideo', () => {
     expect(info.streams).toEqual(['video', 'audio', 'subtitle']);
     expect(info.duration).toBeCloseTo(s2.duration, 1);
     expect(info.frames).toBe(Math.round(s2.duration * 24));
+  }, 60_000);
+
+  it('delivers a vertical film: reframed, subtitles drawn in, no subtitle track', async () => {
+    const out = join(dir, 'vertical.mp4');
+    const r = await renderVideo({ project: exampleProject, out, width: 180, aspect: '9:16', framing: 'follow', burnSubtitles: true, range: { from: 5, to: 7 }, preset: 'ultrafast', threads: 2 });
+    expect(r).toMatchObject({ width: 180, height: 320, frames: 48 });
+    const info = await probe(out);
+    expect(info).toMatchObject({ width: 180, height: 320, frames: 48 });
+    expect(info.streams).toEqual(['video']);
+  }, 60_000);
+
+  it('makes a square film that fits the whole picture, and a WebM with sound and subtitles', async () => {
+    const sq = join(dir, 'square.mp4');
+    expect(await renderVideo({ project: exampleProject, out: sq, width: 200, aspect: '1:1', framing: 'fit', range: { from: 0, to: 1 }, preset: 'ultrafast', threads: 0 })).toMatchObject({ width: 200, height: 200 });
+    const out = join(dir, 'film.webm'), range = { from: 3, to: 5 };
+    const m = mixSoundtrack({ project, voices: new Map(), range });
+    writeFileSync(join(dir, 'w.wav'), encodeWav({ sampleRate: SR, channels: [m.left, m.right] }));
+    await renderVideo({ project: exampleProject, out, width: 256, format: 'webm', range, preset: 'ultrafast', threads: 2, audioFile: join(dir, 'w.wav') });
+    const info = await probe(out);
+    expect(info).toMatchObject({ width: 256, height: 144, frames: 48 });
+    expect(info.streams).toEqual(['video', 'audio', 'subtitle']);
+    expect(info.duration).toBeCloseTo(2, 1);
+  }, 90_000);
+
+  it('makes a looping GIF at 15 images a second', async () => {
+    const out = join(dir, 'film.gif');
+    const r = await renderVideo({ project: exampleProject, out, width: 240, aspect: '4:5', format: 'gif', burnSubtitles: true, range: { from: 1, to: 3 }, preset: 'ultrafast', threads: 2 });
+    expect(r).toMatchObject({ width: 240, height: 300, fps: 15 });
+    const info = await probe(out);
+    expect(info).toMatchObject({ width: 240, height: 300, frames: 30 });
+    expect(info.streams).toEqual(['video']);
+    expect(readFileSync(out).subarray(0, 6).toString()).toBe('GIF89a');
   }, 60_000);
 
   it('refuses an invalid project or an empty range', async () => {

@@ -39,6 +39,10 @@ export interface AssetResult { id: string; asset: AssetT; fallback: boolean; rou
 const PAINT_STYLE: Record<string, string> = {
   watercolor: 'soft watercolour on textured paper, transparent washes, gentle ink outlines, calm light',
   flat: 'flat vector illustration, clean solid shapes, crisp edges, simple shading, no texture',
+  papercut: 'cut paper collage, layered coloured paper with soft drop shadows, kraft paper texture, handmade stop-motion look',
+  sketch: 'pencil drawing on white drawing paper, coloured pencil tints, loose hatching, graphite outlines',
+  comic: 'comic book panel, bold black ink outlines, bright flat colours, halftone dot shading',
+  neon: 'night scene lit by neon signs, dark background, glowing outlines in vivid pink, cyan and violet',
 };
 /** what an image model is asked for a decor: a stage to act on, in the film's style and colours, empty of people */
 export function picturePrompt(b: Pick<AssetBrief, 'name' | 'description'>, c: Pick<DrawContext, 'style' | 'palette'>): string {
@@ -89,7 +93,7 @@ COORDINATES: a 1920 × 1080 frame, y downwards. Draw 300 px beyond it on every s
 const EXAMPLE: Record<AssetKind, unknown> = { character: exampleCharacter, prop: exampleProp, decor: exampleDecor };
 
 export function drawPrompt(kind: AssetKind): string {
-  return `You draw for a 2D animated explainer film, as vector data. The engine renders your drawing in the film's style (flat vector or watercolour) and animates it with the poses you define. Answer with the drawing JSON only.
+  return `You draw for a 2D animated explainer film, as vector data. The engine renders your drawing in the film's style (flat vector, watercolour, cut paper, pencil, comic or neon) and animates it with the poses you define. Answer with the drawing JSON only.
 
 ${FORMAT}
 
@@ -191,7 +195,7 @@ export async function drawOne(model: Model, b: AssetBrief, c: DrawContext, o: Dr
   const maxRounds = o.reviewRounds ?? 2;
   for (let r = 0; r < maxRounds && o.preview && !o.vision?.unavailable; r++) {
     let png: string;
-    try { png = await o.preview(previewProject(b.id, asset, c.style === 'watercolor' ? 'flat' : c.style)); }
+    try { png = await o.preview(previewProject(b.id, asset, 'flat')); }
     catch (e) { review.push(`aperçu impossible : ${(e as Error).message}`); break; }
     const images: ChatImage[] = [{ mediaType: 'image/png', data: png }];
     const t0 = Date.now();

@@ -118,7 +118,7 @@ describe('projects', () => {
 
   it('describes the library and the format', async () => {
     const lib = (await c.inject({ url: '/api/library' })).json();
-    expect(lib.styles.map((s: { id: string }) => s.id)).toEqual(['flat', 'watercolor']);
+    expect(lib.styles.map((s: { id: string }) => s.id)).toEqual(['flat', 'watercolor', 'papercut', 'sketch', 'comic', 'neon']);
     expect(lib.catalog.characters.map((c: { kind: string }) => c.kind)).toContain('person');
     expect((await c.inject({ url: '/api/schema' })).json().type).toBe('object');
   });

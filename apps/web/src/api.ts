@@ -64,11 +64,20 @@ export interface Recording { asset: string; textHash: string; duration: number; 
 export type RenderStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled';
 export interface RenderJob {
   id: string; projectId: string; projectVersion: number; status: RenderStatus;
-  options: { style: string; width: number; crf: number; sceneId?: string; subtitles: boolean; audio?: boolean };
+  options: {
+    style: string; width: number; height?: number; crf: number; sceneId?: string; subtitles: boolean; audio?: boolean;
+    format?: OutputFormat; aspect?: OutputAspect; framing?: Framing; size?: number; burn?: boolean;
+  };
   framesDone: number; framesTotal: number; fps: number | null; error: string | null; bytes: number | null; warnings: string[];
   createdAt: string; startedAt: string | null; finishedAt: string | null; videoUrl: string | null;
 }
-export interface RenderRequest { style?: string; width: number; quality: 'draft' | 'standard' | 'high'; sceneId?: string; subtitles: boolean; audio: boolean }
+export type OutputFormat = 'mp4' | 'webm' | 'gif';
+export type OutputAspect = '16:9' | '9:16' | '1:1' | '4:5';
+export type Framing = 'follow' | 'center' | 'fit';
+export interface RenderRequest {
+  style?: string; format: OutputFormat; aspect: OutputAspect; framing: Framing; size: 360 | 540 | 720 | 1080;
+  quality: 'draft' | 'standard' | 'high'; sceneId?: string; subtitles: 'track' | 'burned' | 'off'; audio: boolean;
+}
 export type Role = 'owner' | 'admin' | 'editor' | 'viewer';
 export const RANK: Record<Role, number> = { viewer: 0, editor: 1, admin: 2, owner: 3 };
 export const ROLE_LABEL: Record<Role, string> = { owner: 'propriétaire', admin: 'administrateur', editor: 'éditeur', viewer: 'lecteur' };

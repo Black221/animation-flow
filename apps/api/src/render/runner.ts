@@ -37,14 +37,14 @@ export function startRunner(o: RunnerOptions): Runner {
     const { rows } = await o.db.query<{ data: unknown; workspace_id: string }>('SELECT v.data, p.workspace_id FROM project_versions v JOIN projects p ON p.id = v.project_id WHERE v.project_id = $1 AND v.version = $2', [job.project_id, job.project_version]);
     if (!rows[0]) return fail(o.db, job.id, 'version du projet introuvable');
     const ctrl = new AbortController(); current = ctrl;
-    const out = join(o.rendersDir, `${job.id}.mp4`), opt = job.options, audioFile = `${out}.audio.wav`, warnings: string[] = [];
+    const opt = job.options, format = opt.format ?? 'mp4', out = join(o.rendersDir, `${job.id}.${format}`), audioFile = `${out}.audio.wav`, warnings: string[] = [];
     const range = opt.from != null || opt.to != null ? { from: opt.from ?? 0, to: opt.to ?? Infinity } : undefined;
     let lastBeat = 0;
     try {
       // the soundtrack first (seconds of work): voices on their lines, music, sound effects, −16 LUFS
       let withAudio = false;
       const parsed = parseProject(rows[0].data);
-      if (opt.audio !== false && parsed.ok) {
+      if (opt.audio !== false && format !== 'gif' && parsed.ok) {
         const assets = parsed.project.scenes.flatMap((s) => s.narration.filter(voiceIsCurrent).map((l) => l.audio!.asset));
         const voices = loadVoices(o.voicesDir, rows[0].workspace_id, new Set(assets), (b) => decodeWav(b).channels[0]!);
         const mix = mixSoundtrack({ project: parsed.project, voices, ...(range ? { range } : {}) });
@@ -55,6 +55,7 @@ export function startRunner(o: RunnerOptions): Runner {
       }
       const r = await renderVideo({
         project: rows[0].data, out, style: opt.style, width: opt.width, crf: opt.crf, subtitles: opt.subtitles, preset: 'medium', range,
+        format, aspect: opt.aspect, framing: opt.framing, burnSubtitles: opt.burn,
         ...(withAudio ? { audioFile } : {}),
         threads: o.threads, fontsDir: o.fontsDir, signal: ctrl.signal,
         ...(o.imagesDir && parsed.ok ? { images: imagesOf(o.imagesDir, rows[0].workspace_id, parsed.project) } : {}),

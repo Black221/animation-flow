@@ -33,6 +33,9 @@ export const flat: StylePack = {
   id: 'flat',
   label: 'Vectoriel plat',
   description: 'Aplats de couleur et contours nets. Rapide : idéal pour prévisualiser.',
+  speed: 'fast',
+  hint: 'clean vector look: solid fills, crisp outlines; any bright, friendly palette works',
+  swatch: ['#F4EFE6', '#2B2D42', '#EF8354', '#4F9D69'],
   create(canvas: CanvasLike, options?: RenderOptions): Renderer {
     const ctx = ctxOf(canvas), fonts = resolveFonts(options), plates = new PlateCache(options?.createCanvas ?? defaultCreateCanvas);
     const stats = { frames: 0, platesPainted: 0, lastMs: 0 };

@@ -2,7 +2,7 @@
 // (one worker thread per chunk, each with its own canvas, style renderer and FFmpeg encoder), then the segments are
 // joined without re-encoding and the subtitles are added as a soft track. Deterministic frames make chunks exact:
 // the same frame renders the same wherever and whenever it is computed.
-import { timeProject, toSrt } from '@af/engine';
+import { ASPECTS, timeProject, toSrt, type Aspect, type Framing } from '@af/engine';
 import { parseProject } from '@af/schema';
 import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -22,8 +22,16 @@ export interface RenderVideoOptions {
   out: string;
   /** style pack id; defaults to the project's */
   style?: string | undefined;
-  /** output width in pixels; height follows the project's aspect ratio (both rounded to even numbers) */
+  /** output width in pixels; the height follows the aspect (both rounded to even numbers) */
   width?: number | undefined;
+  /** the output's shape (default: the project's); another shape reframes the film (see @af/engine reframe) */
+  aspect?: Aspect | undefined;
+  /** how a reframed film is fitted: follow the action (default), keep the centre, or show it whole */
+  framing?: Framing | undefined;
+  /** mp4 (H.264 + AAC, plays everywhere; default), webm (VP9 + Opus) or gif (no sound, 15 images a second) */
+  format?: OutputFormat | undefined;
+  /** draw the narration into the picture (instead of, or for a GIF without, a subtitle track) */
+  burnSubtitles?: boolean | undefined;
   /** seconds; default: the whole film */
   range?: { from: number; to: number } | undefined;
   /** x264 quality, 0 (lossless) … 51; default 20 */
@@ -41,6 +49,10 @@ export interface RenderVideoOptions {
   onProgress?: ((p: Progress) => void) | undefined;
   signal?: AbortSignal | undefined;
 }
+export type OutputFormat = 'mp4' | 'webm' | 'gif';
+export const FORMAT_MIME: Record<OutputFormat, string> = { mp4: 'video/mp4', webm: 'video/webm', gif: 'image/gif' };
+const GIF_FPS = 15;
+
 export interface RenderResult { file: string; frames: number; width: number; height: number; fps: number; duration: number; bytes: number; ms: number }
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
@@ -76,7 +88,10 @@ export async function renderVideo(o: RenderVideoOptions): Promise<RenderResult> 
   const first = Math.round(from * fps), last = Math.max(first, Math.min(tl.frames, Math.round(to * fps)));
   const total = last - first;
   if (total <= 0) throw new Error('nothing to render: empty range');
-  const width = even(o.width ?? project.width), height = even((width * project.height) / project.width);
+  const format = o.format ?? 'mp4', ratio = o.aspect ? ASPECTS[o.aspect] : project.width / project.height;
+  const width = even(o.width ?? project.width), height = even(width / ratio);
+  // a GIF is made from a nearly lossless H.264 intermediate; the segments of a WebM are VP9 already
+  const codec = format === 'webm' ? 'vp9' as const : 'h264' as const, ext = format === 'webm' ? 'webm' : 'mp4';
   const threads = Math.max(0, Math.floor(o.threads ?? 0)), chunks = Math.max(1, Math.min(threads || 1, Math.floor(total / 24) || 1));
   const parts = `${o.out}.parts`;
   rmSync(parts, { recursive: true, force: true });
@@ -96,7 +111,8 @@ export async function renderVideo(o: RenderVideoOptions): Promise<RenderResult> 
     const jobs: ChunkJob[] = Array.from({ length: chunks }, (_, k) => ({
       project: o.project, style: o.style ?? project.style, width, height,
       from: first + Math.floor((total * k) / chunks), to: first + Math.floor((total * (k + 1)) / chunks),
-      crf: o.crf ?? 20, preset: o.preset ?? 'medium', out: join(parts, `part${String(k).padStart(3, '0')}.mp4`), fontsDir: o.fontsDir, images: o.images,
+      crf: format === 'gif' ? 12 : o.crf ?? (format === 'webm' ? 33 : 20), preset: o.preset ?? 'medium', out: join(parts, `part${String(k).padStart(3, '0')}.${ext}`), fontsDir: o.fontsDir, images: o.images,
+      codec, aspect: o.aspect, framing: o.framing, burnSubtitles: o.burnSubtitles,
     }));
     const onFrame = (k: number) => (n: number) => { doneBy[k] = n; report(); };
     if (threads === 0) for (const [k, j] of jobs.entries()) await renderChunk(j, onFrame(k), o.signal);
@@ -105,17 +121,23 @@ export async function renderVideo(o: RenderVideoOptions): Promise<RenderResult> 
     report(true);
 
     // join the segments (no re-encoding) and add the narration as a subtitle track
-    const list = join(parts, 'list.txt');
+    const list = join(parts, 'list.txt'), seconds = (total / fps).toFixed(3);
     writeFileSync(list, jobs.map((j) => `file '${pathToFileURL(j.out).pathname.replace(/'/g, "'\\''")}'`).join('\n'));
-    const srt = o.subtitles === false ? '' : toSrt(project, tl, { from: first / fps, to: last / fps });
-    const args = ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list], maps = ['-map', '0:v'];
+    const concat = ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list];
+    if (format === 'gif') {
+      // one palette for the film, the frames dithered on it, repeating forever
+      await run(FFMPEG, [...concat, '-vf', `fps=${GIF_FPS},split[a][b];[a]palettegen=stats_mode=diff:max_colors=200[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`, '-loop', '0', '-t', seconds, o.out], o.signal);
+      return { file: o.out, frames: total, width, height, fps: GIF_FPS, duration: total / fps, bytes: statSync(o.out).size, ms: Date.now() - t0 };
+    }
+    const srt = o.subtitles === false || o.burnSubtitles ? '' : toSrt(project, tl, { from: first / fps, to: last / fps });
+    const args = [...concat], maps = ['-map', '0:v'];
     let next = 1;
-    const lang = LANG[project.language] ?? 'und';
-    if (o.audioFile) { args.push('-i', o.audioFile); maps.push('-map', `${next++}:a`, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-metadata:s:a:0', `language=${lang}`); }
-    if (srt) { writeFileSync(join(parts, 'subs.srt'), srt); args.push('-i', join(parts, 'subs.srt')); maps.push('-map', `${next++}:s`, '-c:s', 'mov_text', '-metadata:s:s:0', `language=${lang}`); }
+    const lang = LANG[project.language] ?? 'und', webm = format === 'webm';
+    if (o.audioFile) { args.push('-i', o.audioFile); maps.push('-map', `${next++}:a`, ...(webm ? ['-c:a', 'libopus', '-b:a', '160k'] : ['-c:a', 'aac', '-b:a', '192k']), '-ar', '48000', '-metadata:s:a:0', `language=${lang}`); }
+    if (srt) { writeFileSync(join(parts, 'subs.srt'), srt); args.push('-i', join(parts, 'subs.srt')); maps.push('-map', `${next++}:s`, '-c:s', webm ? 'webvtt' : 'mov_text', '-metadata:s:s:0', `language=${lang}`); }
     // an explicit length, not -shortest: that stops at the end of the shortest stream, and the subtitle track ends
     // with the last line of narration, often well before the picture
-    args.push(...maps, '-c:v', 'copy', '-t', (total / fps).toFixed(3), '-metadata', `title=${project.title}`, '-movflags', '+faststart', o.out);
+    args.push(...maps, '-c:v', 'copy', '-t', seconds, '-metadata', `title=${project.title}`, ...(webm ? [] : ['-movflags', '+faststart']), o.out);
     await run(FFMPEG, args, o.signal);
     return { file: o.out, frames: total, width, height, fps, duration: total / fps, bytes: statSync(o.out).size, ms: Date.now() - t0 };
   } catch (e) {

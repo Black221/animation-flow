@@ -148,6 +148,9 @@ export const watercolor: StylePack = {
   id: 'watercolor',
   label: 'Aquarelle',
   description: 'Lavis superposés, encre qui tremble, grain du papier. Plus lent que le vectoriel plat.',
+  speed: 'slow',
+  hint: 'painted watercolour on paper: soft, slightly muted colours, warm light, gentle contrasts',
+  swatch: ['#FBF3E6', '#5B4636', '#7FB3C8', '#E4A672'],
   create(canvas: CanvasLike, options?: RenderOptions): Renderer {
     const make = options?.createCanvas ?? defaultCreateCanvas, ctx = ctxOf(canvas), fonts = resolveFonts(options);
     const plates = new PlateCache(make), stats = { frames: 0, platesPainted: 0, lastMs: 0 };

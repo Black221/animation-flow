@@ -1,15 +1,17 @@
 // Live preview: the engine evaluates the frame at the playback time, the chosen style pack paints it on the canvas.
 // The same code renders final frames on a server, so what you see here is what the render gives.
-import { createEvaluator, type Evaluator } from '@af/engine';
+import { ASPECTS, createEvaluator, planFraming, type Aspect, type Evaluator } from '@af/engine';
 import { registry } from '@af/library';
 import type { Project } from '@af/schema';
-import { getStyle, stylePacks, type Renderer } from '@af/styles';
+import { createOutputRenderer, getStyle, stylePacks, type Renderer } from '@af/styles';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePictures, type LinksFn } from '../pictures';
 import { Icon } from '@af/ui';
 import { fmtTime, usePlayback, type Playback } from '../playback';
 
 const QUALITIES = [640, 960, 1280, 1920];
+/** the shapes a film can be delivered in: the preview shows what the reframing keeps */
+export const SHAPES: [Aspect, string][] = [['16:9', 'film 16:9'], ['9:16', 'vertical 9:16'], ['1:1', 'carré 1:1'], ['4:5', 'portrait 4:5']];
 
 /** plays the soundtrack in step with the playback: started at the playhead, restarted when it jumps */
 function useAudioSync(pb: Playback, buffer: AudioBuffer | null, on: boolean) {
@@ -46,8 +48,11 @@ export function Player({ project, pb, style, onStyle, audio, sound, onSound, sou
   const canvas = useRef<HTMLCanvasElement>(null);
   const [quality, setQuality] = useState(960);
   const [subtitles, setSubtitles] = useState(true);
+  const [shape, setShape] = useState<Aspect>('16:9');
   const [ms, setMs] = useState(0);
   const ev: Evaluator = useMemo(() => createEvaluator(project, registry), [project]);
+  // another shape: the window that follows the action, over the whole film (what the render will keep)
+  const path = useMemo(() => (shape === '16:9' ? null : planFraming(ev, project.width, project.height, ASPECTS[shape], 'follow')), [ev, shape, project.width, project.height]);
   const snap = usePlayback(pb);
   const renderer = useRef<Renderer | null>(null);
   const dirty = useRef(true);
@@ -56,15 +61,18 @@ export function Player({ project, pb, style, onStyle, audio, sound, onSound, sou
 
   useEffect(() => { pb.setDuration(ev.timeline.duration); dirty.current = true; }, [ev, pb]);
 
-  // one renderer per canvas size and style
+  // one renderer per canvas size, shape and style
   useEffect(() => {
-    const c = canvas.current!;
-    c.width = quality; c.height = Math.round((quality * project.height) / project.width);
+    const c = canvas.current!, lines = Math.round((quality * project.height) / project.width), r = ASPECTS[shape];
+    if (path) { c.width = Math.round(r >= 1 ? lines * r : lines); c.height = Math.round(r >= 1 ? lines : lines / r); }
+    else { c.width = quality; c.height = lines; }
     renderer.current?.dispose();
-    renderer.current = getStyle(style).create(c, { subtitles, images });
+    renderer.current = path
+      ? createOutputRenderer(getStyle(style), c, { subtitles, images, framing: 'follow', window: (t) => path.at(t) })
+      : getStyle(style).create(c, { subtitles, images });
     dirty.current = true;
     return () => { renderer.current?.dispose(); renderer.current = null; };
-  }, [style, quality, subtitles, project.width, project.height, images]);
+  }, [style, quality, subtitles, project.width, project.height, images, shape, path]);
 
   // fonts arrive after the first frame: repaint once they are ready
   useEffect(() => { document.fonts?.ready.then(() => { dirty.current = true; }); }, []);
@@ -88,8 +96,8 @@ export function Player({ project, pb, style, onStyle, audio, sound, onSound, sou
   const scene = ev.timeline.scenes.find((s) => snap.time >= s.start && snap.time < s.start + s.duration) ?? ev.timeline.scenes.at(-1)!;
   return (
     <div className="player">
-      <div className="stage" style={{ aspectRatio: `${project.width} / ${project.height}` }}>
-        <canvas ref={canvas} data-testid="preview" onClick={() => pb.toggle()} />
+      <div className={`stage${shape !== '16:9' ? ' framed' : ''}`} style={{ aspectRatio: `${project.width} / ${project.height}` }}>
+        <canvas ref={canvas} data-testid="preview" onClick={() => pb.toggle()} style={shape !== '16:9' ? { aspectRatio: shape.replace(':', ' / ') } : undefined} />
       </div>
       <div className="controls">
         <button className="play" onClick={() => pb.toggle()} aria-label={snap.playing ? 'pause' : 'lecture'} title="lecture / pause (espace)"><Icon name={snap.playing ? 'pause' : 'play'} size={18} /></button>
@@ -98,6 +106,7 @@ export function Player({ project, pb, style, onStyle, audio, sound, onSound, sou
       </div>
       <div className="controls secondary">
         <label>Style <select value={style} onChange={(e) => onStyle(e.target.value)} aria-label="style">{Object.values(stylePacks).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
+        <label>Cadre <select value={shape} onChange={(e) => setShape(e.target.value as Aspect)} aria-label="cadre de l'aperçu" title="voir ce que garde une vidéo verticale, carrée ou portrait">{SHAPES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         <label>Aperçu <select value={quality} onChange={(e) => setQuality(+e.target.value)} aria-label="qualité">{QUALITIES.map((q) => <option key={q} value={q}>{q} px</option>)}</select></label>
         <label className="check"><input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} /> sous-titres</label>
         {onSound && <label className="check"><input type="checkbox" checked={!!sound} onChange={(e) => onSound(e.target.checked)} aria-label="son" /> son</label>}

@@ -70,6 +70,9 @@ describe('plans', () => {
     const wide = await ben.inject({ method: 'POST', url: `/api/projects/${pizza}/renders`, payload: { width: 1920 } });
     expect(wide.statusCode).toBe(402);
     expect(wide.json().quota).toMatchObject({ metric: 'maxWidth', limit: 1280 });
+    // the same sharpness in every shape: a 1080-line vertical video is Full HD too
+    const tall = await ben.inject({ method: 'POST', url: `/api/projects/${pizza}/renders`, payload: { aspect: '9:16', size: 1080 } });
+    expect(tall.json().quota).toMatchObject({ metric: 'maxWidth', limit: 1280 });
     const r = await ben.inject({ method: 'POST', url: `/api/projects/${pizza}/renders`, payload: { width: 1280 } });
     expect(r.statusCode).toBe(202);
     const used = (await plan(ben)).usage.renderMinutes;

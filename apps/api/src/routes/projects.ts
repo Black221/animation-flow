@@ -28,7 +28,7 @@ export function projectRoutes(app: FastifyInstance, db: Db, hub: LiveHub | undef
 
   app.get('/api/library', { config: { auth: 'user' } }, async () => ({
     catalog,
-    styles: Object.values(stylePacks).map((s) => ({ id: s.id, label: s.label, description: s.description })),
+    styles: Object.values(stylePacks).map((s) => ({ id: s.id, label: s.label, description: s.description, speed: s.speed })),
     templates: Object.keys(TEMPLATES),
   }));
   app.get('/api/schema', { config: { auth: 'user' } }, async () => projectJsonSchema());

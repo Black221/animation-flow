@@ -1,7 +1,7 @@
 import { exampleProject, parseProject, type Project } from '@af/schema';
 import { catalog, registry } from '../src';
 import { describe, expect, it } from 'vitest';
-import { checkAgainstLibrary, createEvaluator, estimateDuration, GAP, LEAD, sampleElement, refResolver, timeLines, timeProject, toSrt, TAIL } from '@af/engine';
+import { ASPECTS, checkAgainstLibrary, cropSize, focusOf, planFraming, primsBox, reframe, createEvaluator, estimateDuration, GAP, LEAD, sampleElement, refResolver, timeLines, timeProject, toSrt, TAIL } from '@af/engine';
 
 const project = (() => { const r = parseProject(exampleProject); if (!r.ok) throw new Error(JSON.stringify(r.issues)); return r.project; })();
 const withEdit = (f: (p: Project) => void) => { const p = structuredClone(project); f(p); return p; };
@@ -107,5 +107,44 @@ describe('subtitles', () => {
     const cues = srt.trim().split(/\n\n/);
     expect(cues[0]).toMatch(/^1\n00:00:00,300 --> 00:00:0\d,\d{3}\nVoici Awa\.$/);
     for (const c of cues) expect(c.split('\n').length).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('reframing (vertical, square, portrait outputs)', () => {
+  const ev = createEvaluator(project, registry);
+  it('marks screen overlays and lists the subjects on screen', () => {
+    const f = ev.frameAt(2);
+    expect(f.items.some((p) => p.overlay)).toBe(true);
+    expect(f.subjects.some((s) => s.type === 'character')).toBe(true);
+  });
+
+  it('follows the action inside the frame, the same way every time, and stays in the picture', () => {
+    const a = planFraming(ev, 1920, 1080, ASPECTS['9:16'], 'follow'), b = planFraming(ev, 1920, 1080, ASPECTS['9:16'], 'follow');
+    const ts = [0.5, 2, 4, 6, 9, 12], xs = ts.map((t) => a.at(t));
+    for (const c of xs) { expect(c.w).toBeCloseTo(607.5); expect(c.h).toBe(1080); expect(c.x).toBeGreaterThanOrEqual(0); expect(c.x + c.w).toBeLessThanOrEqual(1920.001); }
+    expect(xs.map((c) => c.x)).toEqual(ts.map((t) => b.at(t).x));
+    // the window looks at the characters: the focus of the frame lies inside it
+    const [fx] = focusOf(ev.frameAt(4), 607.5, 1080), c = a.at(4);
+    expect(fx).toBeGreaterThan(c.x); expect(fx).toBeLessThan(c.x + c.w);
+    // and moves smoothly: no jump between two frames of a scene
+    expect(Math.abs(a.at(4).x - a.at(4 + 1 / 24).x)).toBeLessThan(12);
+  });
+
+  it("keeps the centre with `center`, and nothing moves for the film's own shape", () => {
+    expect(planFraming(ev, 1920, 1080, 1, 'center').at(3)).toEqual({ x: 420, y: 0, w: 1080, h: 1080 });
+    expect(planFraming(ev, 1920, 1080, 16 / 9, 'follow').at(3)).toEqual({ x: 0, y: 0, w: 1920, h: 1080 });
+    expect(cropSize(1920, 1080, 4 / 5)).toEqual({ w: 864, h: 1080 });
+  });
+
+  it('lays each overlay out again inside the window, whole, and shifts the world', () => {
+    const f = ev.frameAt(2), c = { x: 600, y: 0, w: 607.5, h: 1080 }, r = reframe(f, c);
+    expect(r.width).toBe(607.5);
+    const title = r.items.filter((p) => p.overlay);
+    expect(title.length).toBeGreaterThan(0);
+    const b = primsBox(title);
+    expect(b.x0).toBeGreaterThanOrEqual(0); expect(b.x1).toBeLessThanOrEqual(607.5 + 0.5);
+    const w0 = f.items.find((p) => !p.overlay && p.kind === 'path'), w1 = r.items.find((p) => p.id === w0!.id);
+    if (w0?.kind !== 'path' || w1?.kind !== 'path') throw new Error('no world path');
+    expect(w1.points[0]![0]).toBeCloseTo(w0.points[0]![0] - 600);
   });
 });

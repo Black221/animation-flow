@@ -55,10 +55,10 @@ test('record the narration, hear it in the preview, render it into the video', a
 
   // render one scene with its sound, and check the file carries video, audio and subtitles
   const panel = page.getByRole('region', { name: 'rendu vidéo' });
-  await panel.getByLabel('largeur').selectOption('640');
+  await panel.getByLabel('taille').selectOption('360');
   await panel.getByLabel('portée').selectOption('scene');
   await page.getByRole('button', { name: /s2 · Jumo/ }).first().click();
-  await panel.getByRole('button', { name: 'Rendre la vidéo' }).click();
+  await panel.getByRole('button', { name: 'Rendre en MP4' }).click();
   const job = panel.getByTestId('render').first();
   await expect(job).toContainText('terminé', { timeout: 60_000 });
   await expect(job).not.toContainText('sans voix');

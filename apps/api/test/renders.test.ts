@@ -65,7 +65,34 @@ describe('render jobs', () => {
     expect((await render(r.json().id)).framesDone).toBe(r.json().framesTotal);
   }, 90_000);
 
+  it('delivers other shapes and files: a vertical GIF with the narration drawn in, a square WebM', async () => {
+    const gif = await c.inject({ method: 'POST', url: `/api/projects/${example}/renders`, payload: { format: 'gif', aspect: '9:16', size: 360, quality: 'draft', sceneId: 's2' } });
+    expect(gif.statusCode).toBe(202);
+    // a GIF has no subtitle track and no sound: the narration is drawn into it
+    expect(gif.json().options).toMatchObject({ format: 'gif', aspect: '9:16', framing: 'follow', width: 360, height: 640, subtitles: false, burn: true, audio: false });
+    const sq = await c.inject({ method: 'POST', url: `/api/projects/${blank}/renders`, payload: { format: 'webm', aspect: '1:1', framing: 'fit', size: 360, quality: 'draft', subtitles: 'off' } });
+    expect(sq.json().options).toMatchObject({ format: 'webm', width: 360, height: 360, subtitles: false, burn: false, crf: 40 });
+    await until(async () => (await render(gif.json().id)).status === 'done' && (await render(sq.json().id)).status === 'done', 120_000);
+    const g = await c.inject({ url: `${(await render(gif.json().id)).videoUrl}&download=1` });
+    expect(g.headers['content-type']).toBe('image/gif');
+    expect(g.headers['content-disposition']).toContain('.gif');
+    expect(g.rawPayload.subarray(0, 6).toString()).toBe('GIF89a');
+    expect(existsSync(join(rendersDir, `${gif.json().id}.gif`))).toBe(true);
+    const w = await c.inject({ url: (await render(sq.json().id)).videoUrl });
+    expect(w.headers['content-type']).toBe('video/webm');
+    expect(w.rawPayload.subarray(0, 4).toString('hex')).toBe('1a45dfa3'); // EBML, the start of a WebM file
+  }, 150_000);
+
+  it('keeps a GIF short and small', async () => {
+    const big = await c.inject({ method: 'POST', url: `/api/projects/${example}/renders`, payload: { format: 'gif', size: 720, sceneId: 's2' } });
+    expect(big.statusCode).toBe(400);
+    expect(big.json().error).toMatch(/540 lignes/);
+  });
+
   it('validates options', async () => {
+    expect((await c.inject({ method: 'POST', url: `/api/projects/${blank}/renders`, payload: { format: 'avi' } })).statusCode).toBe(400);
+    expect((await c.inject({ method: 'POST', url: `/api/projects/${blank}/renders`, payload: { aspect: '21:9' } })).statusCode).toBe(400);
+    expect((await c.inject({ method: 'POST', url: `/api/projects/${blank}/renders`, payload: { size: 480 } })).statusCode).toBe(400);
     expect((await c.inject({ method: 'POST', url: `/api/projects/${blank}/renders`, payload: { width: 777 } })).statusCode).toBe(400);
     expect((await c.inject({ method: 'POST', url: `/api/projects/${blank}/renders`, payload: { style: 'oil' } })).statusCode).toBe(400);
     expect((await c.inject({ method: 'POST', url: `/api/projects/${blank}/renders`, payload: { sceneId: 'nope' } })).statusCode).toBe(400);

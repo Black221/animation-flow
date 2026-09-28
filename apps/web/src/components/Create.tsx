@@ -2,10 +2,10 @@
 // offered wherever it helps (the home page, the sidebar, the projects page) through `useCreate()`.
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { stylePacks } from '@af/styles';
 import { Api } from '../api';
 import { Icon, type IconName } from '@af/ui';
 import { Pipeline, timecode } from './Motion';
+import { StyleButton } from './StylePicker';
 import { Dialog, useUI } from '@af/ui';
 
 export const TEMPLATE_INFO: Record<string, { label: string; hint: string; icon: IconName }> = {
@@ -110,7 +110,7 @@ export function AiPrompt({ autoFocus = false, full = false, onStarted }: { autoF
         </div>
         <div className="bar">
           <span className="opt">Langue <select value={language} onChange={(e) => setLanguage(e.target.value)} aria-label="langue">{LANGS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></span>
-          <span className="opt">Style <select value={style} onChange={(e) => setStyle(e.target.value)} aria-label="style du film">{Object.values(stylePacks).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></span>
+          <span className="opt">Style <StyleButton value={style} onChange={setStyle} /></span>
           <label className="switch opt" title="vous relisez et corrigez le storyboard avant que l'IA ne dessine et n'anime"><input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} /> Relire le storyboard</label>
           {!full && <button type="button" className="ghost small" aria-expanded={more} onClick={() => setMore((m) => !m)}><Icon name="sliders" size={15} /> {more ? 'Moins d’options' : 'Plus d’options'}{chosen > 0 && !more ? ` (${chosen})` : ''}</button>}
           <span className="spacer" />

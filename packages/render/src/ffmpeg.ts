@@ -22,12 +22,19 @@ export function run(cmd: string, args: string[], signal?: AbortSignal): Promise<
   });
 }
 
-/** an H.264 encoder reading raw RGBA frames on stdin */
-export function rawEncoder(o: { width: number; height: number; fps: number; crf: number; preset: string; out: string }): ChildProcessWithoutNullStreams {
+export type VideoCodec = 'h264' | 'vp9';
+/** the encoder's options: H.264 (MP4, and the intermediate of a GIF) or VP9 (WebM, constant quality, all cores) */
+const CODEC: Record<VideoCodec, (crf: number, preset: string) => string[]> = {
+  h264: (crf, preset) => ['-c:v', 'libx264', '-preset', preset, '-crf', String(crf)],
+  vp9: (crf, preset) => ['-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0', '-row-mt', '1', '-deadline', preset === 'ultrafast' || preset === 'veryfast' ? 'realtime' : 'good', '-cpu-used', preset === 'slow' ? '2' : '4'],
+};
+
+/** an encoder reading raw RGBA frames on stdin */
+export function rawEncoder(o: { width: number; height: number; fps: number; crf: number; preset: string; out: string; codec?: VideoCodec }): ChildProcessWithoutNullStreams {
   return spawn(FFMPEG, [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${o.width}x${o.height}`, '-r', String(o.fps), '-i', 'pipe:0',
-    '-c:v', 'libx264', '-preset', o.preset, '-crf', String(o.crf), '-pix_fmt', 'yuv420p', '-r', String(o.fps),
+    ...CODEC[o.codec ?? 'h264'](o.crf, o.preset), '-pix_fmt', 'yuv420p', '-r', String(o.fps),
     o.out,
   ]);
 }

@@ -19,6 +19,16 @@ export function drawingsBrief(p: Pick<Project, 'assets' | 'cast'> & Partial<Pick
   });
 }
 
+/** what each style pack looks like, so the palette and the staging suit it (kept in step with @af/styles) */
+export const STYLE_BRIEF: Record<string, string> = {
+  flat: 'clean vector look, solid fills, crisp outlines; any bright, friendly palette works',
+  watercolor: 'painted watercolour on paper; soft, slightly muted colours, warm light, gentle contrasts',
+  papercut: 'cut paper collage on kraft board; flat saturated paper colours, clear shapes, strong contrast between near and far layers',
+  sketch: 'pencil sketch on drawing paper; light coloured-pencil tints and hatching, favour clear silhouettes and a few strong colours',
+  comic: 'comic book; bold black ink, bright primary colours, strong contrasts, expressive poses',
+  neon: 'neon lights at night; every colour becomes a glowing tube on a dark background: choose vivid pinks, cyans, violets and yellows, avoid browns and greys',
+};
+
 export interface StoryboardOptions { language: string; style: string; targetSeconds?: number | undefined; instructions?: string | undefined }
 
 export function storyboardPrompt(o: StoryboardOptions): string {
@@ -36,7 +46,7 @@ Rules:
 - "sounds": every sound effect the shots need (id, name, description: what makes the sound, how it feels: "a soft paper whoosh", "a robot's happy double beep"); each is designed for the film.
 - ids are short (letters, digits, - and _) and unique across cast, props, decors and sounds.
 - "palette": 5 to 8 colours ("#rrggbb") shared by the whole film, harmonious and readable.
-- The film's style is "${o.style}".
+- The film's style is "${o.style}"${STYLE_BRIEF[o.style] ? `: ${STYLE_BRIEF[o.style]}. Choose the palette for it` : ''}.
 ${o.instructions ? `\nThe user adds: ${o.instructions}\n` : ''}
 Answer with the storyboard JSON only: { "title", "language": "${o.language}", "style": "${o.style}", "palette": [...], "cast": [...], "props": [...], "decors": [...], "sounds": [...], "scenes": [...] }.`;
 }

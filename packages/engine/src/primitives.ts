@@ -4,7 +4,11 @@
 import type { Pt } from './geometry';
 
 /** A filled and/or outlined shape. `width` on an open path makes a thick stroke (limbs, stalks, ribbons). */
-export interface PathPrim {
+/** set by the engine on the primitives of a `screen` element (a title, a caption): the element's id. A reframed
+ *  output (vertical, square) lays each overlay out again as a whole instead of cropping it. */
+interface Overlay { overlay?: string }
+
+export interface PathPrim extends Overlay {
   kind: 'path';
   id: string;
   points: Pt[];
@@ -24,7 +28,7 @@ export interface PathPrim {
 
 export type FontRole = 'display' | 'body' | 'marker' | 'hand';
 
-export interface TextPrim {
+export interface TextPrim extends Overlay {
   kind: 'text';
   id: string;
   x: number;
@@ -42,13 +46,13 @@ export interface TextPrim {
 }
 
 /** A soft radial light (screens, sensors, sun halo). */
-export interface GlowPrim { kind: 'glow'; id: string; x: number; y: number; radius: number; color: string; opacity: number }
+export interface GlowPrim extends Overlay { kind: 'glow'; id: string; x: number; y: number; radius: number; color: string; opacity: number }
 
 /** A linear gradient over a rectangle (skies). Coordinates are in the space of the list holding it. */
-export interface GradientPrim { kind: 'gradient'; id: string; x: number; y: number; w: number; h: number; stops: [number, string][]; opacity?: number }
+export interface GradientPrim extends Overlay { kind: 'gradient'; id: string; x: number; y: number; w: number; h: number; stops: [number, string][]; opacity?: number }
 
 /** A picture over a rectangle (a decor made by an image model). `src` names the image; the style gets it from the
  *  renderer's image source, and draws nothing until it is there. */
-export interface ImagePrim { kind: 'image'; id: string; src: string; x: number; y: number; w: number; h: number; opacity?: number }
+export interface ImagePrim extends Overlay { kind: 'image'; id: string; src: string; x: number; y: number; w: number; h: number; opacity?: number }
 
 export type Prim = PathPrim | TextPrim | GlowPrim | GradientPrim | ImagePrim;

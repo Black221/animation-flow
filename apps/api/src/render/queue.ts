@@ -5,7 +5,13 @@ import { randomUUID } from 'node:crypto';
 import type { Db } from '../db';
 
 export type RenderStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled';
-export interface RenderOptionsDb { style: string; width: number; crf: number; from?: number; to?: number; sceneId?: string; subtitles: boolean; audio?: boolean }
+export interface RenderOptionsDb {
+  style: string; width: number; crf: number; from?: number; to?: number; sceneId?: string; subtitles: boolean; audio?: boolean;
+  /** the file (default mp4), its shape (default the film's 16:9), how a reshaped film is framed, its size in lines */
+  format?: 'mp4' | 'webm' | 'gif'; aspect?: '16:9' | '9:16' | '1:1' | '4:5'; framing?: 'follow' | 'center' | 'fit'; height?: number; size?: number;
+  /** the narration drawn into the picture */
+  burn?: boolean;
+}
 export interface RenderRow {
   id: string; project_id: string; project_version: number; status: RenderStatus; options: RenderOptionsDb;
   frames_done: number; frames_total: number; fps: number | null; attempts: number; error: string | null;

@@ -1,12 +1,12 @@
 // Render frames [from, to) of a project into one H.264 segment. Runs inline or inside a worker thread; either way it
 // builds its own evaluator and renderer, so chunks share nothing and can run in parallel.
 import { createCanvas } from '@napi-rs/canvas';
-import { createEvaluator } from '@af/engine';
+import { ASPECTS, createEvaluator, planFraming, type Aspect, type Framing } from '@af/engine';
 import { registry } from '@af/library';
 import { parseProject } from '@af/schema';
-import { getStyle, type CanvasLike } from '@af/styles';
+import { createOutputRenderer, getStyle, type CanvasLike } from '@af/styles';
 import { once } from 'node:events';
-import { rawEncoder, AbortError } from './ffmpeg';
+import { rawEncoder, AbortError, type VideoCodec } from './ffmpeg';
 import { registerFonts } from './fonts';
 import { loadPictures } from './pictures';
 
@@ -20,6 +20,12 @@ export interface ChunkJob {
   crf: number;
   preset: string;
   out: string;
+  codec?: VideoCodec | undefined;
+  /** the output's shape, when it is not the film's: 9:16, 1:1, 4:5 */
+  aspect?: Aspect | undefined;
+  framing?: Framing | undefined;
+  /** draw the narration into the picture */
+  burnSubtitles?: boolean | undefined;
   fontsDir?: string | undefined;
   /** pictures of the project (asset id → file) */
   images?: Record<string, string> | undefined;
@@ -33,8 +39,15 @@ export async function renderChunk(job: ChunkJob, onFrame: (done: number) => void
   const ev = createEvaluator(project, registry), images = await loadPictures(job.images);
   const canvas = createCanvas(job.width, job.height);
   const make = (w: number, h: number) => createCanvas(w, h) as unknown as CanvasLike;
-  const renderer = getStyle(job.style).create(canvas as unknown as CanvasLike, { createCanvas: make, images: images as never });
-  const enc = rawEncoder({ width: job.width, height: job.height, fps, crf: job.crf, preset: job.preset, out: job.out });
+  // another shape than the film's: the window follows the action (computed from the whole film, so every chunk
+  // gets the same one), or the whole picture fits
+  const reshaped = job.aspect && Math.abs(ASPECTS[job.aspect] - project.width / project.height) > 0.01, framing = job.framing ?? 'follow';
+  const path = reshaped && framing !== 'fit' ? planFraming(ev, project.width, project.height, ASPECTS[job.aspect!], framing) : null;
+  const opts = { createCanvas: make, images: images as never, subtitles: !!job.burnSubtitles };
+  const renderer = reshaped
+    ? createOutputRenderer(getStyle(job.style), canvas as unknown as CanvasLike, { ...opts, framing, window: path ? (t) => path.at(t) : undefined })
+    : getStyle(job.style).create(canvas as unknown as CanvasLike, opts);
+  const enc = rawEncoder({ width: job.width, height: job.height, fps, crf: job.crf, preset: job.preset, out: job.out, codec: job.codec });
   let stderr = '';
   enc.stderr.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });
   const exited = new Promise<number | null>((ok) => enc.on('close', ok));

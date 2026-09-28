@@ -28,5 +28,11 @@ export interface StylePack {
   id: string;
   label: string;
   description: string;
+  /** how costly a frame is: the editor scrubs in a fast style, a render worker takes the time */
+  speed: 'fast' | 'medium' | 'slow';
+  /** for a language model writing a film in this style (colours, contrasts that suit it) */
+  hint: string;
+  /** colours of the style, for its card in the interface: paper (background), ink, accents */
+  swatch: [string, string, string, string];
   create(canvas: CanvasLike, options?: RenderOptions): Renderer;
 }

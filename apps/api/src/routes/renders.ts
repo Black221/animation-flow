@@ -1,7 +1,7 @@
 // Render jobs: ask for a video of a saved version of a project, follow its progress, cancel it, watch or download
 // the result. The job renders the version that was saved when it was requested, whatever happens to the project after.
 // A render belongs to its project's workspace: members watch, editors render, cancel and delete.
-import { timeProject } from '@af/engine';
+import { ASPECTS, timeProject } from '@af/engine';
 import { parseProject } from '@af/schema';
 import { stylePacks } from '@af/styles';
 import type { FastifyInstance } from 'fastify';
@@ -15,18 +15,35 @@ import type { Signer } from '../render/sign';
 import type { Quotas } from '../plans';
 import { randomUUID } from 'node:crypto';
 
+// the size of a video is its number of lines, for every shape: 720 is 1280 × 720 in 16:9, 720 × 1280 vertical,
+// 720 × 720 square. `width` (the 16:9 width) is still understood.
+const SIZES = [360, 540, 720, 1080] as const;
 const WIDTHS = [640, 960, 1280, 1920] as const;
+const GIF_MAX = { size: 540, seconds: 60 };
 const Uuid = z.object({ id: z.string().uuid() });
 const Body = z.object({
   style: z.string().optional(),
-  width: z.number().int().refine((w) => (WIDTHS as readonly number[]).includes(w), `largeur parmi ${WIDTHS.join(', ')}`).default(1280),
+  format: z.enum(['mp4', 'webm', 'gif']).default('mp4'),
+  aspect: z.enum(['16:9', '9:16', '1:1', '4:5']).default('16:9'),
+  framing: z.enum(['follow', 'center', 'fit']).default('follow'),
+  size: z.number().int().refine((s) => (SIZES as readonly number[]).includes(s), `taille parmi ${SIZES.join(', ')}`).optional(),
+  width: z.number().int().refine((w) => (WIDTHS as readonly number[]).includes(w), `largeur parmi ${WIDTHS.join(', ')}`).optional(),
   quality: z.enum(['draft', 'standard', 'high']).default('standard'),
   sceneId: z.string().optional(),
-  subtitles: z.boolean().default(true),
+  /** a subtitle track (true, `track`), drawn into the picture (`burned`), or none (false, `off`) */
+  subtitles: z.union([z.boolean(), z.enum(['track', 'burned', 'off'])]).default(true),
   /** narration, music and sound effects */
   audio: z.boolean().default(true),
 });
-const CRF = { draft: 28, standard: 21, high: 17 } as const;
+const CRF = { mp4: { draft: 28, standard: 21, high: 17 }, webm: { draft: 40, standard: 33, high: 27 }, gif: { draft: 12, standard: 12, high: 12 } } as const;
+const EXT = { mp4: 'mp4', webm: 'webm', gif: 'gif' } as const;
+const MIME = { mp4: 'video/mp4', webm: 'video/webm', gif: 'image/gif' } as const;
+const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+/** width × height of a size in a shape */
+export function outputSize(size: number, aspect: keyof typeof ASPECTS) {
+  const r = ASPECTS[aspect];
+  return r >= 1 ? { width: even(size * r), height: even(size) } : { width: even(size), height: even(size / r) };
+}
 
 export function renderRoutes(app: FastifyInstance, db: Db, sign: Signer, quota: Quotas) {
   const view = (r: RenderRow) => ({
@@ -54,12 +71,25 @@ export function renderRoutes(app: FastifyInstance, db: Db, sign: Signer, quota: 
       from = s.start; to = s.start + s.duration;
     }
     const frames = Math.round((to ?? tl.duration) * project.fps) - Math.round((from ?? 0) * project.fps);
-    // the plan: how wide, how many minutes left this month, room for the file
+    const { format, aspect, framing } = b.data, size = b.data.size ?? (b.data.width ? Math.round((b.data.width * 9) / 16) : 720);
+    // a GIF has no subtitle track (the narration is drawn in instead) and no sound; it stays short and small
+    let subs = b.data.subtitles === true ? 'track' : b.data.subtitles === false ? 'off' : b.data.subtitles;
+    if (format === 'gif') {
+      if (subs === 'track') subs = 'burned';
+      if (size > GIF_MAX.size) return reply.code(400).send({ error: `un GIF se rend en ${GIF_MAX.size} lignes au plus : choisissez une taille plus petite, ou le format MP4` });
+      if (frames / project.fps > GIF_MAX.seconds + 0.01) return reply.code(400).send({ error: `un GIF dure ${GIF_MAX.seconds} s au plus : rendez une scène, ou choisissez le format MP4` });
+    }
+    const out = outputSize(size, aspect);
+    // the plan: how sharp (the 16:9 width of the same size), how many minutes left this month, room for the file
     const ws = wsOf(req).id, minutes = frames / project.fps / 60;
-    await quota.width(ws, b.data.width); await quota.ensure(ws, 'renderMinutes', minutes); await quota.ensure(ws, 'storageMb', 0);
+    await quota.width(ws, Math.round((size * 16) / 9)); await quota.ensure(ws, 'renderMinutes', minutes); await quota.ensure(ws, 'storageMb', 0);
     const id = randomUUID();
     await quota.record(ws, 'renderMinutes', minutes, id, userOf(req).id);
-    const job = await enqueue(db, p.data.id, rows[0].version, userOf(req).id, { style, width: b.data.width, crf: CRF[b.data.quality], subtitles: b.data.subtitles, audio: b.data.audio, ...(from != null ? { from, to: to!, sceneId: b.data.sceneId! } : {}) }, frames, (await quota.has(ws, 'priority')) ? 1 : 0, id);
+    const job = await enqueue(db, p.data.id, rows[0].version, userOf(req).id, {
+      style, format, aspect, framing, size, width: out.width, height: out.height, crf: CRF[format][b.data.quality],
+      subtitles: subs === 'track', burn: subs === 'burned', audio: format !== 'gif' && b.data.audio,
+      ...(from != null ? { from, to: to!, sceneId: b.data.sceneId! } : {}),
+    }, frames, (await quota.has(ws, 'priority')) ? 1 : 0, id);
     return reply.code(202).send(view(job));
   });
 
@@ -96,6 +126,7 @@ export function renderRoutes(app: FastifyInstance, db: Db, sign: Signer, quota: 
     if (!p.success || !sign.verify(p.data.id, q.exp, q.sig)) return reply.code(403).send({ error: 'lien expiré ou invalide' });
     const r = (await db.query<RenderRow>('SELECT * FROM renders WHERE id = $1', [p.data.id])).rows[0];
     if (!r || r.status !== 'done' || !r.file || !existsSync(r.file)) return reply.code(404).send({ error: 'vidéo introuvable' });
-    return sendFile(req, reply, r.file, 'video/mp4', q.download ? `rendu-${r.id.slice(0, 8)}.mp4` : undefined);
+    const format = r.options.format ?? 'mp4';
+    return sendFile(req, reply, r.file, MIME[format], q.download ? `rendu-${r.id.slice(0, 8)}.${EXT[format]}` : undefined);
   });
 }

@@ -18,7 +18,17 @@ projet JSON ──► moteur ──► primitives (écran) ──► pack de sty
   trie de l'arrière vers l'avant. Il ne dépend que du projet et de l'instant `t` : les images peuvent se calculer dans
   n'importe quel ordre, en parallèle, et donnent toujours le même résultat.
 - Un **pack de style** dessine les primitives. `flat` : aplats et contours nets. `watercolor` : lavis superposés, encre qui
-  tremble, grain du papier. Les deux n'utilisent que Canvas 2D : même rendu dans l'éditeur et sur un serveur, sans GPU.
+  tremble, grain du papier. `papercut` : chaque forme est une pièce de papier (bord coupé irrégulier, ombre portée
+  `shadowBlur`, couleur crème), le ciel des bandes de papier ondulées, les pièces qui bougent recoupées 4 fois par
+  seconde (la saccade de l'image par image), une fibre de kraft multipliée par-dessus. `sketch` : teinte de crayon de
+  couleur décalée du trait, hachures découpées à la forme (angle et pas tirés de l'id : un dessin garde sa main),
+  contour graphite repris deux fois, ombres en hachures croisées. `comic` : encrage noir épais, couleurs saturées,
+  trames de points (un motif en tuile, pas des milliers de cercles) sur le côté ombré des grandes formes du décor et
+  dans les ombres, lettrage cerné, case noire. `neon` : silhouettes sombres, contours en tubes (halo `shadowBlur` puis
+  cœur clair), détails allumés pour que les visages se lisent, ciel de nuit étoilé, lignes de balayage. Tous n'utilisent
+  que Canvas 2D : même rendu dans l'éditeur et sur un serveur, sans GPU ; tous sont déterministes et peignent le décor une
+  fois par scène. Chaque pack donne aussi sa vitesse (`speed`), ses couleurs (`swatch`) et une consigne pour l'IA
+  (`hint`, reprise dans `packages/ai/src/prompts.ts`).
 
 ## Le format d'animation (`packages/schema`)
 
@@ -212,8 +222,26 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
                                         │  renderVideo() : N blocs d'images en parallèle (worker_threads)
                                         │  chaque bloc : moteur → style → canvas → pixels RGBA → FFmpeg (H.264)
                                         ▼
-                             concat sans réencodage + piste de sous-titres → RENDERS_DIR/<id>.mp4
+                             concat sans réencodage + piste de sous-titres → RENDERS_DIR/<id>.mp4 | .webm | .gif
 ```
+
+- **Formats** : `format` MP4 (H.264 + AAC, `mov_text`), WebM (blocs en VP9 `-row-mt`, Opus, sous-titres WebVTT) ou GIF
+  (blocs en H.264 presque sans perte, puis une palette pour tout le film `palettegen stats_mode=diff` et `paletteuse`
+  tramé, 15 images/s, en boucle ; ni son ni piste). L'API limite le GIF à 540 lignes et 60 s. La taille se donne en
+  lignes (360 à 1080) ; le plan la limite par la largeur 16:9 équivalente (`maxWidth`), la même netteté pour tous les
+  cadres. `width` (640 à 1920) reste accepté.
+- **Recadrage** (`packages/engine/src/reframe.ts`) : un film composé en 16:9 livré en 9:16, 1:1 ou 4:5 garde, image par
+  image, une fenêtre aussi haute que l'image. `evaluate` donne pour chaque image les boîtes des personnages et
+  accessoires du monde (`subjects`), qui parle (`speakerId`), et marque les primitives des éléments `screen`
+  (`overlay`). `planFraming` échantillonne le film 6 fois par seconde, vise le groupe de personnages s'il tient dans la
+  fenêtre, sinon leur moyenne pondérée (celui qui parle compte triple), puis lisse la trajectoire dans les deux sens
+  (sans retard ni tremblement, τ = 0,7 s) scène par scène : une nouvelle scène peut commencer ailleurs, comme un
+  raccord. Calculé sur tout le film, le chemin est le même dans chaque bloc de rendu. `reframe` décale le monde et
+  replace chaque titre en entier dans la fenêtre (même place relative, réduit s'il ne tient plus). `fit` montre tout le
+  film sur une copie de lui-même floutée (réduite puis agrandie : identique partout) et assombrie
+  (`packages/styles/src/output.ts`). L'aperçu de l'éditeur utilise le même code.
+- **Sous-titres incrustés** (`burn`) : la réplique dessinée dans l'image, dimensionnée sur la largeur ; en vertical plus
+  haut (80 % de la hauteur), hors des boutons des applications ; en `fit`, dans la bande sous l'image.
 
 - Le rendu utilise la **version enregistrée** au moment de la demande (`project_versions`) : on peut continuer à éditer.
 - Les images étant déterministes, découper en blocs ne change rien au résultat.
@@ -225,7 +253,7 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 
 ## Ajouter…
 
-- **un style** : un objet `StylePack` (`packages/styles/src/types.ts`) qui sait dessiner les quatre primitives, puis l'ajouter à `stylePacks`.
+- **un style** : un objet `StylePack` (`packages/styles/src/types.ts`) qui sait dessiner les primitives (avec `speed`, `swatch` et `hint`), puis l'ajouter à `stylePacks` (et sa consigne à `STYLE_BRIEF`, `packages/ai/src/prompts.ts`). Les tests de `packages/styles` vérifient pour chaque pack une image variée, le déterminisme et une seule peinture du décor par scène.
 - **un personnage, un accessoire, un décor** : d'ordinaire, rien à coder : c'est un dessin du projet (`project.assets`),
   fait par le modèle ou dans l'onglet « Dessins ». `packages/ai/src/examples.ts` montre un exemple de chaque sorte, et
   le modèle de projet « Pizza Time » (`apps/api/src/examples`) un film entier dessiné pour son histoire. Les fonctions
