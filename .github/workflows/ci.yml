@@ -1,9 +1,15 @@
 name: CI
 
-# Manual only for now: GitHub Actions does not start jobs on this account. Run it from the Actions tab once it does,
-# or put `push:` and `pull_request:` back. Locally: pnpm typecheck && pnpm test && pnpm build && pnpm e2e
+# Every pull request, every push to main (and by hand). Locally: pnpm typecheck && pnpm test && pnpm build && pnpm e2e
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -21,6 +27,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - name: Known vulnerabilities in production dependencies (not blocking yet)
+        run: pnpm audit --prod --audit-level high
+        continue-on-error: true
       - run: pnpm typecheck
       - name: Unit and API tests (embedded PGlite)
         run: pnpm test
@@ -28,10 +37,21 @@ jobs:
         run: pnpm vitest run apps/api --no-file-parallelism
         env: { TEST_DATABASE_URL: "postgres://af:af@127.0.0.1:5432/af" }
       - run: pnpm build
+      # the browser is kept between runs, keyed by the Playwright version; its system libraries are installed each time
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @af/web exec playwright install --with-deps chromium
+      - if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @af/web exec playwright install-deps chromium
       - name: End-to-end (editor in Chromium)
-        run: |
-          pnpm --filter @af/web exec playwright install --with-deps chromium
-          pnpm --filter @af/web exec playwright test
+        run: pnpm --filter @af/web exec playwright test
         env: { CHROMIUM_PATH: "" }
       - name: End-to-end with two API processes (live editing across them)
         run: |
@@ -43,12 +63,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t animation-flow .
-      - name: Two API replicas behind the load balancer
+      - run: docker build --build-arg APP_COMMIT=${{ github.sha }} -t animation-flow .
+      - name: Two API replicas behind the load balancer, a 12 MB upload through it
         run: |
           export APP_ENCRYPTION_KEY=$(openssl rand -base64 32)
-          sed -i 's/^    build: \./    image: animation-flow/' docker-compose.yml
-          docker compose -f docker-compose.yml -f docker-compose.cluster.yml up -d --scale app=2
-          for i in $(seq 1 60); do curl -sf localhost:3000/api/health && break; sleep 2; done
-          test "$(docker compose ps app --format '{{.Health}}' | grep -c healthy)" = 2
-          docker compose -f docker-compose.yml -f docker-compose.cluster.yml down -v
+          # use the image built above instead of building it again
+          printf 'services:\n  app:\n    image: animation-flow\n' > docker-compose.ci.yml
+          compose="docker compose -f docker-compose.yml -f docker-compose.cluster.yml -f docker-compose.ci.yml"
+          $compose up -d --scale app=2
+          for i in $(seq 1 60); do curl -sf localhost:3000/api/ready && break; sleep 2; done
+          test "$($compose ps app --format '{{.Health}}' | grep -c healthy)" = 2
+          curl -sf localhost:3000/api/health | grep -q '"commit":"'"${GITHUB_SHA:0:12}"'"'
+          deploy/check-upload.sh http://localhost:3000
+      - name: What the stack said (on failure)
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.cluster.yml -f docker-compose.ci.yml logs --no-color --tail 200
+      - name: Stop the stack
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.cluster.yml -f docker-compose.ci.yml down -v

@@ -15,8 +15,11 @@ RUN pnpm --filter @af/api deploy --prod --legacy /out
 FROM node:22-bookworm-slim
 # FFmpeg encodes the rendered frames into MP4
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+# the commit this image is built from (the build has no .git): docker build --build-arg APP_COMMIT=$(git rev-parse HEAD).
+# After FFmpeg, so that a new commit does not install it again
+ARG APP_COMMIT=
 # the back office listens on its own port (3001); docker-compose.yml publishes it on this machine only
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST=/app/web DATA_DIR=/data ADMIN_HOST=0.0.0.0 ADMIN_PORT=3001 ADMIN_DIST=/app/admin
+ENV APP_COMMIT=$APP_COMMIT NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST=/app/web DATA_DIR=/data ADMIN_HOST=0.0.0.0 ADMIN_PORT=3001 ADMIN_DIST=/app/admin
 WORKDIR /app
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /out/package.json ./package.json
@@ -26,5 +29,6 @@ COPY --from=build /src/apps/admin/dist ./admin
 RUN mkdir -p /data && chown node:node /data
 USER node
 EXPOSE 3000 3001
-HEALTHCHECK --interval=10s --timeout=3s --retries=5 CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# ready (database, storage, FFmpeg), not only alive: see apps/api/src/ready.ts
+HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=5 CMD node -e "fetch('http://127.0.0.1:3000/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/main.js"]

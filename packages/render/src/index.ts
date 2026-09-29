@@ -11,7 +11,7 @@ import { Worker } from 'node:worker_threads';
 import { renderChunk, type ChunkJob } from './chunk';
 import { AbortError, FFMPEG, run } from './ffmpeg';
 
-export { probe, AbortError, decodeAudio, decodeUpload, audioType } from './ffmpeg';
+export { probe, AbortError, decodeAudio, decodeUpload, audioType, ffmpegAvailable } from './ffmpeg';
 export { registerFonts } from './fonts';
 export { renderStill } from './still';
 export { loadPictures, normalizePicture, normalizeUpload, pictureType, type Upload } from './pictures';

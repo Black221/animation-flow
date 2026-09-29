@@ -31,6 +31,7 @@
 .bo-top .menu-trigger { width: auto; }
 .bo-top .account { display: flex; align-items: center; gap: 10px; text-align: left; }
 .bo-top .account .who { display: grid; line-height: 1.2; }
+.bo-foot { margin-top: auto; padding: 12px 22px 16px; text-align: center; font-size: 0.78rem; color: var(--muted); }
 .bo-page { width: 100%; max-width: 1280px; margin: 0 auto; padding: 24px 22px 60px; display: grid; gap: 16px; align-content: start; animation: scene-in .35s var(--ease-out) backwards; }
 @keyframes scene-in { from { opacity: 0; transform: translateY(8px); } }
 .page-head { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }

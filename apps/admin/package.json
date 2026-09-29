@@ -1,6 +1,6 @@
 {
   "name": "@af/admin",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "Le back-office : administration générale de la plateforme (comptes, espaces, plans, abonnements, modération, journal), une application à part.",

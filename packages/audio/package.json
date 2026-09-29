@@ -1,6 +1,6 @@
 {
   "name": "@af/audio",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "Le son : musique et bruitages synthétisés, placement des voix, mixage avec voix prioritaire, sonie −16 LUFS (BS.1770). Même code dans le navigateur et dans Node.",

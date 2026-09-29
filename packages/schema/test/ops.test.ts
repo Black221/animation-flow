@@ -141,7 +141,7 @@ describe('LiveDoc', () => {
       for (const c of clients) { expect(c.project).toEqual(server); expect(c.unconfirmed).toBe(0); }
       expect(parseProject(server).ok).toBe(true);
     }
-  });
+  }, 30_000); // 40 simulated sessions: about 3 s alone, more when the rendering tests share the machine
 
   it('keeps what the user typed when a change from someone else arrives', () => {
     const sent: LiveClientMsg[] = [], causes: string[] = [];

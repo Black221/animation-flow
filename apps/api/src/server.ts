@@ -7,7 +7,7 @@ import { installAuth } from './auth/context';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SecretBox } from './crypto';
-import type { Db } from './db';
+import { databaseUnavailable, type Db } from './db';
 import { projectRoutes } from './routes/projects';
 import { providerRoutes } from './routes/providers';
 import { renderRoutes } from './routes/renders';
@@ -27,6 +27,8 @@ import type { MailSetup } from './mail';
 import { QuotaError, quotas } from './plans';
 import { planRoutes } from './routes/plans';
 import { stripeClient, type StripeConfig, type StripeFetch } from './billing';
+import { readiness, type ReadyOptions } from './ready';
+import { VERSION } from './version';
 
 export interface ServerDeps {
   db: Db;
@@ -62,6 +64,8 @@ export interface ServerDeps {
   stripe?: StripeConfig | null;
   /** for Stripe (tests) */
   stripeFetch?: StripeFetch;
+  /** the readiness probe: the data folder to write to (default: voicesDir), FFmpeg's check (tests) */
+  ready?: Partial<ReadyOptions>;
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
@@ -82,12 +86,20 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.addHook('onClose', async () => { await hub.close(); });
   app.setErrorHandler((err: { statusCode?: number; message: string }, req, reply) => {
     if (err instanceof QuotaError) return reply.code(402).send(err.body);
+    // the database is out of reach: 503, so a load balancer tries another replica and a client knows to come back
+    if (databaseUnavailable(err)) { req.log.warn({ code: (err as { code?: string }).code }, 'database unavailable'); return reply.code(503).send({ error: 'service momentanément indisponible, réessayez dans un instant' }); }
     const code = err.statusCode && err.statusCode >= 400 && err.statusCode < 500 ? err.statusCode : 500;
     if (code === 500) req.log.error(err);
     reply.code(code).send({ error: code === 500 ? 'erreur interne' : err.message });
   });
 
-  app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true }));
+  // liveness (the process answers) and readiness (it can work: database, storage, FFmpeg); see ready.ts
+  app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true, ...VERSION }));
+  const ready = readiness(deps.db, { dataDir: deps.voicesDir, ...deps.ready });
+  app.get('/api/ready', { config: { auth: 'public' } }, async (_req, reply) => {
+    const checks = await ready(), ok = checks.database && checks.storage && checks.ffmpeg;
+    return reply.code(ok ? 200 : 503).header('cache-control', 'no-store').send({ ok, checks });
+  });
   authRoutes(app, deps.db, deps.signup ?? 'invite', deps.mail ?? null, hub);
   const imagesDir = deps.imagesDir ?? join(deps.voicesDir, '_images'), communityDir = deps.communityDir ?? join(deps.voicesDir, '_community');
   const quota = quotas(deps.db, { enabled: deps.plans ?? false, voicesDir: deps.voicesDir, imagesDir });

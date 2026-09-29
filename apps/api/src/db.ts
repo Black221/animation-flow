@@ -14,10 +14,20 @@ export interface Db extends Queryable {
   close(): Promise<void>;
 }
 
+/** the database cannot be reached (refused, closed, restarting): a request should get 503, not 500 */
+export function databaseUnavailable(e: unknown): boolean {
+  const { code, message } = (e ?? {}) as { code?: string; message?: string };
+  if (code && (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN', '57P01', '57P02', '57P03', '53300'].includes(code) || code.startsWith('08'))) return true;
+  return /^(Connection terminated|timeout exceeded when trying to connect|Client has encountered a connection error)/.test(message ?? '');
+}
+
 export async function openDb(opts: { url: string | null; dataDir?: string; memory?: boolean }): Promise<Db> {
   if (opts.url) {
     const { default: pg } = await import('pg');
     const pool = new pg.Pool({ connectionString: opts.url, max: 10 });
+    // an idle connection the server closes (restart, failover, administrator) is an event, not a crash: the pool drops
+    // it and the next query opens another; until the database is back, queries fail and /api/ready says so
+    pool.on('error', (e: Error & { code?: string }) => console.error(JSON.stringify({ level: 50, time: Date.now(), msg: 'database connection lost', code: e.code ?? null })));
     return {
       query: (sql, params) => pool.query(sql, params as unknown[]) as never,
       async tx(fn) {

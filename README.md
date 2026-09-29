@@ -263,11 +263,20 @@ part avec un lien construit sur `APP_URL`.
 | `STRIPE_SECRET_KEY` | `sk_…` : active le paiement des plans. Avec elle, les trois suivantes |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` : le secret de signature du webhook, à pointer sur `APP_URL/api/billing/webhook` (événements `checkout.session.completed`, `customer.subscription.*`, `invoice.payment_failed`) |
 | `STRIPE_PRICE_PREMIUM`, `STRIPE_PRICE_PRO` | `price_…` : le prix mensuel de chaque plan payant, créé dans Stripe |
+| `APP_COMMIT` | le commit de l'image (argument de construction : `docker build --build-arg APP_COMMIT=$(git rev-parse HEAD)`, ou `APP_COMMIT=… docker compose up --build`) ; donné par `/api/health` et affiché dans le pied du back-office. Sans elle, lu dans git en développement |
 
 Derrière un proxy inverse (nginx, Caddy, Traefik), laisser passer les WebSocket (`Upgrade`) sur
 `/api/projects/<id>/live` et transmettre `Host` (ou `X-Forwarded-Host`) : le serveur compare l'origine de la page à
 son propre nom. Plusieurs instances de l'API peuvent tourner derrière un répartiteur de charge, sans affinité : elles
 partagent l'édition en direct par PostgreSQL (il faut `DATABASE_URL` ; la base embarquée ne sert qu'un processus).
+Laisser passer 64 Mo sur `/api/uploads/` (images de 15 Mo, musiques de 60 Mo) avec des délais assez longs pour les
+envois lents, 10 Mo ailleurs : c'est ce que fait `deploy/nginx.conf`.
+
+Deux sondes : `GET /api/health` (vie : le processus répond ; donne aussi la version et le commit) et `GET /api/ready`
+(disponibilité : la base répond, `DATA_DIR` accepte une écriture, FFmpeg démarre ; 503 sinon, avec la vérification
+qui échoue). Le healthcheck de l'image Docker utilise `/api/ready`, et `deploy/nginx.conf` ne la laisse joindre que du
+réseau interne. nginx ne sonde rien lui-même : une réplique arrêtée (502) ou sans base (toute requête répond alors 503)
+laisse la requête à une autre, sans rejouer une écriture déjà envoyée.
 
 ## Générer avec l'IA
 
@@ -323,13 +332,15 @@ propose alors de télécharger le fichier).
 
 ## Vérifier
 
-GitHub Actions ne démarre pas de tâche sur ce compte pour l'instant : le workflow `.github/workflows/ci.yml` ne se
-lance qu'à la main. Tout se vérifie en local :
+Le workflow `.github/workflows/ci.yml` est prévu pour chaque pull request et chaque push sur `main` (et à la main) :
+typecheck, tests (PGlite puis PostgreSQL), build, bout en bout, audit des dépendances, et un job Docker (deux répliques
+derrière nginx, une image de 12 Mo envoyée à travers lui : `deploy/check-upload.sh`). Pour l'instant, GitHub ne démarre
+aucun job sur ce compte (compte bloqué pour un problème de facturation) : tout se vérifie en local :
 
 ```bash
 pnpm typecheck
 pnpm test                                    # schéma, moteur, styles (rendu Node), fournisseurs, API (PGlite)
-TEST_DATABASE_URL=postgres://… pnpm vitest run apps/api --no-file-parallelism   # l'API sur un vrai PostgreSQL (base effacée !)
+TEST_DATABASE_URL=postgres://… pnpm vitest run apps/api --no-file-parallelism   # l'API sur un vrai PostgreSQL (un schéma par base de test, supprimé ensuite)
 pnpm e2e                                     # éditeur complet dans Chromium (Playwright)
 CLUSTER_DATABASE_URL=postgres://… pnpm --filter @af/web e2e:cluster   # deux processus d'API, un navigateur sur chacun (base effacée !)
 pnpm --filter @af/styles still -- --style=watercolor --t=1,4,9   # images fixes dans out/stills

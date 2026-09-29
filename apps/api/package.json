@@ -1,6 +1,6 @@
 {
   "name": "@af/api",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "API : projets versionnés, clés d'API chiffrées, fournisseurs de modèles, bibliothèque.",
