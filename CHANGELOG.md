@@ -16,8 +16,9 @@ Première version numérotée : tout ce qui existe jusqu'ici, plus les correctif
 - Version et commit exposés par `GET /api/health` (application et back-office) et affichés dans le pied du back-office.
   L'image Docker reçoit le commit par `--build-arg APP_COMMIT=…`.
 - Ce journal des changements.
-- Intégration continue à chaque pull request et chaque push sur `main`, navigateur de Playwright en cache, `pnpm audit --prod` (niveau
-  high) en étape non bloquante, envoi d'une image de 12 Mo à travers nginx dans le job Docker.
+- Workflow d'intégration continue complété (navigateur de Playwright en cache, `pnpm audit --prod`, envoi d'une image
+  de 12 Mo à travers nginx dans le job Docker). Il ne se lance qu'à la main : l'intégration continue est reportée au
+  déploiement.
 
 ### Corrigé
 

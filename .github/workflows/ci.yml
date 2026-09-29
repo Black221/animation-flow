@@ -1,10 +1,9 @@
 name: CI
 
-# Every pull request, every push to main (and by hand). Locally: pnpm typecheck && pnpm test && pnpm build && pnpm e2e
+# By hand only for now: continuous integration is put off until the deployment (session 26 of docs/ORCHESTRATION.md),
+# which puts back `push: { branches: [main] }` and `pull_request:`. Locally: pnpm typecheck && pnpm test && pnpm build
+# && pnpm e2e, and the Docker job's steps (see below)
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:

@@ -332,10 +332,10 @@ propose alors de télécharger le fichier).
 
 ## Vérifier
 
-Le workflow `.github/workflows/ci.yml` est prévu pour chaque pull request et chaque push sur `main` (et à la main) :
-typecheck, tests (PGlite puis PostgreSQL), build, bout en bout, audit des dépendances, et un job Docker (deux répliques
-derrière nginx, une image de 12 Mo envoyée à travers lui : `deploy/check-upload.sh`). Pour l'instant, GitHub ne démarre
-aucun job sur ce compte (compte bloqué pour un problème de facturation) : tout se vérifie en local :
+Le workflow `.github/workflows/ci.yml` (typecheck, tests sur PGlite puis PostgreSQL, build, bout en bout, audit des
+dépendances, et un job Docker : deux répliques derrière nginx, une image de 12 Mo envoyée à travers lui avec
+`deploy/check-upload.sh`) ne se lance qu'à la main : l'intégration continue est reportée au déploiement. Tout se
+vérifie en local :
 
 ```bash
 pnpm typecheck
