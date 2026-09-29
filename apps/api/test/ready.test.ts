@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { secretBox } from '../src/crypto';
-import { openDb, type Db } from '../src/db';
+import { databaseUnavailable, openDb, type Db } from '../src/db';
 import { readiness } from '../src/ready';
 import { buildAdminServer } from '../src/admin/server';
 import { commitOf, VERSION } from '../src/version';
@@ -16,18 +16,19 @@ import pkg from '../package.json';
 import { openTestDb } from './testdb';
 
 // The database as the server sees it, which the test can cut: then every query fails, or never answers
-let real: Db, cut: 'no' | 'fails' | 'hangs' = 'no', ffmpeg = true, app: FastifyInstance;
+let real: Db, gone: Db, cut: 'no' | 'fails' | 'hangs' = 'no', ffmpeg = true, app: FastifyInstance;
 const dataDir = mkdtempSync(join(tmpdir(), 'af-ready-'));
 
 beforeAll(async () => {
   real = await openTestDb();
+  gone = await openDb({ url: 'postgres://af:af@127.0.0.1:1/af' }); // nothing listens there: the driver's own errors
   const db: Db = {
-    query: (sql, params) => cut === 'fails' ? Promise.reject(Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' })) : cut === 'hangs' ? new Promise(() => undefined) : real.query(sql, params),
+    query: (sql, params) => cut === 'fails' ? gone.query(sql, params) : cut === 'hangs' ? new Promise(() => undefined) : real.query(sql, params),
     tx: (fn) => real.tx(fn), listen: (c, f) => real.listen(c, f), close: () => real.close(),
   };
   app = await buildServer({ db, box: secretBox(randomBytes(32)), voicesDir: join(dataDir, 'voices'), ready: { dataDir, ffmpeg: async () => ffmpeg, timeoutMs: 300 } });
 });
-afterAll(async () => { cut = 'no'; await app.close(); await real.close(); });
+afterAll(async () => { cut = 'no'; await app.close(); await real.close(); await gone.close(); });
 
 const ready = async () => { const r = await app.inject('/api/ready'); return { status: r.statusCode, body: r.json(), cache: r.headers['cache-control'] }; };
 
@@ -53,7 +54,7 @@ describe('/api/ready', () => {
       const r = await app.inject({ method: 'POST', url: '/api/auth/signup', headers: { 'x-requested-with': 'animation-flow' }, payload: { email: 'a@example.org', name: 'A', password: 'mot-de-passe-solide-1' } });
       expect(r.statusCode).toBe(503);
       expect(r.json().error).toMatch(/indisponible/);
-      expect(r.body).not.toContain('5432');
+      expect(r.body).not.toContain('127.0.0.1');
     } finally { cut = 'no'; }
   });
 
@@ -114,6 +115,34 @@ describe('/api/ready with the real PostgreSQL driver', () => {
   it('says the database is down when nothing listens where it should be', async () => {
     const gone = await openDb({ url: 'postgres://af:af@127.0.0.1:1/af' });
     try { expect(await readiness(gone, { dataDir, ffmpeg: async () => true, timeoutMs: 2000 })()).toEqual({ database: false, storage: true, ffmpeg: true }); } finally { await gone.close(); }
+  });
+
+  it.skipIf(!process.env.TEST_DATABASE_URL)('survives the database closing a connection in the middle of a transaction', async () => {
+    const url = new URL(process.env.TEST_DATABASE_URL!);
+    url.searchParams.set('application_name', 'af-tx-cut');
+    const db = await openDb({ url: url.toString() }), admin = await openDb({ url: process.env.TEST_DATABASE_URL! });
+    try {
+      // the transaction holds its connection (out of the pool) between two queries while PostgreSQL closes it
+      const tx = db.tx(async (q) => { await q.query('SELECT 1'); await new Promise((r) => setTimeout(r, 1000)); await q.query('SELECT 2'); });
+      await new Promise((r) => setTimeout(r, 300));
+      await admin.query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'af-tx-cut'`);
+      const failure = await tx.then(() => null, (e: unknown) => e);
+      expect(failure).toBeTruthy();
+      expect(databaseUnavailable(failure)).toBe(true);
+      expect((await db.query<{ n: number }>('SELECT 3 AS n')).rows[0]!.n).toBe(3); // the next query gets a fresh connection
+    } finally { await db.close(); await admin.close(); }
+  });
+
+  it('tells a database outage from any other network error', async () => {
+    const gone = await openDb({ url: 'postgres://af:af@127.0.0.1:1/af' });
+    try {
+      const e = await gone.query('SELECT 1').then(() => null, (x: unknown) => x);
+      expect(databaseUnavailable(e)).toBe(true);
+      expect(databaseUnavailable(await gone.tx(async (q) => q.query('SELECT 1')).then(() => null, (x: unknown) => x))).toBe(true);
+    } finally { await gone.close(); }
+    // the same codes from a provider or the mail server are not the database's
+    expect(databaseUnavailable(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }))).toBe(false);
+    expect(databaseUnavailable(new Error('Connection terminated unexpectedly'))).toBe(false);
   });
 
   it.skipIf(!process.env.TEST_DATABASE_URL)('survives the database closing its connections, and is ready again right after', async () => {
