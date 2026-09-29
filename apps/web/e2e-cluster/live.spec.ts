@@ -1,5 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../e2e/fixtures';
 import { PORTS } from '../playwright.cluster.config';
+import { newProject } from '../e2e/auth';
 
 const [A, B] = PORTS.map((p) => `http://127.0.0.1:${p}`) as [string, string];
 
@@ -13,9 +14,8 @@ test('two people on two API processes edit the same project live', async ({ brow
   const inv = await (await olga.request.post('/api/workspace/invitations', { data: { role: 'editor' }, headers: { 'x-workspace-id': me.workspaces[0].id } })).json();
   expect((await lea.request.post('/api/auth/signup', { data: { email: 'lea@example.org', name: 'Léa', password: 'mot-de-passe-solide-3', invitation: inv.path.split('/').pop() } })).status()).toBe(201);
 
-  await olga.goto('/');
-  await olga.getByRole('button', { name: 'Créer' }).click();
-  await expect(olga).toHaveURL(/\/p\/[0-9a-f-]{36}$/);
+  // « Créer » on the home page now opens the AI brief (/create): a project from a template, as the other tests make it
+  await newProject(olga);
   await lea.goto(new URL(olga.url()).pathname);
 
   await expect(olga.getByTestId('peers')).toContainText('Léa');
@@ -25,6 +25,7 @@ test('two people on two API processes edit the same project live', async ({ brow
   await olga.getByLabel('Titre', { exact: true }).fill('Titre depuis A');
   await expect(lea.locator('.editor-bar h1')).toHaveText('Titre depuis A');
 
+  await lea.getByText('Code de la scène (JSON)').click(); // the scene's code is behind « advanced »
   const hers = lea.getByLabel('scène (JSON)');
   await hers.fill((await hers.inputValue()).replace('"title": "La carte avant le voyage"', '"title": "Carte depuis B"'));
   await expect(olga.locator('.scenes li button').first()).toContainText('Carte depuis B');

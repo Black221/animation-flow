@@ -1,5 +1,5 @@
 import { signedIn, newProject } from './auth';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';

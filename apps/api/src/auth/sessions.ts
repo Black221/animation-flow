@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../db';
+import { requestIsHttps } from '../net/headers';
 
 export const COOKIE = 'af_session';
 const DAYS = 30;
@@ -16,7 +17,7 @@ export function readCookie(req: FastifyRequest, name = COOKIE): string | null {
   return null;
 }
 
-const secure = (req: FastifyRequest) => process.env.COOKIE_SECURE === 'true' || (process.env.COOKIE_SECURE !== 'false' && (req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https'));
+const secure = (req: FastifyRequest) => process.env.COOKIE_SECURE === 'true' || (process.env.COOKIE_SECURE !== 'false' && requestIsHttps(req));
 export function setSessionCookie(req: FastifyRequest, reply: FastifyReply, token: string | null) {
   const attrs = ['Path=/', 'HttpOnly', 'SameSite=Lax', ...(secure(req) ? ['Secure'] : [])];
   reply.header('set-cookie', token ? `${COOKIE}=${encodeURIComponent(token)}; Max-Age=${DAYS * 86400}; ${attrs.join('; ')}` : `${COOKIE}=; Max-Age=0; ${attrs.join('; ')}`);

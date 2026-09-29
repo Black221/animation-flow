@@ -26,8 +26,12 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - name: Known vulnerabilities in production dependencies (not blocking yet)
+      # a known high or critical vulnerability in what the server runs stops the build; exceptions, each with its
+      # reason, go in package.json → pnpm.auditConfig.ignoreGhsas
+      - name: Known vulnerabilities in production dependencies (high and critical block)
         run: pnpm audit --prod --audit-level high
+      - name: Known vulnerabilities in development tools (reported, not blocking)
+        run: pnpm audit --audit-level high
         continue-on-error: true
       - run: pnpm typecheck
       - name: Unit and API tests (embedded PGlite)
@@ -63,6 +67,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build --build-arg APP_COMMIT=${{ github.sha }} -t animation-flow .
+      # Trivy, run from its own image (pinned): the image's system packages and Node modules, high and critical
+      # vulnerabilities that have a fix stop the build; then the inventory of its components (CycloneDX SBOM)
+      - name: Vulnerabilities in the image (Trivy)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy:0.69.1 image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 animation-flow
+      - name: Inventory of the image (SBOM, CycloneDX)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" -v "$PWD:/out" \
+            aquasec/trivy:0.69.1 image --format cyclonedx --output /out/sbom.cdx.json animation-flow
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.cdx.json
       - name: Two API replicas behind the load balancer, a 12 MB upload through it
         run: |
           export APP_ENCRYPTION_KEY=$(openssl rand -base64 32)

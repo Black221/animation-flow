@@ -59,6 +59,16 @@ export type TestResult = { ok: true; models: ModelInfo[] } | { ok: false; status
 export type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 const trimSlash = (s: string) => s.replace(/\/+$/, '');
+
+/** why a call failed, in words. The server's fetch refuses private addresses and oversized answers (apps/api/src/net/
+ *  safe-fetch.ts): its errors are known by name, so this package needs nothing from Node to recognise them. */
+function failure(e: unknown, who: 'fournisseur' | 'modèle'): string {
+  const { name, message } = (e ?? {}) as Error;
+  if (name === 'BlockedAddressError') return message;
+  if (name === 'ResponseTooLargeError') return `réponse du ${who} trop volumineuse`;
+  if (name === 'TimeoutError' || name === 'AbortError') return `pas de réponse du ${who} (délai dépassé)`;
+  return 'fournisseur injoignable';
+}
 const bearer = (key?: string): Record<string, string> => (key ? { Authorization: `Bearer ${key}` } : {});
 
 interface Probe { url: string; headers: Record<string, string>; models: (body: any) => ModelInfo[] }
@@ -83,7 +93,7 @@ function probe(p: ProviderInfo, c: CredentialInput): Probe {
 }
 
 /** Is this key accepted, and which models / voices does it give access to? */
-export async function testCredential(providerId: string, c: CredentialInput, fetchImpl: FetchLike = fetch as unknown as FetchLike, timeoutMs = 15000): Promise<TestResult> {
+export async function testCredential(providerId: string, c: CredentialInput, fetchImpl: FetchLike, timeoutMs = 15000): Promise<TestResult> {
   const p = providerById(providerId);
   if (!p) return { ok: false, error: `fournisseur inconnu : ${providerId}` };
   if (!c.apiKey && !p.keyOptional) return { ok: false, error: 'clé manquante' };
@@ -100,8 +110,7 @@ export async function testCredential(providerId: string, c: CredentialInput, fet
     const models = pr.models(await r.json()).sort((a, b) => a.id.localeCompare(b.id));
     return { ok: true, models };
   } catch (e) {
-    const name = (e as Error)?.name;
-    return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'pas de réponse du fournisseur (délai dépassé)' : 'fournisseur injoignable' };
+    return { ok: false, error: failure(e, 'fournisseur') };
   }
 }
 
@@ -129,7 +138,7 @@ export type SpeechResult = { ok: true; audio: Uint8Array; format: 'mp3' | 'wav' 
 export type PostFetch = (url: string, init: { method: 'POST'; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
 
 /** Say one line with a voice provider. The audio comes back as the provider sends it (MP3 or WAV); the caller decodes it. */
-export async function synthesize(providerId: string, c: CredentialInput, req: SpeechRequest, fetchImpl: PostFetch = fetch as unknown as PostFetch, timeoutMs = 60000): Promise<SpeechResult> {
+export async function synthesize(providerId: string, c: CredentialInput, req: SpeechRequest, fetchImpl: PostFetch, timeoutMs = 60000): Promise<SpeechResult> {
   const p = providerById(providerId);
   if (!p || !p.kinds.includes('tts') || !p.tts) return { ok: false, error: `${p?.label ?? providerId} ne fait pas de synthèse vocale` };
   if (!c.apiKey) return { ok: false, error: 'clé manquante' };
@@ -161,8 +170,7 @@ export async function synthesize(providerId: string, c: CredentialInput, req: Sp
     if (audio.length < 64) return { ok: false, error: 'le fournisseur a renvoyé un son vide' };
     return { ok: true, audio, format };
   } catch (e) {
-    const name = (e as Error)?.name;
-    return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'pas de réponse du fournisseur (délai dépassé)' : 'fournisseur injoignable' };
+    return { ok: false, error: failure(e, 'fournisseur') };
   }
 }
 
@@ -196,7 +204,7 @@ const thinkers = new Set<string>();
  * needed it gets the low effort straight away afterwards. A model that answers within its budget is sent exactly
  * what it always was. Usage adds up the requests.
  */
-export async function complete(providerId: string, c: CredentialInput, req: CompletionRequest, fetchImpl: JsonPost = fetch as unknown as JsonPost, timeoutMs = 180000): Promise<CompletionResult> {
+export async function complete(providerId: string, c: CredentialInput, req: CompletionRequest, fetchImpl: JsonPost, timeoutMs = 180000): Promise<CompletionResult> {
   const p = providerById(providerId);
   if (!p || !p.kinds.includes('llm')) return { ok: false, error: `${p?.label ?? providerId} ne fournit pas de modèle de texte` };
   if (!c.apiKey && !p.keyOptional) return { ok: false, error: 'clé manquante' };
@@ -290,8 +298,7 @@ export async function complete(providerId: string, c: CredentialInput, req: Comp
     if (!r.text) return { ok: false, error: 'réponse vide du modèle' };
     return { ok: true, text: r.text, usage: spent };
   } catch (e) {
-    const name = (e as Error)?.name;
-    return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'pas de réponse du modèle (délai dépassé)' : 'fournisseur injoignable' };
+    return { ok: false, error: failure(e, 'modèle') };
   }
 }
 
@@ -307,7 +314,7 @@ export type ImageResult = { ok: true; data: Uint8Array; mediaType: 'image/png' |
 const mediaOf = (m: unknown): 'image/png' | 'image/jpeg' | 'image/webp' => (m === 'image/jpeg' || m === 'image/webp' ? m : 'image/png');
 
 /** Paint one picture with an image model: OpenAI images API, Gemini image models (generateContent), or Imagen (predict). */
-export async function generateImage(providerId: string, c: CredentialInput, req: ImageRequest, fetchImpl: JsonPost = fetch as unknown as JsonPost, timeoutMs = 240000): Promise<ImageResult> {
+export async function generateImage(providerId: string, c: CredentialInput, req: ImageRequest, fetchImpl: JsonPost, timeoutMs = 240000): Promise<ImageResult> {
   const p = providerById(providerId);
   if (!p || !p.kinds.includes('image') || !p.image) return { ok: false, error: `${p?.label ?? providerId} ne peint pas d'images` };
   if (!c.apiKey) return { ok: false, error: 'clé manquante' };
@@ -347,7 +354,6 @@ export async function generateImage(providerId: string, c: CredentialInput, req:
     if (bytes.length < 100) return { ok: false, error: 'image vide' };
     return { ok: true, data: bytes, mediaType: mediaOf(mediaType) };
   } catch (e) {
-    const name = (e as Error)?.name;
-    return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'pas de réponse du modèle (délai dépassé)' : 'fournisseur injoignable' };
+    return { ok: false, error: failure(e, 'modèle') };
   }
 }

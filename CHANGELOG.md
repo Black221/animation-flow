@@ -5,6 +5,18 @@ numéros de version : [Semantic Versioning](https://semver.org/lang/fr/).
 
 ## [Non publié]
 
+### Sécurité
+
+- Les adresses de fournisseurs ne peuvent plus viser le réseau du serveur (SSRF) : adresses privées, locales, de
+  lien local et de métadonnées refusées après résolution et à chaque redirection, connexion à l'adresse vérifiée,
+  délai et taille plafonnés. **À savoir** : une clé enregistrée vers un serveur local (Ollama sur `localhost`) cesse
+  de fonctionner tant que `ALLOW_PRIVATE_PROVIDERS=true` n'est pas mis sur un serveur privé.
+- En-têtes de sécurité sur l'application : `Content-Security-Policy` stricte, `Strict-Transport-Security` en HTTPS,
+  `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` ; le back-office reçoit la même CSP.
+- nodemailer 10 (corrige 12 vulnérabilités connues, dont 2 hautes). `pnpm audit --prod --audit-level high` bloquant,
+  analyse de l'image par Trivy et SBOM CycloneDX dans le workflow d'intégration continue (lancé à la main jusqu'au
+  déploiement).
+
 ## [0.9.0] - 2026-09-29
 
 Première version numérotée : tout ce qui existe jusqu'ici, plus les correctifs de l'étape A1 de `NEXT_PROMPTS.md`.

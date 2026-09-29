@@ -6,10 +6,8 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="robots" content="noindex, nofollow" />
     <title>Back-office · animation-flow</title>
-    <script>
-      // the chosen theme before the first paint (see @af/ui theme.ts)
-      try { var t = localStorage.getItem('af-theme'); if (t === 'light' || t === 'dark') { document.documentElement.setAttribute('data-theme', t); document.documentElement.style.colorScheme = t; } } catch (e) {}
-    </script>
+    <!-- the chosen theme before the first paint: a file, as the Content Security Policy runs no inline script -->
+    <script src="/theme.js"></script>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='8' fill='%2317171F'/><path d='M16 7l8 3v6c0 5-8 9-8 9s-8-4-8-9v-6z' fill='none' stroke='%239D8BFF' stroke-width='2.2' stroke-linejoin='round'/></svg>" />
   </head>
   <body>

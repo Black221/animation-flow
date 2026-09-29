@@ -1,5 +1,5 @@
 import { signedIn, newProject } from './auth';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('render a video from the editor, follow it, watch it', async ({ page }) => {
   await signedIn(page);

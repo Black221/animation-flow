@@ -37,6 +37,8 @@ export default defineConfig({
         PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: dataDir, WEB_DIST: 'dist',
         SMTP_URL: `smtp://127.0.0.1:${MAIL_SMTP}?ignoreTLS=true`, MAIL_FROM: 'animation-flow <noreply@example.org>', APP_URL: `http://127.0.0.1:${PORT}`,
         ADMIN_PORT: String(ADMIN_PORT), ADMIN_HOST: '127.0.0.1', ADMIN_DIST: '../admin/dist', ADMIN_SETUP_TOKEN, PLANS: 'on',
+        // generate.spec and voices.spec stand in for providers on 127.0.0.1; the refusal itself is tested in the API tests
+        ALLOW_PRIVATE_PROVIDERS: 'true',
       },
       reuseExistingServer: false,
       timeout: 60_000,

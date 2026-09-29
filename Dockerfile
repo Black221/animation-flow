@@ -15,6 +15,8 @@ RUN pnpm --filter @af/api deploy --prod --legacy /out
 FROM node:22-bookworm-slim
 # FFmpeg encodes the rendered frames into MP4
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+# the server runs with node alone: npm and corepack (and their own dependencies, with their known flaws) are left out
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 # the commit this image is built from (the build has no .git): docker build --build-arg APP_COMMIT=$(git rev-parse HEAD).
 # After FFmpeg, so that a new commit does not install it again
 ARG APP_COMMIT=

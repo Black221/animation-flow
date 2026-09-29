@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { signedIn, newProject } from './auth';
 
 test('two people edit the same project at once: changes, presence and autosave', async ({ page, browser }) => {

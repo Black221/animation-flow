@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { newProject, signedIn } from './auth';
 
 test('publish a film, watch it signed out, like it, remix it', async ({ page, browser }) => {

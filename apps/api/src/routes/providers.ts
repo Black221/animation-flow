@@ -16,7 +16,7 @@ const Url = z.string().url().refine((u) => /^https?:\/\//.test(u), 'adresse http
 const Input = z.object({ provider: z.string(), label: z.string().trim().min(1).max(80), apiKey: z.string().trim().min(1).max(4096).optional(), baseUrl: Url.optional() });
 const Patch = z.object({ label: z.string().trim().min(1).max(80).optional(), apiKey: z.string().trim().min(1).max(4096).optional(), baseUrl: Url.nullable().optional() });
 
-export function providerRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl?: FetchLike) {
+export function providerRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl: FetchLike) {
   const load = async (id: string, ws: string) => (await db.query<Row>('SELECT * FROM credentials WHERE id = $1 AND workspace_id = $2', [id, ws])).rows[0];
 
   app.get('/api/providers', { config: { auth: 'user' } }, async () => ({ providers: PROVIDERS, tasks: TASKS }));

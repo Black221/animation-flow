@@ -1,4 +1,5 @@
-import { expect, test, type Browser } from '@playwright/test';
+import { expect, test } from './fixtures';
+import type { Browser } from '@playwright/test';
 import { backOffice, signedIn } from './auth';
 
 const H = { 'x-requested-with': 'animation-flow' };

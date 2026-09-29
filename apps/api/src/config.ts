@@ -30,6 +30,8 @@
 //   STRIPE_SECRET_KEY          sk_… : enables paying for a plan (Checkout, customer portal). With it, all of:
 //   STRIPE_WEBHOOK_SECRET      whsec_… : the signing secret of the webhook pointed at APP_URL/api/billing/webhook
 //   STRIPE_PRICE_PREMIUM, STRIPE_PRICE_PRO   price_… : the monthly price of each paid plan
+//   ALLOW_PRIVATE_PROVIDERS    true: providers may be on private or local addresses (a private server with Ollama).
+//                              Off by default: a key's address could otherwise reach the server's own network
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
@@ -59,6 +61,8 @@ export interface Config {
   admin: { port: number; host: string; dist: string | null; allowedIps: string[]; setupToken: string | null } | null;
   /** the app's public address (APP_URL), when given */
   appUrl: string | null;
+  /** ALLOW_PRIVATE_PROVIDERS=true */
+  allowPrivateProviders: boolean;
 }
 
 /** all of the Stripe settings or none; the error names what is missing, never a value */
@@ -132,6 +136,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mail: mailConfig(env),
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     plans: env.PLANS !== 'off',
+    allowPrivateProviders: env.ALLOW_PRIVATE_PROVIDERS === 'true',
     stripe: stripeConfig(env),
     appUrl: (() => { try { const u = new URL(env.APP_URL ?? ''); return /^https?:$/.test(u.protocol) ? u.origin + u.pathname.replace(/\/+$/, '') : null; } catch { return null; } })(),
     admin: env.ADMIN_PORT === 'off' ? null : {
