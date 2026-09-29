@@ -122,8 +122,9 @@ route la place avant. Si vous préférez ouvrir plus tôt, déplacez le bloc 26 
 4. Verdict `APPROUVÉ` du `relecteur` (et de `securite` pour 🔒)
 5. Rapport final avec preuves, recopiées dans la PR ; case cochée dans `NEXT_PROMPTS.md`
 
-La CI GitHub (`.github/workflows/ci.yml`) ne démarre qu'à la main jusqu'à A1, qui la déclenche sur push et pull_request.
-Même après, si Actions ne lance toujours pas de tâche sur ce compte, ces portes locales restent la seule preuve.
+La CI GitHub (`.github/workflows/ci.yml`) est déclenchée par A1 sur chaque pull request et chaque push sur `main`, mais
+GitHub ne démarre aucun job tant que le compte est bloqué pour un problème de facturation : ces portes locales restent
+la seule preuve, et un « Fini quand » qui demande la CI verte reste « non vérifié » (case non cochée) jusque-là.
 
 ## Ce qui reste à l'humain
 

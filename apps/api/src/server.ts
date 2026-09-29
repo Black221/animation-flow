@@ -7,7 +7,7 @@ import { installAuth } from './auth/context';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SecretBox } from './crypto';
-import type { Db } from './db';
+import { databaseUnavailable, type Db } from './db';
 import { projectRoutes } from './routes/projects';
 import { providerRoutes } from './routes/providers';
 import { renderRoutes } from './routes/renders';
@@ -86,6 +86,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.addHook('onClose', async () => { await hub.close(); });
   app.setErrorHandler((err: { statusCode?: number; message: string }, req, reply) => {
     if (err instanceof QuotaError) return reply.code(402).send(err.body);
+    // the database is out of reach: 503, so a load balancer tries another replica and a client knows to come back
+    if (databaseUnavailable(err)) { req.log.warn({ code: (err as { code?: string }).code }, 'database unavailable'); return reply.code(503).send({ error: 'service momentanément indisponible, réessayez dans un instant' }); }
     const code = err.statusCode && err.statusCode >= 400 && err.statusCode < 500 ? err.statusCode : 500;
     if (code === 500) req.log.error(err);
     reply.code(code).send({ error: code === 500 ? 'erreur interne' : err.message });

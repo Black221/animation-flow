@@ -16,13 +16,16 @@ Première version numérotée : tout ce qui existe jusqu'ici, plus les correctif
 - Version et commit exposés par `GET /api/health` (application et back-office) et affichés dans le pied du back-office.
   L'image Docker reçoit le commit par `--build-arg APP_COMMIT=…`.
 - Ce journal des changements.
-- Intégration continue à chaque push et pull request, navigateur de Playwright en cache, `pnpm audit --prod` (niveau
+- Intégration continue à chaque pull request et chaque push sur `main`, navigateur de Playwright en cache, `pnpm audit --prod` (niveau
   high) en étape non bloquante, envoi d'une image de 12 Mo à travers nginx dans le job Docker.
 
 ### Corrigé
 
 - nginx coupait les envois de fichiers à 10 Mo alors que l'API accepte des images de 15 Mo et des musiques de 60 Mo :
   `/api/uploads/` accepte maintenant 64 Mo, avec des délais adaptés aux envois lents.
+- Une connexion que PostgreSQL ferme (redémarrage, bascule) faisait tomber le processus : elle est maintenant écartée
+  et la suivante rouverte. Tant que la base est injoignable, les requêtes répondent 503 au lieu de 500.
+- Tests de l'API sur PostgreSQL : une deuxième base de test effaçait la première ; chacune a maintenant son schéma.
 
 ### Déjà là avant la numérotation
 

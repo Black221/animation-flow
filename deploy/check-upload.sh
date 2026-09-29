@@ -19,8 +19,9 @@ PY
 size=$(wc -c < "$tmp/big.png"); echo "picture: $size bytes"
 [ "$size" -gt 12000000 ] || { echo "the picture is too small to prove anything"; exit 1; }
 
-curl -sf -c "$tmp/jar" -H 'x-requested-with: animation-flow' -H 'content-type: application/json' \
-  -d '{"email":"upload-check@example.org","name":"Upload check","password":"upload-check-password-1"}' "$base/api/auth/signup" > /dev/null
+signup=$(curl -s -o "$tmp/signup" -w '%{http_code}' -c "$tmp/jar" -H 'x-requested-with: animation-flow' -H 'content-type: application/json' \
+  -d '{"email":"upload-check@example.org","name":"Upload check","password":"upload-check-password-1"}' "$base/api/auth/signup")
+[ "$signup" = 201 ] || { echo "sign-up: HTTP $signup $(head -c 200 "$tmp/signup") (this check needs a fresh stack: its first account)"; exit 1; }
 code=$(curl -s -o "$tmp/out" -w '%{http_code}' -b "$tmp/jar" -H 'x-requested-with: animation-flow' -H 'content-type: image/png' \
   --data-binary @"$tmp/big.png" "$base/api/uploads/image")
 echo "upload: HTTP $code $(head -c 200 "$tmp/out")"

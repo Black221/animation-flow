@@ -68,7 +68,9 @@ services:
 
   # extra render workers (optional): no HTTP, they only take jobs from the queue
   worker:
-    build: .
+    build:
+      context: .
+      args: { APP_COMMIT: "${APP_COMMIT:-}" }
     profiles: ["workers"]
     depends_on:
       db:

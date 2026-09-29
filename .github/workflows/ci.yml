@@ -1,13 +1,14 @@
 name: CI
 
-# Every push and pull request (and by hand). Locally: pnpm typecheck && pnpm test && pnpm build && pnpm e2e
+# Every pull request, every push to main (and by hand). Locally: pnpm typecheck && pnpm test && pnpm build && pnpm e2e
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -74,4 +75,9 @@ jobs:
           test "$($compose ps app --format '{{.Health}}' | grep -c healthy)" = 2
           curl -sf localhost:3000/api/health | grep -q '"commit":"'"${GITHUB_SHA:0:12}"'"'
           deploy/check-upload.sh http://localhost:3000
-          $compose down -v
+      - name: What the stack said (on failure)
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.cluster.yml -f docker-compose.ci.yml logs --no-color --tail 200
+      - name: Stop the stack
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.cluster.yml -f docker-compose.ci.yml down -v

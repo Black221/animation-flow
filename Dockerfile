@@ -13,10 +13,11 @@ RUN pnpm build
 RUN pnpm --filter @af/api deploy --prod --legacy /out
 
 FROM node:22-bookworm-slim
-# the commit this image is built from (the build has no .git): docker build --build-arg APP_COMMIT=$(git rev-parse HEAD)
-ARG APP_COMMIT=
 # FFmpeg encodes the rendered frames into MP4
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+# the commit this image is built from (the build has no .git): docker build --build-arg APP_COMMIT=$(git rev-parse HEAD).
+# After FFmpeg, so that a new commit does not install it again
+ARG APP_COMMIT=
 # the back office listens on its own port (3001); docker-compose.yml publishes it on this machine only
 ENV APP_COMMIT=$APP_COMMIT NODE_ENV=production HOST=0.0.0.0 PORT=3000 WEB_DIST=/app/web DATA_DIR=/data ADMIN_HOST=0.0.0.0 ADMIN_PORT=3001 ADMIN_DIST=/app/admin
 WORKDIR /app

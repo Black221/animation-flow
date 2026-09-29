@@ -27,9 +27,9 @@ export function run(cmd: string, args: string[], signal?: AbortSignal): Promise<
 }
 
 /** whether FFmpeg can be started (`ffmpeg -version` exits 0 within `timeoutMs`); the readiness probe asks it */
-export function ffmpegAvailable(timeoutMs = 3000): Promise<boolean> {
+export function ffmpegAvailable(timeoutMs = 3000, bin = FFMPEG): Promise<boolean> {
   return new Promise((ok) => {
-    const p = spawn(FFMPEG, ['-hide_banner', '-version'], { stdio: 'ignore' });
+    const p = spawn(bin, ['-hide_banner', '-version'], { stdio: 'ignore' });
     const timer = setTimeout(() => { p.kill('SIGKILL'); ok(false); }, timeoutMs);
     p.on('error', () => { clearTimeout(timer); ok(false); });
     p.on('close', (code) => { clearTimeout(timer); ok(code === 0); });

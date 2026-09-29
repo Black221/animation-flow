@@ -274,7 +274,9 @@ envois lents, 10 Mo ailleurs : c'est ce que fait `deploy/nginx.conf`.
 
 Deux sondes : `GET /api/health` (vie : le processus répond ; donne aussi la version et le commit) et `GET /api/ready`
 (disponibilité : la base répond, `DATA_DIR` accepte une écriture, FFmpeg démarre ; 503 sinon, avec la vérification
-qui échoue). Le healthcheck de l'image Docker utilise `/api/ready`.
+qui échoue). Le healthcheck de l'image Docker utilise `/api/ready`, et `deploy/nginx.conf` ne la laisse joindre que du
+réseau interne. nginx ne sonde rien lui-même : une réplique arrêtée (502) ou sans base (toute requête répond alors 503)
+laisse la requête à une autre, sans rejouer une écriture déjà envoyée.
 
 ## Générer avec l'IA
 
@@ -330,9 +332,10 @@ propose alors de télécharger le fichier).
 
 ## Vérifier
 
-Le workflow `.github/workflows/ci.yml` tourne à chaque push et pull request (et à la main) : typecheck, tests (PGlite
-puis PostgreSQL), build, bout en bout, audit des dépendances, et un job Docker (deux répliques derrière nginx, une
-image de 12 Mo envoyée à travers lui : `deploy/check-upload.sh`). Tout se vérifie aussi en local :
+Le workflow `.github/workflows/ci.yml` est prévu pour chaque pull request et chaque push sur `main` (et à la main) :
+typecheck, tests (PGlite puis PostgreSQL), build, bout en bout, audit des dépendances, et un job Docker (deux répliques
+derrière nginx, une image de 12 Mo envoyée à travers lui : `deploy/check-upload.sh`). Pour l'instant, GitHub ne démarre
+aucun job sur ce compte (compte bloqué pour un problème de facturation) : tout se vérifie en local :
 
 ```bash
 pnpm typecheck

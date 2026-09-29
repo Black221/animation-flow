@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import pkg from '../package.json';
 
-function commitOf(env: NodeJS.ProcessEnv): string | null {
+export function commitOf(env: NodeJS.ProcessEnv): string | null {
   if (env.APP_COMMIT) return env.APP_COMMIT.slice(0, 12);
   try {
     return execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).toString().trim() || null;

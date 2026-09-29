@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { secretBox } from '../src/crypto';
-import type { Db } from '../src/db';
+import { openDb, type Db } from '../src/db';
+import { readiness } from '../src/ready';
+import { buildAdminServer } from '../src/admin/server';
+import { commitOf, VERSION } from '../src/version';
+import { ffmpegAvailable } from '@af/render';
+import { spawnSync } from 'node:child_process';
 import { buildServer } from '../src/server';
 import pkg from '../package.json';
 import { openTestDb } from './testdb';
@@ -17,7 +22,7 @@ const dataDir = mkdtempSync(join(tmpdir(), 'af-ready-'));
 beforeAll(async () => {
   real = await openTestDb();
   const db: Db = {
-    query: (sql, params) => cut === 'fails' ? Promise.reject(new Error('connection terminated')) : cut === 'hangs' ? new Promise(() => undefined) : real.query(sql, params),
+    query: (sql, params) => cut === 'fails' ? Promise.reject(Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' })) : cut === 'hangs' ? new Promise(() => undefined) : real.query(sql, params),
     tx: (fn) => real.tx(fn), listen: (c, f) => real.listen(c, f), close: () => real.close(),
   };
   app = await buildServer({ db, box: secretBox(randomBytes(32)), voicesDir: join(dataDir, 'voices'), ready: { dataDir, ffmpeg: async () => ffmpeg, timeoutMs: 300 } });
@@ -40,6 +45,16 @@ describe('/api/ready', () => {
     expect(Date.now() - t0).toBeLessThan(2000);
     cut = 'no';
     expect((await ready()).status).toBe(200);
+  });
+
+  it('answers 503, not 500, to any request that finds the database out of reach', async () => {
+    cut = 'fails';
+    try {
+      const r = await app.inject({ method: 'POST', url: '/api/auth/signup', headers: { 'x-requested-with': 'animation-flow' }, payload: { email: 'a@example.org', name: 'A', password: 'mot-de-passe-solide-1' } });
+      expect(r.statusCode).toBe(503);
+      expect(r.json().error).toMatch(/indisponible/);
+      expect(r.body).not.toContain('5432');
+    } finally { cut = 'no'; }
   });
 
   it('answers 503 when the data folder takes no write, without saying where it is', async () => {
@@ -71,11 +86,48 @@ describe('/api/ready', () => {
 });
 
 describe('/api/health', () => {
-  it('says the version and the commit it runs', async () => {
+  it('says the version and the commit it runs, in the app and in the back office', async () => {
     const body = (await app.inject('/api/health')).json();
-    expect(body.ok).toBe(true);
+    expect(body).toEqual({ ok: true, version: '0.9.0', commit: VERSION.commit });
     expect(body.version).toBe(pkg.version);
-    expect(body.version).toBe('0.9.0');
-    expect(body).toHaveProperty('commit');
+    const admin = await buildAdminServer({ db: real, voicesDir: join(dataDir, 'v'), imagesDir: join(dataDir, 'i'), communityDir: join(dataDir, 'c') });
+    try { expect((await admin.inject('/api/health')).json()).toEqual({ ok: true, backOffice: true, version: '0.9.0', commit: VERSION.commit }); } finally { await admin.close(); }
+  });
+
+  it('takes the commit the image was built from, cut to 12 characters', () => {
+    expect(commitOf({ APP_COMMIT: '096a4d9bb56a0123456789abcdef0123456789ab' })).toBe('096a4d9bb56a');
+    expect(commitOf({ APP_COMMIT: 'abc' })).toBe('abc');
+  });
+});
+
+describe('ffmpegAvailable', () => {
+  it('is false when the binary is not there', async () => {
+    expect(await ffmpegAvailable(3000, '/nonexistent/ffmpeg')).toBe(false);
+  });
+  it.skipIf(!spawnSync('ffmpeg', ['-version']).stdout?.length)('is true with a working FFmpeg', async () => {
+    expect(await ffmpegAvailable(5000, 'ffmpeg')).toBe(true);
+  });
+});
+
+// The real driver, not a stand-in: a database that cannot be reached, and one that drops the connections it had
+describe('/api/ready with the real PostgreSQL driver', () => {
+  it('says the database is down when nothing listens where it should be', async () => {
+    const gone = await openDb({ url: 'postgres://af:af@127.0.0.1:1/af' });
+    try { expect(await readiness(gone, { dataDir, ffmpeg: async () => true, timeoutMs: 2000 })()).toEqual({ database: false, storage: true, ffmpeg: true }); } finally { await gone.close(); }
+  });
+
+  it.skipIf(!process.env.TEST_DATABASE_URL)('survives the database closing its connections, and is ready again right after', async () => {
+    const url = new URL(process.env.TEST_DATABASE_URL!);
+    url.searchParams.set('application_name', 'af-ready-cut');
+    const db = await openDb({ url: url.toString() }), admin = await openDb({ url: process.env.TEST_DATABASE_URL! });
+    try {
+      const probe = readiness(db, { dataDir, ffmpeg: async () => true });
+      expect((await probe()).database).toBe(true); // the pool keeps that connection, idle
+      // what a restart of PostgreSQL does to it: 57P01, terminating connection due to administrator command
+      const cut = await admin.query<{ n: string }>(`SELECT count(pg_terminate_backend(pid)) AS n FROM pg_stat_activity WHERE application_name = 'af-ready-cut'`);
+      expect(Number(cut.rows[0]!.n)).toBeGreaterThan(0);
+      await new Promise((r) => setTimeout(r, 300));
+      expect((await probe()).database).toBe(true); // a fresh connection; the process is still there to answer
+    } finally { await db.close(); await admin.close(); }
   });
 });
