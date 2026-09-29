@@ -24,9 +24,9 @@ pnpm --filter @af/render render -- --out=out/film.mp4 --style=flat --width=1280
 ```
 
 Un test hors de `packages/*/test/` ou `apps/*/test/` n'est pas lancé par `pnpm test` ; les tests de bout en bout vont
-dans `apps/web/e2e/`. La CI GitHub ne démarre qu'à la main (`workflow_dispatch`) : les portes locales sont la preuve.
-Les gardes du moteur (images dorées, déterminisme 1 morceau contre 4, benchmark) n'existent pas encore : M0a/M0b les
-créent et **doivent ajouter leurs commandes exactes à cette section** en clôture.
+dans `apps/web/e2e/`. Jusqu'à A1, la CI GitHub ne démarre qu'à la main (`workflow_dispatch`) : les portes locales sont la preuve.
+Les gardes du moteur (empreintes des modèles de projets, images dorées, déterminisme 1 morceau contre 4, benchmark)
+n'existent pas encore : M0a et M0b les créent et **doivent ajouter leurs commandes exactes à cette section** en clôture.
 
 ## Règles non négociables
 
@@ -77,7 +77,7 @@ Une session traite 1 à 3 lots de `NEXT_PROMPTS.md` (tableau des sessions dans `
    branche, la base (`main`), l'identifiant du lot et son « Fini quand » copié tel quel. **Jamais** tes explications
    ni ton raisonnement : ils jugent le code, pas ton récit. Corrige tout « bloquant » et « majeur » (sécurité :
    « critique » et « haute ») ; deux tours au plus, puis arrête-toi et demande à l'humain.
-6. **Clôture** : coche la ligne dans `NEXT_PROMPTS.md`, mets à jour les docs, commite, pousse, ouvre la PR (une par
+6. **Clôture** : coche la case du lot dans le tableau « Suivi » de `NEXT_PROMPTS.md` (même commit que le travail), mets à jour les docs, commite, pousse, ouvre la PR (une par
    lot, ou une pour le groupe sur une branche imposée) avec les preuves des portes dans sa description. Ne fusionne
    jamais toi-même. Commite et pousse avant de passer au lot suivant : une session interrompue doit pouvoir reprendre
    depuis le dépôt seul (tu ne peux pas lancer `/compact` toi-même).

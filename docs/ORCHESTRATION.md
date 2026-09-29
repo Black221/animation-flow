@@ -16,8 +16,9 @@ contexte vide, sans rien du raisonnement de l'auteur. Chaque session de travail 
 
 ## Avant la session 1
 
-- Versionner `NEXT_PROMPTS.md` (à la racine), `docs/FEUILLE_DE_ROUTE.md` et `docs/moteur/plan.html` : les agents s'y
-  réfèrent et s'arrêtent s'ils manquent. `docs/adr/` est créé par la première ADR.
+- `NEXT_PROMPTS.md`, `docs/FEUILLE_DE_ROUTE.md` et `docs/moteur/plan.html` sont versionnés : les agents s'y réfèrent
+  et s'arrêtent si l'un manque. `docs/adr/` est créé par la première ADR. Le « préambule commun » de `NEXT_PROMPTS.md`
+  n'est plus à coller : `CLAUDE.md` le remplace, `/lot` donne le prompt.
 - Session sur le web (Claude Code dans le navigateur) : l'environnement impose sa branche `claude/…` ; le groupe de lots
   y est commité (un commit au moins par lot) et donne une PR. En local : une branche `lot/<ID>` et une PR par lot.
 - Le conteneur d'une session sur le web est neuf : `pnpm install` d'abord. FFmpeg n'y est pas forcément : sans lui, les
@@ -100,7 +101,8 @@ Sessions 1 → 2, puis 3 → 5 (moteur 0 et 1) et 6 → 11 (étape B) peuvent to
 sauf si elles touchent un fichier partagé, qui se modifie une session à la fois :
 - `packages/schema/src/` (le format) ;
 - `packages/ai/src/pipeline.ts` (la génération) ;
-- `packages/styles/src/output.ts` (la composition des sorties ; et `composite.ts` si le moteur 5 le crée) ;
+- `packages/styles/src/output.ts` (la composition des sorties) et `packages/styles/src/composite.ts` (le compositeur
+  commun, créé par M0b, repris par M5c et M5d) ;
 - `apps/api/src/db.ts` : les migrations sont numérotées par leur place dans `MIGRATIONS` ; deux branches qui en
   ajoutent une chacune donnent deux migrations au même numéro. La seconde à fusionner renumérote la sienne.
 
@@ -115,13 +117,13 @@ route la place avant. Si vous préférez ouvrir plus tôt, déplacez le bloc 26 
 1. `pnpm typecheck && pnpm test` (et l'API sur PostgreSQL avec `TEST_DATABASE_URL` si le SQL change)
 2. `pnpm e2e` si l'interface ou l'API change, avec captures regardées ; `e2e:cluster` si l'édition en direct change
 3. Moteur : images dorées, déterminisme (20 images, 1 morceau contre 4), benchmark (échec au-delà de +15 %).
-   Ces gardes sont **créées par M0a/M0b** (qui inscrivent leurs commandes dans `CLAUDE.md`) ; avant, le déterminisme
+   Ces gardes sont **créées par M0a (empreintes) et M0b (bancs)**, qui inscrivent leurs commandes dans `CLAUDE.md` ; avant, le déterminisme
    repose sur `packages/styles/test/render.test.ts` et `packages/render/test/render.test.ts`, plus des images fixes regardées
 4. Verdict `APPROUVÉ` du `relecteur` (et de `securite` pour 🔒)
 5. Rapport final avec preuves, recopiées dans la PR ; case cochée dans `NEXT_PROMPTS.md`
 
-La CI GitHub (`.github/workflows/ci.yml`) ne démarre qu'à la main tant qu'Actions ne lance pas de tâche sur ce compte :
-ces portes locales sont la seule preuve. Dès qu'Actions fonctionne, remettre `push:` et `pull_request:` dans le workflow.
+La CI GitHub (`.github/workflows/ci.yml`) ne démarre qu'à la main jusqu'à A1, qui la déclenche sur push et pull_request.
+Même après, si Actions ne lance toujours pas de tâche sur ce compte, ces portes locales restent la seule preuve.
 
 ## Ce qui reste à l'humain
 
