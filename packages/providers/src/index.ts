@@ -182,78 +182,113 @@ export interface Usage { inputTokens: number; outputTokens: number }
 export type CompletionResult = { ok: true; text: string; usage: Usage } | { ok: false; status?: number; error: string };
 export type JsonPost = (url: string, init: { method: 'POST'; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
+/** models seen reasoning past their budget, whose server takes the setting: asked to reason less from then on */
+const thinkers = new Set<string>();
+
 /**
  * One call to a text model. With `json`, the answer is JSON text: Anthropic through a forced tool whose input
  * is the schema, OpenAI through json_schema, Gemini, Mistral and OpenRouter through JSON mode (the schema is also
  * in the prompt), a local compatible server through the prompt alone. The caller validates what comes back.
+ *
+ * An answer cut at the token limit goes out once more with twice the room. When the model showed it reasons (a
+ * reasoning field or reasoning tokens in the reply) or answered nothing at all, that second request also asks for a
+ * low reasoning effort in its dialect, and goes again without it if the server refuses the setting; a model that
+ * needed it gets the low effort straight away afterwards. A model that answers within its budget is sent exactly
+ * what it always was. Usage adds up the requests.
  */
 export async function complete(providerId: string, c: CredentialInput, req: CompletionRequest, fetchImpl: JsonPost = fetch as unknown as JsonPost, timeoutMs = 180000): Promise<CompletionResult> {
   const p = providerById(providerId);
   if (!p || !p.kinds.includes('llm')) return { ok: false, error: `${p?.label ?? providerId} ne fournit pas de modèle de texte` };
   if (!c.apiKey && !p.keyOptional) return { ok: false, error: 'clé manquante' };
   if (!req.model) return { ok: false, error: 'aucun modèle choisi (Réglages → Fournisseurs)' };
-  const base = trimSlash(c.baseUrl || p.defaultBaseUrl || ''), max = req.maxTokens ?? 8000;
-  let url: string, headers: Record<string, string>, body: unknown;
-  let read: (b: any) => { text: string | null; usage: Usage };
+  const base = trimSlash(c.baseUrl || p.defaultBaseUrl || ''), max = req.maxTokens ?? 8000, seen = `${p.id} ${base} ${req.model}`;
+  // Anthropic only reasons when asked to (never here); Mistral has no setting for it
+  const canLower = p.id !== 'anthropic' && p.id !== 'mistral';
+  // `cut`: the answer stopped at the token limit; `thought`: the model reasoned before answering
+  type Reply = { text: string | null; usage: Usage; cut: boolean; thought: boolean };
   // the chat-completions dialects put images next to the text; Mistral takes the data URL as a plain string
   const chatContent = (m: ChatMessage) => (m.images?.length
     ? [{ type: 'text', text: m.content }, ...m.images.map((im) => { const url = `data:${im.mediaType};base64,${im.data}`; return { type: 'image_url', image_url: p.id === 'mistral' ? url : { url } }; })]
     : m.content);
-  const chat = (format: unknown) => ({
-    model: req.model,
-    messages: [{ role: 'system', content: req.system }, ...req.messages.map((m) => ({ role: m.role, content: chatContent(m) }))],
-    ...(format ? { response_format: format } : {}),
-    [p.id === 'openai' ? 'max_completion_tokens' : 'max_tokens']: max,
-  });
-  const readChat = (b: any) => ({ text: b?.choices?.[0]?.message?.content ?? null, usage: { inputTokens: b?.usage?.prompt_tokens ?? 0, outputTokens: b?.usage?.completion_tokens ?? 0 } });
-  switch (p.id) {
-    case 'anthropic':
-      url = `${base}/v1/messages`;
-      headers = { 'x-api-key': c.apiKey!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
-      body = {
-        model: req.model, max_tokens: max, system: req.system,
-        messages: req.messages.map((m) => ({ role: m.role, content: m.images?.length ? [...m.images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mediaType, data: im.data } })), { type: 'text', text: m.content }] : m.content })),
-        ...(req.json ? { tools: [{ name: req.json.name, description: 'Return the result through this tool.', input_schema: req.json.schema }], tool_choice: { type: 'tool', name: req.json.name } } : {}),
-      };
-      read = (b) => {
-        const blocks: any[] = b?.content ?? [], tool = blocks.find((x) => x?.type === 'tool_use');
-        return { text: tool ? JSON.stringify(tool.input) : blocks.filter((x) => x?.type === 'text').map((x) => x.text).join('') || null, usage: { inputTokens: b?.usage?.input_tokens ?? 0, outputTokens: b?.usage?.output_tokens ?? 0 } };
-      };
-      break;
-    case 'google':
-      url = `${base}/models/${encodeURIComponent(req.model)}:generateContent`;
-      headers = { 'x-goog-api-key': c.apiKey!, 'content-type': 'application/json' };
-      body = {
-        systemInstruction: { parts: [{ text: req.system }] },
-        contents: req.messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [...(m.images ?? []).map((im) => ({ inline_data: { mime_type: im.mediaType, data: im.data } })), { text: m.content }] })),
-        generationConfig: { maxOutputTokens: max, ...(req.json ? { responseMimeType: 'application/json' } : {}) },
-      };
-      read = (b) => ({ text: (b?.candidates?.[0]?.content?.parts ?? []).map((x: any) => x?.text ?? '').join('') || null, usage: { inputTokens: b?.usageMetadata?.promptTokenCount ?? 0, outputTokens: b?.usageMetadata?.candidatesTokenCount ?? 0 } });
-      break;
-    case 'openai':
-      url = `${base}/chat/completions`;
-      headers = { ...bearer(c.apiKey), 'content-type': 'application/json' };
-      body = chat(req.json ? { type: 'json_schema', json_schema: { name: req.json.name, schema: req.json.schema, strict: false } } : null);
-      read = readChat;
-      break;
-    case 'openai-compatible': // local servers differ in what they accept: the prompt asks for JSON
-      url = `${base}/chat/completions`;
-      headers = { ...bearer(c.apiKey), 'content-type': 'application/json' };
-      body = chat(null);
-      read = readChat;
-      break;
-    default: // mistral, openrouter
-      url = `${base}/chat/completions`;
-      headers = { ...bearer(c.apiKey), 'content-type': 'application/json' };
-      body = chat(req.json ? { type: 'json_object' } : null);
-      read = readChat;
-  }
+  const readChat = (b: any): Reply => {
+    const ch = b?.choices?.[0], msg = ch?.message;
+    return {
+      text: msg?.content ?? null, usage: { inputTokens: b?.usage?.prompt_tokens ?? 0, outputTokens: b?.usage?.completion_tokens ?? 0 }, cut: ch?.finish_reason === 'length',
+      thought: !!(msg?.reasoning_content || msg?.reasoning || b?.usage?.completion_tokens_details?.reasoning_tokens),
+    };
+  };
+  const request = (budget: number, low: boolean): { url: string; headers: Record<string, string>; body: unknown; read: (b: any) => Reply } => {
+    const chat = (format: unknown) => ({
+      model: req.model,
+      messages: [{ role: 'system', content: req.system }, ...req.messages.map((m) => ({ role: m.role, content: chatContent(m) }))],
+      ...(format ? { response_format: format } : {}),
+      [p.id === 'openai' ? 'max_completion_tokens' : 'max_tokens']: budget,
+      ...(low ? (p.id === 'openrouter' ? { reasoning: { effort: 'low' } } : { reasoning_effort: 'low' }) : {}),
+    });
+    const chatHeaders = { ...bearer(c.apiKey), 'content-type': 'application/json' };
+    switch (p.id) {
+      case 'anthropic':
+        return {
+          url: `${base}/v1/messages`,
+          headers: { 'x-api-key': c.apiKey!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+          body: {
+            model: req.model, max_tokens: budget, system: req.system,
+            messages: req.messages.map((m) => ({ role: m.role, content: m.images?.length ? [...m.images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mediaType, data: im.data } })), { type: 'text', text: m.content }] : m.content })),
+            ...(req.json ? { tools: [{ name: req.json.name, description: 'Return the result through this tool.', input_schema: req.json.schema }], tool_choice: { type: 'tool', name: req.json.name } } : {}),
+          },
+          read: (b) => {
+            const blocks: any[] = b?.content ?? [], tool = blocks.find((x) => x?.type === 'tool_use');
+            return {
+              text: tool ? JSON.stringify(tool.input) : blocks.filter((x) => x?.type === 'text').map((x) => x.text).join('') || null,
+              usage: { inputTokens: b?.usage?.input_tokens ?? 0, outputTokens: b?.usage?.output_tokens ?? 0 }, cut: b?.stop_reason === 'max_tokens', thought: blocks.some((x) => x?.type === 'thinking'),
+            };
+          },
+        };
+      case 'google':
+        return {
+          url: `${base}/models/${encodeURIComponent(req.model)}:generateContent`,
+          headers: { 'x-goog-api-key': c.apiKey!, 'content-type': 'application/json' },
+          body: {
+            systemInstruction: { parts: [{ text: req.system }] },
+            contents: req.messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [...(m.images ?? []).map((im) => ({ inline_data: { mime_type: im.mediaType, data: im.data } })), { text: m.content }] })),
+            generationConfig: { maxOutputTokens: budget, ...(req.json ? { responseMimeType: 'application/json' } : {}), ...(low ? { thinkingConfig: { thinkingBudget: 1024 } } : {}) },
+          },
+          read: (b) => ({
+            text: (b?.candidates?.[0]?.content?.parts ?? []).filter((x: any) => !x?.thought).map((x: any) => x?.text ?? '').join('') || null,
+            usage: { inputTokens: b?.usageMetadata?.promptTokenCount ?? 0, outputTokens: (b?.usageMetadata?.candidatesTokenCount ?? 0) + (b?.usageMetadata?.thoughtsTokenCount ?? 0) },
+            cut: b?.candidates?.[0]?.finishReason === 'MAX_TOKENS', thought: !!b?.usageMetadata?.thoughtsTokenCount,
+          }),
+        };
+      case 'openai':
+        return { url: `${base}/chat/completions`, headers: chatHeaders, body: chat(req.json ? { type: 'json_schema', json_schema: { name: req.json.name, schema: req.json.schema, strict: false } } : null), read: readChat };
+      case 'openai-compatible': // local servers differ in what they accept: the prompt asks for JSON
+        return { url: `${base}/chat/completions`, headers: chatHeaders, body: chat(null), read: readChat };
+      default: // mistral, openrouter
+        return { url: `${base}/chat/completions`, headers: chatHeaders, body: chat(req.json ? { type: 'json_object' } : null), read: readChat };
+    }
+  };
+  const send = async (budget: number, low: boolean) => {
+    const q = request(budget, low);
+    const r = await fetchImpl(q.url, { method: 'POST', headers: q.headers, body: JSON.stringify(q.body), signal: AbortSignal.timeout(timeoutMs) });
+    return r.ok ? { ok: true as const, ...q.read(await r.json()) } : { ok: false as const, status: r.status };
+  };
   try {
-    const r = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
+    let budget = max, r = await send(budget, canLower && thinkers.has(seen));
+    const spent: Usage = { inputTokens: 0, outputTokens: 0 };
+    const add = (u: Usage) => { spent.inputTokens += u.inputTokens; spent.outputTokens += u.outputTokens; };
+    if (r.ok) add(r.usage);
+    if (r.ok && r.cut) {
+      const low = canLower && (r.thought || !r.text);
+      budget = Math.min(max * 2, 32000);
+      r = await send(budget, low);
+      if (r.ok && low) thinkers.add(seen);
+      else if (!r.ok && r.status === 400 && low) r = await send(budget, false); // the server does not know the setting
+      if (r.ok) add(r.usage);
+    }
     if (!r.ok) return { ok: false, status: r.status, error: describeStatus(r.status) };
-    const { text, usage } = read(await r.json());
-    if (!text) return { ok: false, error: 'réponse vide du modèle' };
-    return { ok: true, text, usage };
+    if (!r.text && r.cut) return { ok: false, error: `réponse vide : le modèle a passé toute sa limite de ${budget} tokens à raisonner, même invité à raisonner moins ; choisissez un modèle sans raisonnement` };
+    if (!r.text) return { ok: false, error: 'réponse vide du modèle' };
+    return { ok: true, text: r.text, usage: spent };
   } catch (e) {
     const name = (e as Error)?.name;
     return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'pas de réponse du modèle (délai dépassé)' : 'fournisseur injoignable' };

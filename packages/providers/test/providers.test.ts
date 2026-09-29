@@ -168,6 +168,76 @@ describe('complete', () => {
   });
 });
 
+describe('complete: answers cut at the token limit', () => {
+  // one reply per request, in order; the model ids differ from test to test, since a model that needed a low effort
+  // keeps it for the rest of the process
+  const replies = (...bodies: [unknown, number?][]) => {
+    const f = vi.fn(async () => { const [b, status = 200] = bodies[Math.min(f.mock.calls.length - 1, bodies.length - 1)]!; return { ok: status < 400, status, json: async () => b }; });
+    return f;
+  };
+  const sent = (f: ReturnType<typeof vi.fn>) => f.mock.calls.map((c) => JSON.parse((c as unknown as [string, { body: string }])[1].body));
+  const req = (model: string) => ({ model, system: 'S', messages: [{ role: 'user' as const, content: 'go' }] });
+  const chat = (content: string | null, finish: string, extra: Record<string, unknown> = {}, tokens = 10) => ({ choices: [{ message: { content, ...extra }, finish_reason: finish }], usage: { prompt_tokens: 5, completion_tokens: tokens } });
+  const local = { baseUrl: 'http://x/v1' };
+
+  it('sends a model that answers within its budget exactly what it always did', async () => {
+    const f = replies([chat('{"a":1}', 'stop')]);
+    expect(await complete('openai-compatible', local, req('plain'), f as never)).toEqual({ ok: true, text: '{"a":1}', usage: { inputTokens: 5, outputTokens: 10 } });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(sent(f)[0]).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('asks a reasoning model that spent its budget thinking to reason less, with twice the room, then from the start', async () => {
+    const f = replies([chat(null, 'length', { reasoning_content: '…' }, 8000)], [chat('{"a":1}', 'stop', { reasoning_content: '.' }, 900)]);
+    expect(await complete('openai-compatible', local, req('glm'), f as never)).toEqual({ ok: true, text: '{"a":1}', usage: { inputTokens: 10, outputTokens: 8900 } });
+    const [first, second] = sent(f);
+    expect(first).not.toHaveProperty('reasoning_effort');
+    expect(second).toMatchObject({ reasoning_effort: 'low', max_tokens: 16000 });
+    // the next call goes out with the low effort straight away
+    const g = replies([chat('{"b":2}', 'stop')]);
+    await complete('openai-compatible', local, req('glm'), g as never);
+    expect(g).toHaveBeenCalledTimes(1);
+    expect(sent(g)[0]).toMatchObject({ reasoning_effort: 'low', max_tokens: 8000 });
+  });
+
+  it('drops the setting when the server refuses it, and does not keep it', async () => {
+    const f = replies([chat(null, 'length', {}, 8000)], [{}, 400], [chat('{"a":1}', 'stop')]);
+    expect(await complete('openai-compatible', local, req('strict'), f as never)).toMatchObject({ ok: true, text: '{"a":1}' });
+    expect(sent(f).map((b) => [b.reasoning_effort, b.max_tokens])).toEqual([[undefined, 8000], ['low', 16000], [undefined, 16000]]);
+    const g = replies([chat('{"b":2}', 'stop')]);
+    await complete('openai-compatible', local, req('strict'), g as never);
+    expect(sent(g)[0]).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('gives a model that does not reason more room for a truncated answer, and nothing else', async () => {
+    const f = replies([chat('{"scenes":[{"a"', 'length')], [chat('{"scenes":[]}', 'stop')]);
+    expect(await complete('openai', { apiKey: 'k' }, req('gpt-plain'), f as never)).toMatchObject({ ok: true, text: '{"scenes":[]}' });
+    expect(sent(f).map((b) => [b.reasoning_effort, b.max_completion_tokens])).toEqual([[undefined, 8000], [undefined, 16000]]);
+  });
+
+  it('says plainly when even that is not enough', async () => {
+    const f = replies([chat(null, 'length', { reasoning_content: '…' }, 8000)]);
+    expect(await complete('openai-compatible', local, req('endless'), f as never)).toEqual({ ok: false, error: expect.stringContaining('limite de 16000 tokens à raisonner') });
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it('speaks each dialect: OpenRouter, Gemini, and only more room for Anthropic', async () => {
+    const or = replies([chat(null, 'length', { reasoning: '…' })], [chat('{}', 'stop')]);
+    await complete('openrouter', { apiKey: 'k' }, req('or-thinker'), or as never);
+    expect(sent(or)[1]).toMatchObject({ reasoning: { effort: 'low' }, max_tokens: 16000 });
+
+    const gem = replies([{ candidates: [{ content: { parts: [] }, finishReason: 'MAX_TOKENS' }], usageMetadata: { promptTokenCount: 5, thoughtsTokenCount: 8000 } }],
+      [{ candidates: [{ content: { parts: [{ text: '{}' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 3, thoughtsTokenCount: 500 } }]);
+    expect(await complete('google', { apiKey: 'k' }, req('gemini-thinker'), gem as never)).toEqual({ ok: true, text: '{}', usage: { inputTokens: 10, outputTokens: 8503 } });
+    expect(sent(gem)[1].generationConfig).toMatchObject({ maxOutputTokens: 16000, thinkingConfig: { thinkingBudget: 1024 } });
+
+    const ant = replies([{ content: [{ type: 'text', text: '{"a"' }], stop_reason: 'max_tokens' }], [{ content: [{ type: 'text', text: '{}' }], stop_reason: 'end_turn' }]);
+    await complete('anthropic', { apiKey: 'k' }, req('claude-x'), ant as never);
+    expect(sent(ant)[1]).toMatchObject({ max_tokens: 16000 });
+    expect(Object.keys(sent(ant)[1])).not.toContain('thinking');
+  });
+});
+
 describe('generateImage', () => {
   const png = Buffer.alloc(300, 7).toString('base64');
   const call = (f: ReturnType<typeof vi.fn<JsonPost>>) => ({ url: f.mock.calls[0]![0], body: JSON.parse(f.mock.calls[0]![1].body), headers: f.mock.calls[0]![1].headers });
