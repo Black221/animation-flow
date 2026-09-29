@@ -17,7 +17,7 @@ import { openTestDb } from './testdb';
 let db: Db, app: FastifyInstance, admin: FastifyInstance;
 const dir = () => mkdtempSync(join(tmpdir(), 'af-paths-'));
 /** the same path, with one letter of /api/ encoded in each possible way */
-const disguises = (path: string) => [path, path.replace('/api/', '/%61pi/'), path.replace('/api/', '/a%70i/'), path.replace('/api/', '/ap%69/'), path.replace('/api/', '/%61%70%69/'), path.replace('/api/', '/%61PI/'.toLowerCase())];
+const disguises = (path: string) => [path, path.replace('/api/', '/%61pi/'), path.replace('/api/', '/a%70i/'), path.replace('/api/', '/ap%69/'), path.replace('/api/', '/%61%70%69/'), path.replace('/api/', '/a%70%69/')];
 
 beforeAll(async () => {
   db = await openTestDb();

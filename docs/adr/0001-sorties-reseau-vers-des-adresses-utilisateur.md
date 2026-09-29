@@ -36,7 +36,8 @@ demanderait d'ajouter la dépendance `undici`. `node:http`, `node:https`, `node:
    (SNI, crochets IPv6 et certificat à refaire soi-même).
 3. **Politique d'adresses** (`net.BlockList`, adresses IPv4 dans IPv6 ramenées à IPv4) : 0/8, 10/8, 100.64/10, 127/8,
    169.254/16, 172.16/12, 192.0.0/24, 192.168/16, 198.18/15, 224/4, 240/4 ; `::`, `::1`, `fc00::/7`, `fe80::/10`,
-   `fec0::/10`, `ff00::/8`, `64:ff9b::/96`, `2002::/16`, `2001::/32` (ces trois derniers transportent une IPv4) ; et les
+   `fec0::/10`, `ff00::/8`, `64:ff9b:1::/48`, `2001::/32` (NAT64 local et Teredo : une IPv4 cachée) ; `64:ff9b::/96`
+   et `2002::/16` sont jugés d'après l'IPv4 qu'ils portent ; et les
    noms `localhost`, `*.localhost`, `metadata.google.internal`, `metadata.goog`, `metadata`. Seuls `http:` et `https:`.
    `ALLOW_PRIVATE_PROVIDERS=true` (lu dans `apps/api/src/config.ts`, désactivé par défaut) laisse passer les adresses
    privées et locales, jamais le lien local (169.254/16, fe80::/10, `fd00:ec2::254`) ni les noms de métadonnées, ni les

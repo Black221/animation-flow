@@ -35,7 +35,7 @@ domaine, avocat, Stripe). Ils sont marqués **« À fournir »** : réunir ces �
 | Prompt | Sujet | Fait |
 |---|---|---|
 | A1 | Correctifs rapides et intégration continue | [ ] |
-| A2 | Sécurité express : SSRF, en-têtes, audit des dépendances | [ ] |
+| A2 | Sécurité express : SSRF, en-têtes, audit des dépendances | [x] |
 | A3 | Surveillance : journaux, métriques, erreurs, alertes | [ ] |
 | A4 | Déploiement : environnements, HTTPS, secrets, mise en production | [ ] |
 | A5 | Sauvegardes et restauration | [ ] |

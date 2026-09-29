@@ -49,12 +49,16 @@ for (const [net, bits] of [
   ['::', 96], ['::ffff:0:0:0', 96], ['fc00::', 7], ['fe80::', 10], ['fec0::', 10], ['ff00::', 8], ['100::', 64],
   ['64:ff9b:1::', 48], ['2001::', 32], ['2001:db8::', 32],
 ] as const) blocked.addSubnet(net, bits, 'ipv6');
-// never, even on a private server that lets providers be local: the cloud's metadata service (instance credentials)
-// and link-local addresses, where it lives
+// never, even on a private server that lets providers be local: the clouds' metadata services (instance credentials),
+// the link-local addresses most of them live on, Alibaba's and Oracle's, Azure's WireServer (a public address), and the
+// IPv6 forms whose IPv4 is hidden or translated elsewhere (local-use NAT64, Teredo)
 const always = new BlockList();
 always.addSubnet('169.254.0.0', 16, 'ipv4');
+for (const a of ['100.100.100.200', '192.0.0.192', '168.63.129.16']) always.addAddress(a, 'ipv4');
 always.addSubnet('fe80::', 10, 'ipv6');
 always.addAddress('fd00:ec2::254', 'ipv6');
+always.addSubnet('64:ff9b:1::', 48, 'ipv6');
+always.addSubnet('2001::', 32, 'ipv6');
 const METADATA_NAMES = new Set(['metadata', 'metadata.google.internal', 'metadata.goog']);
 
 /** the 8 groups of an IPv6 address, as numbers (the address is known to be valid) */
@@ -70,15 +74,16 @@ function groups6(a: string): number[] {
 
 const v4 = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
 
-/** may this server connect to that address? IPv4 carried in IPv6 (::ffff:a.b.c.d, NAT64 64:ff9b::a.b.c.d, 6to4
- *  2002:aabb:ccdd::) is judged as that IPv4. `allowPrivate` (ALLOW_PRIVATE_PROVIDERS) lets private and local addresses
+/** may this server connect to that address? IPv4 carried in IPv6 (::ffff:a.b.c.d, the old ::a.b.c.d, translated
+ *  ::ffff:0:a.b.c.d, NAT64 64:ff9b::a.b.c.d, 6to4 2002:aabb:ccdd::) is judged as that IPv4. `allowPrivate` (ALLOW_PRIVATE_PROVIDERS) lets private and local addresses
  *  through, never link-local ones (the cloud's metadata service) */
 export function addressAllowed(address: string, allowPrivate = false): boolean {
   const v = isIP(address);
   if (v === 4) return !always.check(address, 'ipv4') && (allowPrivate || !blocked.check(address, 'ipv4'));
   if (v !== 6) return false;
   const g = groups6(address);
-  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return addressAllowed(v4(g[6]!, g[7]!), allowPrivate);
+  if (g.slice(0, 5).every((x) => x === 0) && (g[5] === 0xffff || g[5] === 0)) return addressAllowed(v4(g[6]!, g[7]!), allowPrivate);
+  if (g.slice(0, 4).every((x) => x === 0) && g[4] === 0xffff && g[5] === 0) return addressAllowed(v4(g[6]!, g[7]!), allowPrivate);
   if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0)) return addressAllowed(v4(g[6]!, g[7]!), allowPrivate);
   if (g[0] === 0x2002) return addressAllowed(v4(g[1]!, g[2]!), allowPrivate);
   return !always.check(address, 'ipv6') && (allowPrivate || !blocked.check(address, 'ipv6'));
@@ -86,7 +91,9 @@ export function addressAllowed(address: string, allowPrivate = false): boolean {
 
 const refuse = (host: string) => new BlockedAddressError(`adresse refusée : ${host} est une adresse privée, locale ou réservée (un serveur privé peut les autoriser avec ALLOW_PRIVATE_PROVIDERS=true)`);
 
-/** the resolver does not know the call's signal: the wait for it ends with the call (a slow DNS cannot hold it longer) */
+/** the resolver does not know the call's signal: the wait for it ends with the call (a slow DNS cannot hold it longer).
+ *  The lookup itself goes on in one of libuv's threads until the system gives up; limiting how often a key is tested
+ *  (lot B1) bounds that */
 const until = <T>(p: Promise<T>, signal: AbortSignal) => new Promise<T>((ok, bad) => {
   const stop = () => bad(signal.reason);
   if (signal.aborted) return stop();

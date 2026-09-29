@@ -13,6 +13,7 @@
       "groupName": "correctifs (patch)",
       "automerge": true,
       "automergeType": "pr",
+      "minimumReleaseAge": "3 days",
       "platformAutomerge": false
     },
     {

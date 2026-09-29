@@ -22,7 +22,9 @@ describe('address policy', () => {
   });
   it('lets a private server reach private and local addresses, never the cloud metadata service', () => {
     for (const a of ['127.0.0.1', '10.0.0.8', '192.168.1.20', '::1', 'fd12::5']) expect(addressAllowed(a, true), a).toBe(true);
-    for (const a of ['169.254.169.254', '::ffff:169.254.169.254', 'fe80::1', 'fd00:ec2::254', '64:ff9b::a9fe:a9fe']) expect(addressAllowed(a, true), a).toBe(false);
+    for (const a of ['169.254.169.254', '::ffff:169.254.169.254', 'fe80::1', 'fd00:ec2::254', '64:ff9b::a9fe:a9fe', '::a9fe:a9fe', '::ffff:0:a9fe:a9fe',
+      '64:ff9b:1::a9fe:a9fe', '2001:0:4136:e378:8000:63bf:3fff:fdd2', '100.100.100.200', '192.0.0.192', '168.63.129.16']) expect(addressAllowed(a, true), a).toBe(false);
+    expect(addressAllowed('168.63.129.16'), 'Azure WireServer, even by default').toBe(false);
   });
   it('accepts public addresses', () => {
     for (const a of ['93.184.216.34', '8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::6810:84e5', '::ffff:8.8.8.8']) expect(addressAllowed(a), a).toBe(true);
