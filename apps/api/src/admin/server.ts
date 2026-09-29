@@ -16,6 +16,7 @@ import type { StripeConfig } from '../billing';
 import type { Db, Queryable } from '../db';
 import { QuotaError, quotas } from '../plans';
 import { adminRoutes, audit } from './routes';
+import { VERSION } from '../version';
 
 export const ADMIN_COOKIE = 'af_admin';
 export const ADMIN_CSRF = 'animation-flow-admin';
@@ -136,7 +137,7 @@ export async function buildAdminServer(deps: AdminServerDeps): Promise<FastifyIn
   const me = async (id: string) => (await db.query<{ id: string; name: string; email: string }>('SELECT id, name, email FROM staff WHERE id = $1', [id])).rows[0]!;
 
   const fails = new Limiter(5), failsByIp = new Limiter(20), setups = new Limiter(10);
-  app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true, backOffice: true }));
+  app.get('/api/health', { config: { auth: 'public' } }, async () => ({ ok: true, backOffice: true, ...VERSION }));
   app.get('/api/auth/me', { config: { auth: 'public' } }, async (req) => ({ user: req.ctx ? { id: req.ctx.user.id, name: req.ctx.user.name, email: req.ctx.user.email } : null, appUrl: req.ctx ? deps.appUrl ?? null : null, setup: !req.ctx && (await noManager()) }));
 
   app.post('/api/auth/login', { config: { auth: 'public' } }, async (req, reply) => {

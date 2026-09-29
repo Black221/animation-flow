@@ -346,7 +346,8 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 - **Migrations** : un verrou consultatif PostgreSQL les fait passer une à une quand plusieurs processus démarrent
   ensemble.
 - **Déploiement à plusieurs processus** : `docker-compose.cluster.yml` met nginx (`deploy/nginx.conf` : WebSocket,
-  `Host` transmis, connexions longues, répliques suivies par le DNS de Docker) devant `--scale app=N`, avec
+  `Host` transmis, connexions longues, répliques suivies par le DNS de Docker, 64 Mo sur `/api/uploads/` et 10 Mo
+  ailleurs, une réplique qui répond 503 laissée pour une autre) devant `--scale app=N`, avec
   `TRUST_PROXY=true` pour que l'API voie l'adresse du client. Vérifié dans Docker avec deux répliques, un worker et
   quatre navigateurs.
 - **Client** (`LiveDoc`, partagé par l'éditeur et les tests) : il applique tout de suite ce que l'utilisateur tape,
@@ -392,7 +393,8 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
 
 | route | rôle |
 |---|---|
-| `GET /api/health` | état (sans compte) |
+| `GET /api/health` | vie (sans compte) : `ok`, `version`, `commit` |
+| `GET /api/ready` | disponibilité (sans compte) : base, écriture dans `DATA_DIR`, FFmpeg (vérifié une fois par minute au plus) ; 503 si l'un manque (`apps/api/src/ready.ts`) |
 | `GET /api/auth/me`, `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, `PATCH /api/auth/me` | compte : état, inscription, connexion, déconnexion, nom et mot de passe |
 | `GET /api/invitations/:token`, `POST /api/invitations/:token/accept` | invitation : ce qu'elle donne ; l'accepter une fois connecté |
 | `POST /api/auth/forgot`, `GET/POST /api/auth/reset/:token` | mot de passe oublié (e-mail configuré) : demander un lien ; voir le compte du lien ; choisir le nouveau mot de passe |

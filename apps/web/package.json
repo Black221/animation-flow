@@ -1,6 +1,6 @@
 {
   "name": "@af/web",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "L'éditeur : projets, aperçu en direct dans chaque style, scènes, frise, réglages des fournisseurs.",

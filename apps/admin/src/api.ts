@@ -49,6 +49,8 @@ export interface Manager { id: string; name: string; email: string; createdAt: s
 export interface ManagerInvitation { id: string; email: string; createdAt: string; expiresAt: string; by: string | null }
 
 export const Api = {
+  /** what the server runs: its version and commit */
+  health: () => api<{ ok: boolean; version: string; commit: string | null }>('/api/health'),
   me: () => api<{ user: Admin | null; appUrl?: string | null; setup?: boolean }>('/api/auth/me'),
   setup: (b: { token: string; email: string; name: string; password: string }) => api<{ user: Admin }>('/api/setup', { method: 'POST', body: b }),
   invitation: (token: string) => api<{ email: string; expiresAt: string }>(`/api/join/${encodeURIComponent(token)}`),

@@ -69,7 +69,9 @@ function PasswordDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
 function Layout() {
   const { admin, signOut } = useAdmin(), [drawer, setDrawer] = useState(false), loc = useLocation(), [pw, setPw] = useState(false);
+  const [running, setRunning] = useState<{ version: string; commit: string | null } | null>(null);
   useEffect(() => setDrawer(false), [loc.pathname]);
+  useEffect(() => { Api.health().then(setRunning, () => undefined); }, []);
   return (
     <div className={`bo-layout${drawer ? ' drawer-open' : ''}`}>
       <div className="bo-side-wrap"><Sidebar onNavigate={() => setDrawer(false)} /></div>
@@ -90,6 +92,7 @@ function Layout() {
           <PasswordDialog open={pw} onClose={() => setPw(false)} />
         </header>
         <main className="bo-page"><Outlet /></main>
+        {running && <footer className="bo-foot">animation-flow {running.version}{running.commit && <> · <code>{running.commit}</code></>}</footer>}
       </div>
     </div>
   );

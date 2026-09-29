@@ -22,7 +22,10 @@ services:
     restart: unless-stopped
 
   app:
-    build: .
+    build:
+      context: .
+      # shown by /api/health and in the back office: APP_COMMIT=$(git rev-parse HEAD) docker compose up --build
+      args: { APP_COMMIT: "${APP_COMMIT:-}" }
     depends_on:
       db:
         condition: service_healthy

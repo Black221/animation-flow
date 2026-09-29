@@ -26,6 +26,16 @@ export function run(cmd: string, args: string[], signal?: AbortSignal): Promise<
   });
 }
 
+/** whether FFmpeg can be started (`ffmpeg -version` exits 0 within `timeoutMs`); the readiness probe asks it */
+export function ffmpegAvailable(timeoutMs = 3000): Promise<boolean> {
+  return new Promise((ok) => {
+    const p = spawn(FFMPEG, ['-hide_banner', '-version'], { stdio: 'ignore' });
+    const timer = setTimeout(() => { p.kill('SIGKILL'); ok(false); }, timeoutMs);
+    p.on('error', () => { clearTimeout(timer); ok(false); });
+    p.on('close', (code) => { clearTimeout(timer); ok(code === 0); });
+  });
+}
+
 export type VideoCodec = 'h264' | 'vp9';
 /** the encoder's options: H.264 (MP4, and the intermediate of a GIF) or VP9 (WebM, constant quality, all cores) */
 const CODEC: Record<VideoCodec, (crf: number, preset: string) => string[]> = {

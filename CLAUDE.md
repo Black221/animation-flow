@@ -16,7 +16,7 @@ pnpm install                  # d'abord, si node_modules manque (conteneur neuf)
 pnpm typecheck                # tsc sur tout le dépôt
 pnpm test                     # vitest : packages/*/test et apps/*/test (API sur PGlite) ; FFmpeg requis (rendu, son, voix)
 pnpm vitest run packages/styles            # un seul paquet
-TEST_DATABASE_URL=postgres://… pnpm vitest run apps/api --no-file-parallelism   # vrai PostgreSQL (base effacée !)
+TEST_DATABASE_URL=postgres://… pnpm vitest run apps/api --no-file-parallelism   # vrai PostgreSQL (un schéma par test)
 pnpm e2e                      # construit web + admin, puis Playwright (Chromium de /opt/pw-browsers ou CHROMIUM_PATH)
 CLUSTER_DATABASE_URL=postgres://… pnpm --filter @af/web e2e:cluster   # deux processus d'API (base effacée !)
 pnpm --filter @af/styles still -- --style=watercolor --t=1,4,9          # images fixes dans out/stills, à regarder
