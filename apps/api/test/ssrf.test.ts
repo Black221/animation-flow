@@ -24,7 +24,7 @@ beforeAll(async () => {
   local = createServer((_req, res) => { hits++; res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data: [{ id: 'llama3' }] })); });
   await new Promise<void>((done) => local.listen(0, '127.0.0.1', done));
   port = (local.address() as AddressInfo).port;
-});
+}, 60_000); // three databases migrated in WebAssembly: seconds each beside the rendering tests
 afterAll(async () => { for (const a of apps) await a.close(); for (const d of dbs) await d.close(); await new Promise((done) => local.close(done)); });
 
 async function serverOn(i: number, allowPrivateProviders: boolean) {
