@@ -865,3 +865,7 @@ button.like.on { color: var(--accent-2); border-color: color-mix(in srgb, var(--
 .provided-chip img { width: 28px; height: 28px; object-fit: contain; border-radius: 50%; background: repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 8px 8px; }
 .provided-thing { align-items: center; }
 .provided-thumb { width: 56px; height: 56px; object-fit: contain; border-radius: 10px; background: repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 10px 10px; }
+.models > .opt-label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.provided-thing > textarea { flex: 1 1 100%; order: 5; }
+.provided-thing > input[aria-label^="voix"] { order: 6; }
+.provided-thing > button.ghost { order: 4; margin-left: auto; }

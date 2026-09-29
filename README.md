@@ -355,6 +355,8 @@ pnpm --filter @af/styles exec tsx scripts/formats.ts --style=neon  # le même fi
 
 Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+Le moteur en schémas (fonctionnement, échanges avec le modèle d'IA, améliorations prévues) : [docs/moteur/moteur.html](docs/moteur/moteur.html). Son plan d'implémentation (7 phases, 57 lots, calendrier, format v2, tests, risques) : [docs/moteur/plan.html](docs/moteur/plan.html). Ce sont des pages autonomes, à ouvrir dans un navigateur.
+
 ## Feuille de route
 
 1. **Fondations** (fait) : format, moteur, deux styles, éditeur avec aperçu, fournisseurs et clés, Docker.
@@ -365,7 +367,8 @@ Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 6. **Travail d'équipe** (fait) : édition à plusieurs en temps réel, commentaires sur les scènes, invitations et mot de passe oublié par e-mail.
 7. **Communauté, plans et paiements** (fait) : publier, remixer, signaler ; plans et limites par espace, paiement Stripe, administration de la plateforme.
 8. **Styles et formats** (fait) : quatre styles de plus (papier découpé, crayonné, bande dessinée, néon) ; vertical, carré et portrait recadrés en suivant l'action ; MP4, WebM et GIF ; sous-titres incrustés.
-9. **Ensuite** : modèles de projets.
+9. **Modèles pour l'IA** (fait) : images, musique, textes et projets joints au prompt, comme modèles ; plus d'import après coup.
+10. **Ensuite** : rendre la plateforme stable, déployée et ouverte au public, avec tout ce qu'il reste à faire, par priorité et par étape de lancement, dans [docs/FEUILLE_DE_ROUTE.md](docs/FEUILLE_DE_ROUTE.md). Le plan du moteur d'animation est dans [docs/moteur/plan.html](docs/moteur/plan.html). Les prompts prêts à coller pour chaque session de travail, dans l'ordre, sont dans [NEXT_PROMPTS.md](NEXT_PROMPTS.md).
 
 ## Crédits
 
