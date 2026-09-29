@@ -81,8 +81,8 @@ export function drawImage(ctx: Ctx2D, p: ImagePrim, images?: RenderOptions['imag
 export const picturesReady = (decor: FrameDecor, images?: RenderOptions['images']) => decor.still.filter((p) => p.kind === 'image').map((p) => (images?.((p as ImagePrim).src) ? '1' : '0')).join('');
 
 /** the narration line in the lower band, as in a subtitled film. In a tall frame (a vertical video made from a 16:9
- *  film) the characters fill the bottom half: the line goes above them, in the middle (clear of the titles at the top
- *  and of the buttons phone apps lay over the bottom), on a soft dark backing. `anchorY`: where the last line sits. */
+ *  film) the line sits where the reframing placed it (`subtitle.y`: clear of faces and titles), in the middle by
+ *  default, on a soft dark backing. `anchorY`: where the last line sits. */
 export function drawSubtitle(ctx: Ctx2D, frame: Frame, fonts: Record<FontRole, string>, anchorY?: number) {
   if (!frame.subtitle) return;
   const { width: W, height: H } = frame, tall = H / W > 1.2, size = Math.round(Math.min(H * 0.034, W * 0.05)), text = (frame.subtitle.speaker ? frame.subtitle.speaker.toUpperCase() + ' — ' : '') + frame.subtitle.text;
@@ -91,7 +91,7 @@ export function drawSubtitle(ctx: Ctx2D, frame: Frame, fonts: Record<FontRole, s
   const words = text.split(' '), lines: string[] = []; let cur = '';
   for (const w of words) { const next = cur ? cur + ' ' + w : w; if (ctx.measureText(next).width > W * (tall ? 0.84 : 0.8) && cur) { lines.push(cur); cur = w; } else cur = next; }
   if (cur) lines.push(cur);
-  const lh = size * 1.3, y0 = (anchorY ?? H * (tall ? 0.44 : 0.945)) - (lines.length - 1) * lh;
+  const lh = size * 1.3, y0 = (anchorY ?? H * (tall ? frame.subtitle.y ?? 0.44 : 0.945)) - (lines.length - 1) * lh;
   if (tall && anchorY == null) {
     const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + size * 1.2, bh = lines.length * lh + size * 0.6, bx = (W - bw) / 2, by = y0 - lh / 2 - size * 0.3, r = size * 0.5;
     ctx.fillStyle = 'rgba(12,14,24,0.42)'; ctx.beginPath();
