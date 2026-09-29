@@ -7,15 +7,22 @@ numéros de version : [Semantic Versioning](https://semver.org/lang/fr/).
 
 ### Sécurité
 
+- **Faille critique corrigée** : un chemin encodé (`/%61pi/admin/…`) atteignait les routes du back-office sans session
+  ni contrôle CSRF (lecture des comptes, suspension, changement de plan), et sans ligne au journal d'audit. Les
+  contrôles se décident maintenant sur la route trouvée.
+- Changer l'adresse d'une clé enregistrée demande de saisir la clé à nouveau : un administrateur d'espace ne peut
+  plus envoyer la clé du propriétaire vers un serveur à lui.
 - Les adresses de fournisseurs ne peuvent plus viser le réseau du serveur (SSRF) : adresses privées, locales, de
   lien local et de métadonnées refusées après résolution et à chaque redirection, connexion à l'adresse vérifiée,
   délai et taille plafonnés. **À savoir** : une clé enregistrée vers un serveur local (Ollama sur `localhost`) cesse
-  de fonctionner tant que `ALLOW_PRIVATE_PROVIDERS=true` n'est pas mis sur un serveur privé.
+  de fonctionner tant que `ALLOW_PRIVATE_PROVIDERS=true` n'est pas mis sur un serveur privé (qui n'ouvre jamais le
+  service de métadonnées du nuage).
 - En-têtes de sécurité sur l'application : `Content-Security-Policy` stricte, `Strict-Transport-Security` en HTTPS,
   `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` ; le back-office reçoit la même CSP.
 - nodemailer 10 (corrige 12 vulnérabilités connues, dont 2 hautes). `pnpm audit --prod --audit-level high` bloquant,
-  analyse de l'image par Trivy et SBOM CycloneDX dans le workflow d'intégration continue (lancé à la main jusqu'au
-  déploiement).
+  analyse de l'image par Trivy (épinglé par empreinte) et SBOM CycloneDX dans le workflow d'intégration continue
+  (lancé à la main jusqu'au déploiement) ; npm et corepack retirés de l'image. Configuration Renovate : mises à jour
+  hebdomadaires groupées, correctifs fusionnés seuls une fois la CI verte (l'application s'installe au déploiement).
 
 ## [0.9.0] - 2026-09-29
 

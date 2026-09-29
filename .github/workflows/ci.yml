@@ -6,6 +6,10 @@ name: CI
 on:
   workflow_dispatch:
 
+# the jobs read the repository and nothing else (no token to write with, whatever runs in them)
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
@@ -22,6 +26,7 @@ jobs:
           --health-cmd "pg_isready -U af -d af" --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with: { persist-credentials: false }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -66,21 +71,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { persist-credentials: false }
       - run: docker build --build-arg APP_COMMIT=${{ github.sha }} -t animation-flow .
-      # Trivy, run from its own image (pinned): the image's system packages and Node modules, high and critical
-      # vulnerabilities that have a fix stop the build; then the inventory of its components (CycloneDX SBOM)
-      - name: Vulnerabilities in the image (Trivy)
-        run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" \
-            aquasec/trivy:0.69.1 image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 animation-flow
+      # Trivy, run from its own image, pinned by digest (it gets the Docker socket: a moved tag would get the runner).
+      # First the inventory of the image's components (CycloneDX SBOM), kept even when the scan below fails; then high
+      # and critical vulnerabilities that have a fix, in its system packages and Node modules, stop the build
       - name: Inventory of the image (SBOM, CycloneDX)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" -v "$PWD:/out" \
-            aquasec/trivy:0.69.1 image --format cyclonedx --output /out/sbom.cdx.json animation-flow
+            aquasec/trivy:0.69.1@sha256:1c78ed1ef824ab8bb05b04359d186e4c1229d0b3e67005faacb54a7d71974f73 image --format cyclonedx --output /out/sbom.cdx.json animation-flow
       - uses: actions/upload-artifact@v4
         with:
           name: sbom-${{ github.sha }}
           path: sbom.cdx.json
+      - name: Vulnerabilities in the image (Trivy)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy:0.69.1@sha256:1c78ed1ef824ab8bb05b04359d186e4c1229d0b3e67005faacb54a7d71974f73 image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 animation-flow
       - name: Two API replicas behind the load balancer, a 12 MB upload through it
         run: |
           export APP_ENCRYPTION_KEY=$(openssl rand -base64 32)

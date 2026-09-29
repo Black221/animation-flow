@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Weekly dependency updates, grouped. Patches merge themselves once the CI is green; nothing merges without it (the CI comes back with the deployment, session 26; install the Renovate app then).",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Paris",
+  "schedule": ["before 7am on monday"],
+  "prConcurrentLimit": 5,
+  "ignoreTests": false,
+  "packageRules": [
+    {
+      "description": "Patches: one weekly pull request, merged by itself when every check passes",
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "groupName": "correctifs (patch)",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false
+    },
+    {
+      "description": "Minor versions: one weekly pull request, merged by a person",
+      "matchUpdateTypes": ["minor"],
+      "groupName": "versions mineures",
+      "automerge": false
+    },
+    {
+      "description": "Major versions: one pull request each, merged by a person",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ],
+  "vulnerabilityAlerts": { "labels": ["sécurité"], "schedule": ["at any time"] }
+}

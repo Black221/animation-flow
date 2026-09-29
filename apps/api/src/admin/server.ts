@@ -17,7 +17,7 @@ import type { Db, Queryable } from '../db';
 import { QuotaError, quotas } from '../plans';
 import { adminRoutes, audit } from './routes';
 import { VERSION } from '../version';
-import { requestIsHttps, securityHeaders } from '../net/headers';
+import { isApiRequest, requestIsHttps, securityHeaders } from '../net/headers';
 
 export const ADMIN_COOKIE = 'af_admin';
 export const ADMIN_CSRF = 'animation-flow-admin';
@@ -106,11 +106,11 @@ export async function buildAdminServer(deps: AdminServerDeps): Promise<FastifyIn
   securityHeaders(app, { referrer: 'no-referrer' });
   app.addHook('onRequest', async (req, reply) => {
     // nothing of it is cached (the security headers, net/headers.ts, are set just before)
-    if (req.url.startsWith('/api/')) reply.header('cache-control', 'no-store');
+    if (isApiRequest(req)) reply.header('cache-control', 'no-store');
     if (!ipAllowed(req.ip, allowed)) return reply.code(403).send({ error: 'adresse non autorisée' });
   });
   app.addHook('preHandler', async (req, reply) => {
-    if (!req.url.startsWith('/api/')) return;
+    if (!isApiRequest(req)) return; // on the route, never on the raw path (see net/headers.ts)
     const cfg = (req.routeOptions.config ?? {}) as RouteAuth;
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-requested-with'] !== ADMIN_CSRF) return reply.code(403).send({ error: 'requête refusée (en-tête x-requested-with manquant)' });
     const token = readCookie(req, ADMIN_COOKIE);
@@ -268,7 +268,7 @@ export async function buildAdminServer(deps: AdminServerDeps): Promise<FastifyIn
   if (deps.adminDist && existsSync(deps.adminDist)) {
     const { default: fastifyStatic } = await import('@fastify/static');
     await app.register(fastifyStatic, { root: deps.adminDist, wildcard: false });
-    app.setNotFoundHandler((req, reply) => (req.url.startsWith('/api/') || req.method !== 'GET' ? reply.code(404).send({ error: 'introuvable' }) : reply.sendFile('index.html')));
+    app.setNotFoundHandler((req, reply) => (isApiRequest(req) || req.method !== 'GET' ? reply.code(404).send({ error: 'introuvable' }) : reply.sendFile('index.html')));
   } else app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'introuvable' }));
   return app;
 }

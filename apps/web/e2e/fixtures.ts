@@ -1,6 +1,7 @@
 // The tests' `test` and `expect`: Playwright's, plus a guard that runs in every test. Any page the test opens (in its
 // own context or in one it makes) that breaks the Content Security Policy fails the test: the editor, rendering, the
-// AI, the community, video playback and the back office must all work under it.
+// AI, the community, video playback and the back office must all work under it. Documents only: a violation inside a
+// Web Worker (the mixing worker, pdf.js) that the worker catches reaches no console here; keep such code free of eval.
 import { test as base, expect, type Browser, type BrowserContext } from '@playwright/test';
 
 export { expect };

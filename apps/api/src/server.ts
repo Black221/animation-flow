@@ -29,7 +29,7 @@ import { planRoutes } from './routes/plans';
 import { stripeClient, type StripeConfig, type StripeFetch } from './billing';
 import { readiness, type ReadyOptions } from './ready';
 import { safeFetch } from './net/safe-fetch';
-import { securityHeaders } from './net/headers';
+import { isApiRequest, securityHeaders } from './net/headers';
 import { VERSION } from './version';
 
 export interface ServerDeps {
@@ -131,7 +131,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const { default: fastifyStatic } = await import('@fastify/static');
     await app.register(fastifyStatic, { root: deps.webDist, wildcard: false });
     // the editor is a single-page app: unknown non-API paths load it
-    app.setNotFoundHandler((req, reply) => (req.url.startsWith('/api/') || req.method !== 'GET' ? reply.code(404).send({ error: 'introuvable' }) : reply.sendFile('index.html')));
+    app.setNotFoundHandler((req, reply) => (isApiRequest(req) || req.method !== 'GET' ? reply.code(404).send({ error: 'introuvable' }) : reply.sendFile('index.html')));
   } else {
     app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'introuvable' }));
   }

@@ -18,6 +18,8 @@ let local: Server, port: number, hits = 0;
 const apps: FastifyInstance[] = [], dbs: Db[] = [];
 
 beforeAll(async () => {
+  // one database per server (each signs up its own first account), opened here: migrating one takes seconds
+  for (let i = 0; i < 3; i++) dbs.push(await openTestDb());
   // an OpenAI-compatible server on this machine, as Ollama would be
   local = createServer((_req, res) => { hits++; res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data: [{ id: 'llama3' }] })); });
   await new Promise<void>((done) => local.listen(0, '127.0.0.1', done));
@@ -25,9 +27,14 @@ beforeAll(async () => {
 });
 afterAll(async () => { for (const a of apps) await a.close(); for (const d of dbs) await d.close(); await new Promise((done) => local.close(done)); });
 
+async function serverOn(i: number, allowPrivateProviders: boolean) {
+  const app = await buildServer({ db: dbs[i]!, box: secretBox(randomBytes(32)), voicesDir: mkdtempSync(join(tmpdir(), 'af-ssrf-')), allowPrivateProviders });
+  apps.push(app);
+  return app;
+}
+
 async function keyTest(allowPrivateProviders: boolean, email: string) {
-  const db = await openTestDb();
-  dbs.push(db);
+  const db = dbs[allowPrivateProviders ? 1 : 0]!;
   const app = await buildServer({ db, box: secretBox(randomBytes(32)), voicesDir: mkdtempSync(join(tmpdir(), 'af-ssrf-')), allowPrivateProviders });
   apps.push(app);
   const c = await signUp(app, email), before = hits;
@@ -48,6 +55,18 @@ describe('provider addresses (SSRF)', () => {
     const { result, called } = await keyTest(true, 'owner2@example.org');
     expect(result).toEqual({ ok: true, models: [{ id: 'llama3', label: 'llama3' }] });
     expect(called).toBe(1);
+  });
+
+  it('never moves a stored key to another address unless the key is typed again', async () => {
+    const c = await signUp(await serverOn(2, false), 'owner3@example.org');
+    const key = (await c.inject({ method: 'POST', url: '/api/credentials', payload: { provider: 'openai', label: 'la clé du propriétaire', apiKey: 'sk-owner-secret-123456' } })).json();
+    const moved = await c.inject({ method: 'PATCH', url: `/api/credentials/${key.id}`, payload: { baseUrl: 'https://attacker.example/v1' } });
+    expect(moved.statusCode).toBe(400);
+    expect(moved.json().error).toMatch(/saisir la clé/);
+    expect((await c.inject('/api/credentials')).json()[0].baseUrl).toBeNull();
+    expect((await c.inject({ method: 'PATCH', url: `/api/credentials/${key.id}`, payload: { label: 'renommée' } })).statusCode).toBe(200);
+    const retyped = await c.inject({ method: 'PATCH', url: `/api/credentials/${key.id}`, payload: { baseUrl: 'https://proxy.example/v1', apiKey: 'sk-other-key-654321' } });
+    expect(retyped.json()).toMatchObject({ baseUrl: 'https://proxy.example/v1', hint: '…4321' });
   });
 
   it('reads ALLOW_PRIVATE_PROVIDERS, off unless exactly true', () => {

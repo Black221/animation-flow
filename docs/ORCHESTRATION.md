@@ -88,7 +88,7 @@ Certains « Fini quand » parlent de la préproduction. Ils sont vérifiés en l
 | Lot | Ce qui est reporté |
 |---|---|
 | A1 | la CI passe sur la branche (déclenchement sur push et pull request remis en place ; le job Docker, dont l'envoi de 12 Mo à travers nginx, qui passe déjà en local) |
-| A2 | la CI bloque sur une vulnérabilité haute (`pnpm audit --prod`, vérifié en local par son code de sortie), Trivy et la SBOM dans le job Docker, Renovate (installation de l'application, fusion automatique des correctifs une fois la CI verte) |
+| A2 | la CI bloque sur une vulnérabilité haute (`pnpm audit --prod`, vérifié en local par son code de sortie), Trivy et la SBOM dans le job Docker (vérifiés en local sur l'image), Renovate : installer l'application (sa configuration, `renovate.json`, est en place ; elle ne fusionne rien sans CI verte) |
 | A3 | alerte déclenchée sur la vraie pile de surveillance |
 | B6 | pages légales en ligne, liées partout, en HTTPS |
 | B8 | parcours inscription → premier film → abonnement de bout en bout |

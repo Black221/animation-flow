@@ -10,6 +10,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../db';
 import { readCookie, sessionUser, type SessionUser } from './sessions';
+import { isApiRequest } from '../net/headers';
 
 export type Role = 'owner' | 'admin' | 'editor' | 'viewer';
 export const RANK: Record<Role, number> = { viewer: 0, editor: 1, admin: 2, owner: 3 };
@@ -26,7 +27,7 @@ export const CSRF_HEADER = 'x-requested-with';
 export function installAuth(app: FastifyInstance, db: Db) {
   app.decorateRequest('ctx', null);
   app.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!req.url.startsWith('/api/')) return;
+    if (!isApiRequest(req)) return; // on the route, never on the raw path (see net/headers.ts)
     const cfg = (req.routeOptions.config ?? {}) as RouteAuth;
     const isPublic = cfg.auth === 'public' || cfg.public === true;
     // every write carries the header, signed in or not (sign-in and sign-up too: no logging a victim into

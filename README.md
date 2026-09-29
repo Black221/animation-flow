@@ -183,8 +183,9 @@ part avec un lien construit sur `APP_URL`.
 - L'adresse d'un fournisseur (`baseUrl`) ne peut pas viser le réseau du serveur : chaque appel résout le nom, refuse
   les adresses privées, locales, de lien local et de métadonnées du nuage (IPv4 et IPv6), se connecte à l'adresse
   vérifiée, revérifie chaque redirection (5 au plus) et plafonne le délai et la taille de la réponse. Un serveur privé
-  qui appelle un Ollama local met `ALLOW_PRIVATE_PROVIDERS=true`. Les clés déjà enregistrées vers `localhost` cessent
-  de fonctionner sans cette variable.
+  qui appelle un Ollama local met `ALLOW_PRIVATE_PROVIDERS=true` (le service de métadonnées du nuage reste refusé).
+  Les clés déjà enregistrées vers `localhost` cessent de fonctionner sans cette variable. Changer l'adresse d'une clé
+  enregistrée demande de saisir la clé à nouveau.
 - Chaque réponse porte des en-têtes de sécurité : une `Content-Security-Policy` stricte (scripts, styles et
   connexions du site seulement, jamais dans un cadre), `X-Content-Type-Options`, `Referrer-Policy`,
   `Permissions-Policy`, et `Strict-Transport-Security` en HTTPS.
@@ -271,7 +272,7 @@ part avec un lien construit sur `APP_URL`.
 | `STRIPE_SECRET_KEY` | `sk_…` : active le paiement des plans. Avec elle, les trois suivantes |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` : le secret de signature du webhook, à pointer sur `APP_URL/api/billing/webhook` (événements `checkout.session.completed`, `customer.subscription.*`, `invoice.payment_failed`) |
 | `STRIPE_PRICE_PREMIUM`, `STRIPE_PRICE_PRO` | `price_…` : le prix mensuel de chaque plan payant, créé dans Stripe |
-| `ALLOW_PRIVATE_PROVIDERS` | `true` : les fournisseurs peuvent être sur une adresse privée ou locale (un serveur privé avec Ollama). Désactivé par défaut : l'adresse d'une clé pourrait sinon atteindre le réseau du serveur |
+| `ALLOW_PRIVATE_PROVIDERS` | `true` : les fournisseurs peuvent être sur une adresse privée ou locale (un serveur privé avec Ollama), jamais sur le lien local où vit le service de métadonnées du nuage. Désactivé par défaut : l'adresse d'une clé pourrait sinon atteindre le réseau du serveur |
 | `APP_COMMIT` | le commit de l'image (argument de construction : `docker build --build-arg APP_COMMIT=$(git rev-parse HEAD)`, ou `APP_COMMIT=… docker compose up --build`) ; donné par `/api/health` et affiché dans le pied du back-office. Sans elle, lu dans git en développement |
 
 Derrière un proxy inverse (nginx, Caddy, Traefik), laisser passer les WebSocket (`Upgrade`) sur

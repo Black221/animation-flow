@@ -16,6 +16,14 @@ describe('address policy', () => {
       '198.18.0.1', '224.0.0.1', '255.255.255.255', '::', '::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:a9fe:a9fe', '::127.0.0.1', 'fd00:ec2::254',
       'fc00::1', 'fe80::1', 'ff02::1', '64:ff9b::7f00:1', '2002:7f00:1::', '2001:0:4136:e378::1', 'not-an-address']) expect(addressAllowed(a), a).toBe(false);
   });
+  it('judges IPv4 carried in IPv6 by that IPv4, and refuses documentation and translated ranges', () => {
+    for (const a of ['64:ff9b::808:808', '2002:808:808::1']) expect(addressAllowed(a), a).toBe(true); // 8.8.8.8 via NAT64, 6to4
+    for (const a of ['64:ff9b::a00:1', '2002:a9fe:a9fe::', '::ffff:0:7f00:1', '192.0.2.1', '198.51.100.7', '203.0.113.5', '192.88.99.1', '2001:db8::1']) expect(addressAllowed(a), a).toBe(false);
+  });
+  it('lets a private server reach private and local addresses, never the cloud metadata service', () => {
+    for (const a of ['127.0.0.1', '10.0.0.8', '192.168.1.20', '::1', 'fd12::5']) expect(addressAllowed(a, true), a).toBe(true);
+    for (const a of ['169.254.169.254', '::ffff:169.254.169.254', 'fe80::1', 'fd00:ec2::254', '64:ff9b::a9fe:a9fe']) expect(addressAllowed(a, true), a).toBe(false);
+  });
   it('accepts public addresses', () => {
     for (const a of ['93.184.216.34', '8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::6810:84e5', '::ffff:8.8.8.8']) expect(addressAllowed(a), a).toBe(true);
   });
@@ -96,6 +104,18 @@ describe('safeFetch', () => {
     expect((await f('http://10.0.0.8/v1/models')).status).toBe(200);
     expect(hops.map((h) => h.address.address)).toEqual(['127.0.0.1', '10.0.0.8']);
     await expect(f('file:///etc/passwd')).rejects.toMatchObject({ name: 'BlockedAddressError' });
+    for (const url of ['http://169.254.169.254/latest/meta-data/', 'http://metadata.google.internal/computeMetadata/v1/', 'http://[fd00:ec2::254]/']) {
+      await expect(f(url), url).rejects.toMatchObject({ name: 'BlockedAddressError' });
+    }
+    const viaName = safeFetch({ allowPrivate: true, resolve: dns({ 'meta.example': [{ address: '169.254.169.254', family: 4 }] }), transport: async () => ok() });
+    await expect(viaName('http://meta.example/')).rejects.toMatchObject({ name: 'BlockedAddressError' });
+  });
+
+  it('does not wait on a slow DNS longer than the call may last', async () => {
+    const f = safeFetch({ timeoutMs: 300, resolve: () => new Promise(() => undefined), transport: async () => ok() });
+    const t0 = Date.now();
+    await expect(f('https://slow-dns.example/')).rejects.toMatchObject({ name: expect.stringMatching(/AbortError|TimeoutError/) });
+    expect(Date.now() - t0).toBeLessThan(2000);
   });
 });
 

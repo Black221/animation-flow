@@ -2,8 +2,8 @@
 // network: each hop's name is resolved once, refused if any of its addresses is private, local, link-local or cloud
 // metadata, and the connection goes to that checked address (Node never resolves the name again: no DNS rebinding;
 // SNI, the certificate and Host still follow the name). Redirects are followed here, each hop checked again; time and
-// response size are capped. ALLOW_PRIVATE_PROVIDERS=true lifts the address policy (a private server with Ollama), never
-// the other limits. See docs/adr/0001-sorties-reseau-vers-des-adresses-utilisateur.md.
+// response size are capped. ALLOW_PRIVATE_PROVIDERS=true lets private and local addresses through (a private server
+// with Ollama), never link-local ones (the cloud's metadata service) nor the other limits. See docs/adr/0001-sorties-reseau-vers-des-adresses-utilisateur.md.
 import { lookup as dnsLookup } from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
@@ -39,14 +39,23 @@ export type SafeFetch = (url: string, init?: { method?: string; headers?: Record
 const blocked = new BlockList();
 for (const [net, bits] of [
   ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12],
-  ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4],
+  ['192.0.0.0', 24], ['192.0.2.0', 24], ['192.88.99.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15],
+  ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4],
 ] as const) blocked.addSubnet(net, bits, 'ipv4');
-// ::/96 holds ::, ::1 and the old IPv4-compatible form; 64:ff9b (NAT64), 2002 (6to4) and 2001::/32 (Teredo) carry IPv4
+// ::/96 holds ::, ::1 and the old IPv4-compatible form; ::ffff:0:0:0/96 is translated IPv4 (SIIT); 64:ff9b:1::/48 is
+// NAT64 for local use and 2001::/32 Teredo (IPv4 hidden inside). 64:ff9b::/96 and 2002::/16 are judged below by the
+// IPv4 they carry: an IPv6-only host behind DNS64 reaches every public provider through them
 for (const [net, bits] of [
-  ['::', 96], ['fc00::', 7], ['fe80::', 10], ['fec0::', 10], ['ff00::', 8], ['100::', 64],
-  ['64:ff9b::', 96], ['64:ff9b:1::', 48], ['2002::', 16], ['2001::', 32],
+  ['::', 96], ['::ffff:0:0:0', 96], ['fc00::', 7], ['fe80::', 10], ['fec0::', 10], ['ff00::', 8], ['100::', 64],
+  ['64:ff9b:1::', 48], ['2001::', 32], ['2001:db8::', 32],
 ] as const) blocked.addSubnet(net, bits, 'ipv6');
-const BLOCKED_NAMES = new Set(['localhost', 'metadata', 'metadata.google.internal', 'metadata.goog']);
+// never, even on a private server that lets providers be local: the cloud's metadata service (instance credentials)
+// and link-local addresses, where it lives
+const always = new BlockList();
+always.addSubnet('169.254.0.0', 16, 'ipv4');
+always.addSubnet('fe80::', 10, 'ipv6');
+always.addAddress('fd00:ec2::254', 'ipv6');
+const METADATA_NAMES = new Set(['metadata', 'metadata.google.internal', 'metadata.goog']);
 
 /** the 8 groups of an IPv6 address, as numbers (the address is known to be valid) */
 function groups6(a: string): number[] {
@@ -59,32 +68,46 @@ function groups6(a: string): number[] {
   return all.map((g) => parseInt(g, 16));
 }
 
-/** may this server connect to that address? (IPv4 written inside IPv6, ::ffff:a.b.c.d, is judged as IPv4) */
-export function addressAllowed(address: string): boolean {
+const v4 = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+
+/** may this server connect to that address? IPv4 carried in IPv6 (::ffff:a.b.c.d, NAT64 64:ff9b::a.b.c.d, 6to4
+ *  2002:aabb:ccdd::) is judged as that IPv4. `allowPrivate` (ALLOW_PRIVATE_PROVIDERS) lets private and local addresses
+ *  through, never link-local ones (the cloud's metadata service) */
+export function addressAllowed(address: string, allowPrivate = false): boolean {
   const v = isIP(address);
-  if (v === 4) return !blocked.check(address, 'ipv4');
+  if (v === 4) return !always.check(address, 'ipv4') && (allowPrivate || !blocked.check(address, 'ipv4'));
   if (v !== 6) return false;
   const g = groups6(address);
-  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return addressAllowed(`${g[6]! >> 8}.${g[6]! & 255}.${g[7]! >> 8}.${g[7]! & 255}`);
-  return !blocked.check(address, 'ipv6');
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return addressAllowed(v4(g[6]!, g[7]!), allowPrivate);
+  if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0)) return addressAllowed(v4(g[6]!, g[7]!), allowPrivate);
+  if (g[0] === 0x2002) return addressAllowed(v4(g[1]!, g[2]!), allowPrivate);
+  return !always.check(address, 'ipv6') && (allowPrivate || !blocked.check(address, 'ipv6'));
 }
 
 const refuse = (host: string) => new BlockedAddressError(`adresse refusée : ${host} est une adresse privée, locale ou réservée (un serveur privé peut les autoriser avec ALLOW_PRIVATE_PROVIDERS=true)`);
 
-async function check(url: URL, allowPrivate: boolean, resolve: (host: string) => Promise<Resolved[]>): Promise<Resolved> {
+/** the resolver does not know the call's signal: the wait for it ends with the call (a slow DNS cannot hold it longer) */
+const until = <T>(p: Promise<T>, signal: AbortSignal) => new Promise<T>((ok, bad) => {
+  const stop = () => bad(signal.reason);
+  if (signal.aborted) return stop();
+  signal.addEventListener('abort', stop, { once: true });
+  p.then(ok, bad).finally(() => signal.removeEventListener('abort', stop));
+});
+
+async function check(url: URL, allowPrivate: boolean, resolve: (host: string) => Promise<Resolved[]>, signal: AbortSignal): Promise<Resolved> {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new BlockedAddressError(`adresse refusée : seuls http et https sont permis`);
   if (url.username || url.password) throw new BlockedAddressError('adresse refusée : identifiants dans l’adresse');
   const host = url.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
   const literal = isIP(host);
   if (literal) {
-    if (!allowPrivate && !addressAllowed(host)) throw refuse(host);
+    if (!addressAllowed(host, allowPrivate)) throw refuse(host);
     return { address: host, family: literal as 4 | 6 };
   }
-  if (!allowPrivate && (BLOCKED_NAMES.has(host) || host.endsWith('.localhost'))) throw refuse(host);
-  const all = await resolve(host);
+  if (METADATA_NAMES.has(host) || (!allowPrivate && (host === 'localhost' || host.endsWith('.localhost')))) throw refuse(host);
+  const all = await until(resolve(host), signal);
   if (!all.length) throw new Error(`${host} : nom introuvable`);
   // one bad address is enough: the system could pick any of them, and a name that mixes both is suspicious
-  if (!allowPrivate && all.some((a) => !addressAllowed(a.address))) throw refuse(host);
+  if (all.some((a) => !addressAllowed(a.address, allowPrivate))) throw refuse(host);
   return all[0]!;
 }
 
@@ -159,7 +182,7 @@ export function safeFetch(o: SafeFetchOptions = {}): SafeFetch {
     headers['accept-encoding'] = 'identity';
     for (let hop = 0; ; hop++) {
       signal.throwIfAborted();
-      const address = await check(url, allowPrivate, resolve);
+      const address = await check(url, allowPrivate, resolve, signal);
       const r = await transport({ url, address, method, headers: { ...headers }, body, signal, maxBytes });
       const location = r.headers.find(([k]) => k === 'location')?.[1];
       if (r.status >= 300 && r.status < 400 && r.status !== 304 && location) {
