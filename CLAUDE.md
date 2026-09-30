@@ -24,8 +24,8 @@ pnpm --filter @af/render render -- --out=out/film.mp4 --style=flat --width=1280
 ```
 
 Un test hors de `packages/*/test/` ou `apps/*/test/` n'est pas lancé par `pnpm test` ; les tests de bout en bout vont
-dans `apps/web/e2e/`. La CI GitHub est prévue pour chaque PR et chaque push sur `main`, mais aucun job ne démarre tant que le compte GitHub
-est bloqué (facturation) : les portes locales sont la preuve, et « la CI passe » reste « non vérifié ».
+dans `apps/web/e2e/`. La CI GitHub est reportée au bloc déploiement (session 26) : le workflow ne se lance qu'à la main, les portes locales
+sont la preuve, et un « Fini quand » qui demande la CI va dans les vérifications reportées (`docs/ORCHESTRATION.md`).
 Les gardes du moteur (empreintes des modèles de projets, images dorées, déterminisme 1 morceau contre 4, benchmark)
 n'existent pas encore : M0a et M0b les créent et **doivent ajouter leurs commandes exactes à cette section** en clôture.
 

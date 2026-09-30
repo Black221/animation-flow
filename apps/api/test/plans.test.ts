@@ -118,7 +118,7 @@ describe('plans', () => {
     for (let i = 0; i < 5; i++) expect((await c.inject({ method: 'POST', url: '/api/projects', payload: { template: 'blank' } })).statusCode).toBe(201);
     expect((await c.inject('/api/workspace/plan')).json()).toMatchObject({ enabled: false, limits: { projects: null } });
     await a.close(); await d.close();
-  });
+  }, 30_000); // a second database, migrated in WebAssembly: about 2 s alone, more beside the rendering tests
 });
 
 describe('payments', () => {

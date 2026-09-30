@@ -75,7 +75,7 @@ Choisir le modèle de la session : `claude --model opus` ou `/model` (Opus si un
 
 | # | Commande | Modèle | Notes |
 |---|---|---|---|
-| 26 | `/lot A4 A5` | Sonnet | ⏸ hébergeur, domaine, accès SSH. C. Secrets : relecture 🔒. Ensuite, refaire en préproduction toutes les vérifications reportées (voir plus bas) |
+| 26 | `/lot A4 A5` | Sonnet | ⏸ hébergeur, domaine, accès SSH. C. Secrets : relecture 🔒. Remettre la CI en route (push, pull request ; compte GitHub débloqué). Ensuite, refaire en préproduction toutes les vérifications reportées (voir plus bas) |
 | 27 | `/lot C2` | Sonnet | Tests de charge sur la préproduction, page d'état, runbooks. Bottlenecks difficiles : sous-agent `architecte` |
 | 28 | `/lot C4` | Opus | ⏸ pentest externe fait, avocat passé, vraie carte Stripe remboursée, décision `SIGNUP=open` |
 | 29 | `/lot D1 D2` | Opus | C. Après l'ouverture : stockage objet, CDN, workers qui s'ajustent, mises à jour sans coupure |
@@ -87,6 +87,8 @@ Certains « Fini quand » parlent de la préproduction. Ils sont vérifiés en l
 
 | Lot | Ce qui est reporté |
 |---|---|
+| A1 | la CI passe sur la branche (déclenchement sur push et pull request remis en place ; le job Docker, dont l'envoi de 12 Mo à travers nginx, qui passe déjà en local) |
+| A2 | la CI bloque sur une vulnérabilité haute (`pnpm audit --prod`, vérifié en local par son code de sortie), Trivy et la SBOM dans le job Docker (vérifiés en local sur l'image), Renovate : installer l'application (sa configuration, `renovate.json`, est en place ; elle ne fusionne rien sans CI verte) |
 | A3 | alerte déclenchée sur la vraie pile de surveillance |
 | B6 | pages légales en ligne, liées partout, en HTTPS |
 | B8 | parcours inscription → premier film → abonnement de bout en bout |
@@ -122,9 +124,9 @@ route la place avant. Si vous préférez ouvrir plus tôt, déplacez le bloc 26 
 4. Verdict `APPROUVÉ` du `relecteur` (et de `securite` pour 🔒)
 5. Rapport final avec preuves, recopiées dans la PR ; case cochée dans `NEXT_PROMPTS.md`
 
-La CI GitHub (`.github/workflows/ci.yml`) est déclenchée par A1 sur chaque pull request et chaque push sur `main`, mais
-GitHub ne démarre aucun job tant que le compte est bloqué pour un problème de facturation : ces portes locales restent
-la seule preuve, et un « Fini quand » qui demande la CI verte reste « non vérifié » (case non cochée) jusque-là.
+La CI GitHub (`.github/workflows/ci.yml`) est reportée au bloc déploiement (décision du propriétaire) : le workflow est
+écrit mais ne se lance qu'à la main, et la session 26 le remet sur push et pull request. Jusque-là, ces portes locales
+sont la seule preuve ; un « Fini quand » qui demande la CI va dans les vérifications reportées.
 
 ## Ce qui reste à l'humain
 

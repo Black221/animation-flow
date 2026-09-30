@@ -48,12 +48,12 @@ export function painter(model: ImageModel, dir: string, ws: string): (b: AssetBr
 }
 
 /** the painter of a workspace, or undefined when no image model is chosen */
-export async function painterOf(db: Db, box: SecretBox, ws: string, dir: string, fetchImpl?: JsonPost) {
+export async function painterOf(db: Db, box: SecretBox, ws: string, dir: string, fetchImpl: JsonPost) {
   const m = await imageModel(db, box, ws, fetchImpl);
   return m ? { label: m.label, paint: painter(m, dir, ws) } : undefined;
 }
 
-export function imageRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: Signer, dir: string, fetchImpl: JsonPost | undefined, quota: Quotas) {
+export function imageRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: Signer, dir: string, fetchImpl: JsonPost, quota: Quotas) {
   mkdirSync(dir, { recursive: true });
   const link = (ws: string, asset: string) => `/api/images/${ws}/${asset}.jpg?${sign.sign(`image:${ws}:${asset}`)}`;
 

@@ -42,6 +42,8 @@ services:
       # e-mail, optional (invitations, forgotten passwords): the three together; APP_URL is the public address
       # behind your own reverse proxy: true (see TRUST_PROXY in the README); docker-compose.cluster.yml sets it
       TRUST_PROXY: ${TRUST_PROXY:-}
+      # providers on private or local addresses (Ollama on this machine): true on a private server only
+      ALLOW_PRIVATE_PROVIDERS: ${ALLOW_PRIVATE_PROVIDERS:-}
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
       APP_URL: ${APP_URL:-}

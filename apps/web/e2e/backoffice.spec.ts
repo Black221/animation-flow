@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { ADMIN } from '../playwright.config';
 import { backOffice, MANAGER, OWNER, signedIn } from './auth';
 

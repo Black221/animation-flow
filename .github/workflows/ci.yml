@@ -1,11 +1,14 @@
 name: CI
 
-# Every pull request, every push to main (and by hand). Locally: pnpm typecheck && pnpm test && pnpm build && pnpm e2e
+# By hand only for now: continuous integration is put off until the deployment (session 26 of docs/ORCHESTRATION.md),
+# which puts back `push: { branches: [main] }` and `pull_request:`. Locally: pnpm typecheck && pnpm test && pnpm build
+# && pnpm e2e, and the Docker job's steps (see below)
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
+
+# the jobs read the repository and nothing else (no token to write with, whatever runs in them)
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref }}
@@ -23,12 +26,17 @@ jobs:
           --health-cmd "pg_isready -U af -d af" --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with: { persist-credentials: false }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - name: Known vulnerabilities in production dependencies (not blocking yet)
+      # a known high or critical vulnerability in what the server runs stops the build; exceptions, each with its
+      # reason, go in package.json → pnpm.auditConfig.ignoreGhsas
+      - name: Known vulnerabilities in production dependencies (high and critical block)
         run: pnpm audit --prod --audit-level high
+      - name: Known vulnerabilities in development tools (reported, not blocking)
+        run: pnpm audit --audit-level high
         continue-on-error: true
       - run: pnpm typecheck
       - name: Unit and API tests (embedded PGlite)
@@ -63,7 +71,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { persist-credentials: false }
       - run: docker build --build-arg APP_COMMIT=${{ github.sha }} -t animation-flow .
+      # Trivy, run from its own image, pinned by digest (it gets the Docker socket: a moved tag would get the runner).
+      # First the inventory of the image's components (CycloneDX SBOM), kept even when the scan below fails; then high
+      # and critical vulnerabilities that have a fix, in its system packages and Node modules, stop the build
+      - name: Inventory of the image (SBOM, CycloneDX)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" -v "$PWD:/out" \
+            aquasec/trivy:0.69.1@sha256:1c78ed1ef824ab8bb05b04359d186e4c1229d0b3e67005faacb54a7d71974f73 image --format cyclonedx --output /out/sbom.cdx.json animation-flow
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.cdx.json
+      - name: Vulnerabilities in the image (Trivy)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy:0.69.1@sha256:1c78ed1ef824ab8bb05b04359d186e4c1229d0b3e67005faacb54a7d71974f73 image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 animation-flow
       - name: Two API replicas behind the load balancer, a 12 MB upload through it
         run: |
           export APP_ENCRYPTION_KEY=$(openssl rand -base64 32)

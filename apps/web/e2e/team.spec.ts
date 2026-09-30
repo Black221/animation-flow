@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { signedIn, newProject } from './auth';
 
 test('invite a teammate from the Team page; roles change what they can do', async ({ page, browser }) => {

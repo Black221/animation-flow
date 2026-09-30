@@ -49,7 +49,7 @@ const Input = z.object({
   }).refine((r) => (['music', 'project'].includes(r.kind) ? !!r.summary : !!r.asset), 'une image pour un personnage, un objet, un décor ou une ambiance ; une analyse pour une musique ou un projet')).max(10).default([]),
 });
 
-export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl: JsonPost | undefined, fontsDir: string | undefined, imagesDir: string, quota: Quotas) {
+export function generationRoutes(app: FastifyInstance, db: Db, box: SecretBox, fetchImpl: JsonPost, fontsDir: string | undefined, imagesDir: string, quota: Quotas) {
   // decors are painted only where the plan includes it (otherwise drawn in vectors, like without an image model)
   const paintersOf = async (ws: string) => ((await quota.has(ws, 'decorImages')) ? painterOf(db, box, ws, imagesDir, fetchImpl) : null);
   // a generation that fails or is canceled gives back what it counted

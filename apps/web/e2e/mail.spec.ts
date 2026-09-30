@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { MAIL_HTTP } from '../playwright.config';
 import { signedIn } from './auth';
 

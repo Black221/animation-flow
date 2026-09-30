@@ -1,5 +1,5 @@
 import { signedIn } from './auth';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { exampleCharacter, exampleDecor, exampleProp } from '../../../packages/ai/src/examples';

@@ -14,9 +14,16 @@ export interface Db extends Queryable {
   close(): Promise<void>;
 }
 
+/** errors that came out of a query of this module: only those can say the database is down (the same network codes
+ *  from a provider or the mail server say nothing about it) */
+const fromDatabase = new WeakSet<object>();
+const mark = (e: unknown) => { if (e && typeof e === 'object') fromDatabase.add(e); return e; };
+const marked = <T>(p: Promise<T>): Promise<T> => p.catch((e: unknown) => { throw mark(e); });
+
 /** the database cannot be reached (refused, closed, restarting): a request should get 503, not 500 */
 export function databaseUnavailable(e: unknown): boolean {
-  const { code, message } = (e ?? {}) as { code?: string; message?: string };
+  if (!e || typeof e !== 'object' || !fromDatabase.has(e)) return false;
+  const { code, message } = e as { code?: string; message?: string };
   if (code && (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN', '57P01', '57P02', '57P03', '53300'].includes(code) || code.startsWith('08'))) return true;
   return /^(Connection terminated|timeout exceeded when trying to connect|Client has encountered a connection error)/.test(message ?? '');
 }
@@ -29,15 +36,20 @@ export async function openDb(opts: { url: string | null; dataDir?: string; memor
     // it and the next query opens another; until the database is back, queries fail and /api/ready says so
     pool.on('error', (e: Error & { code?: string }) => console.error(JSON.stringify({ level: 50, time: Date.now(), msg: 'database connection lost', code: e.code ?? null })));
     return {
-      query: (sql, params) => pool.query(sql, params as unknown[]) as never,
+      query: (sql, params) => marked(pool.query(sql, params as unknown[])) as never,
       async tx(fn) {
-        const c = await pool.connect();
+        const c = await marked(pool.connect());
+        // out of the pool, the connection has no listener: one that the server closes meanwhile must not crash the
+        // process. Its queries fail (the transaction with them), and a broken connection is destroyed, not reused
+        let broken: Error | undefined;
+        const onError = (e: Error) => { broken = e; };
+        c.on('error', onError);
         try {
-          await c.query('BEGIN');
-          const r = await fn({ query: (sql, params) => c.query(sql, params as unknown[]) as never });
-          await c.query('COMMIT');
+          await marked(c.query('BEGIN'));
+          const r = await fn({ query: (sql, params) => marked(c.query(sql, params as unknown[])) as never });
+          await marked(c.query('COMMIT'));
           return r;
-        } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; } finally { c.release(); }
+        } catch (e) { if (!broken) await c.query('ROLLBACK').catch(() => undefined); throw e; } finally { c.off('error', onError); c.release(broken); }
       },
       async listen(channel, onMessage) {
         if (!/^[a-z_]+$/.test(channel)) throw new Error('channel name: a-z and _ only');

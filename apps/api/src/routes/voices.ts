@@ -27,7 +27,7 @@ export const voiceFile = (dir: string, ws: string, asset: string) => join(dir, w
 /** duration in seconds of a stored recording (16-bit mono WAV at 48 kHz: 44-byte header) */
 const durationOf = (file: string) => Math.round(((statSync(file).size - 44) / 2 / SR) * 1000) / 1000;
 
-export function voiceRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: Signer, voicesDir: string, fetchImpl: PostFetch | undefined, quota: Quotas) {
+export function voiceRoutes(app: FastifyInstance, db: Db, box: SecretBox, sign: Signer, voicesDir: string, fetchImpl: PostFetch, quota: Quotas) {
   mkdirSync(voicesDir, { recursive: true });
   const link = (ws: string, asset: string) => `/api/voices/${ws}/${asset}.wav?${sign.sign(`voice:${ws}:${asset}`)}`;
 

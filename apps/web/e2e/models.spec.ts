@@ -1,7 +1,8 @@
 // Files are brought to the AI with the prompt, as MODELS: a picture of the mascot, a music, a project, a text. The
 // request carries them; nothing is imported into a project afterwards (the editor and « Mes projets » only export).
 import { signedIn, newProject } from './auth';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from './fixtures';
+import type { Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 /** a WAV of a beat (mono, 16 bits): a kick at `bpm` over a low tone */

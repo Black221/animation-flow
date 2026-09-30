@@ -1,5 +1,6 @@
 import { signedIn, newProject } from './auth';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from './fixtures';
+import type { Page } from '@playwright/test';
 
 /** how many distinct colours the preview shows (sampled): a blank or failed canvas has one or two */
 const colours = (page: Page) => page.getByTestId('preview').evaluate((c: HTMLCanvasElement) => {

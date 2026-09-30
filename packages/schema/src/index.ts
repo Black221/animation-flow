@@ -6,6 +6,11 @@
 // action stays locked on the words when the voice is re-recorded and the line durations change.
 import { z } from 'zod';
 
+// Outside Node (the editor, its workers), zod would try `new Function` to see whether it may compile its checks: the
+// app's Content Security Policy refuses it and reports the attempt. There it checks without compiling; Node keeps the
+// faster compiled checks. The setting is global to zod, so every package using it in the page follows.
+if (!(globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node) z.config({ jitless: true });
+
 export const SCHEMA_VERSION = 1;
 
 export const Id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/, 'identifiant : lettres, chiffres, _ . - (64 max.)');

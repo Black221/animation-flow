@@ -9,15 +9,15 @@ export class NotConfigured extends Error {}
 const LABEL = { storyboard: 'Texte → storyboard', scenes: 'Storyboard → scènes', assets: 'Dessins', music: 'Musique et bruitages' } as const;
 
 /** the model of a task that may be left unset: then the scenes model does it */
-async function orScenes(db: Db, box: SecretBox, ws: string, task: 'assets' | 'music', fetchImpl?: JsonPost): Promise<Model> {
+async function orScenes(db: Db, box: SecretBox, ws: string, task: 'assets' | 'music', fetchImpl: JsonPost): Promise<Model> {
   try { return await modelFor(db, box, ws, task, fetchImpl); } catch (e) { if (e instanceof NotConfigured) return modelFor(db, box, ws, 'scenes', fetchImpl); throw e; }
 }
 /** the drawing model: the one chosen for « Dessins », else the scenes model */
-export const drawingModel = (db: Db, box: SecretBox, ws: string, fetchImpl?: JsonPost) => orScenes(db, box, ws, 'assets', fetchImpl);
+export const drawingModel = (db: Db, box: SecretBox, ws: string, fetchImpl: JsonPost) => orScenes(db, box, ws, 'assets', fetchImpl);
 /** the composing model: the one chosen for « Musique et bruitages », else the scenes model */
-export const musicModel = (db: Db, box: SecretBox, ws: string, fetchImpl?: JsonPost) => orScenes(db, box, ws, 'music', fetchImpl);
+export const musicModel = (db: Db, box: SecretBox, ws: string, fetchImpl: JsonPost) => orScenes(db, box, ws, 'music', fetchImpl);
 
-export async function modelFor(db: Db, box: SecretBox, ws: string, task: keyof typeof LABEL, fetchImpl?: JsonPost): Promise<Model> {
+export async function modelFor(db: Db, box: SecretBox, ws: string, task: keyof typeof LABEL, fetchImpl: JsonPost): Promise<Model> {
   const { rows } = await db.query<{ model: string; provider: string | null; secret: string | null; base_url: string | null }>(
     `SELECT a.model, c.provider, c.secret, c.base_url FROM model_assignments a LEFT JOIN credentials c ON c.id = a.credential_id WHERE a.task = $1 AND a.workspace_id = $2`, [task, ws]);
   const a = rows[0], label = LABEL[task];
@@ -34,7 +34,7 @@ export async function modelFor(db: Db, box: SecretBox, ws: string, task: keyof t
 
 export interface ImageModel { label: string; paint(prompt: string): ReturnType<typeof generateImage> }
 /** the picture model chosen for « Décors en images », or null: that task is optional (decors then stay drawings) */
-export async function imageModel(db: Db, box: SecretBox, ws: string, fetchImpl?: JsonPost): Promise<ImageModel | null> {
+export async function imageModel(db: Db, box: SecretBox, ws: string, fetchImpl: JsonPost): Promise<ImageModel | null> {
   const { rows } = await db.query<{ model: string; provider: string | null; secret: string | null; base_url: string | null }>(
     `SELECT a.model, c.provider, c.secret, c.base_url FROM model_assignments a LEFT JOIN credentials c ON c.id = a.credential_id WHERE a.task = 'images' AND a.workspace_id = $1`, [ws]);
   const a = rows[0];

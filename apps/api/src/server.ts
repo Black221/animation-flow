@@ -28,6 +28,8 @@ import { QuotaError, quotas } from './plans';
 import { planRoutes } from './routes/plans';
 import { stripeClient, type StripeConfig, type StripeFetch } from './billing';
 import { readiness, type ReadyOptions } from './ready';
+import { safeFetch } from './net/safe-fetch';
+import { isApiRequest, securityHeaders } from './net/headers';
 import { VERSION } from './version';
 
 export interface ServerDeps {
@@ -36,7 +38,10 @@ export interface ServerDeps {
   /** who may create an account besides the first one and invited people */
   signup?: SignupMode;
   webDist?: string | null;
+  /** every call to a provider goes through this (default: safeFetch, see net/safe-fetch.ts); tests replace it */
   fetchImpl?: FetchLike;
+  /** let providers live on private or local addresses (ALLOW_PRIVATE_PROVIDERS=true: a private server with Ollama) */
+  allowPrivateProviders?: boolean;
   logger?: boolean;
   /** signs video links; defaults to a random key (links then die with the process) */
   signer?: Signer;
@@ -76,6 +81,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     logger: deps.logger ? { level: 'info', redact: { paths: ['req.headers.authorization', 'req.headers["x-api-key"]', 'req.headers.cookie'], censor: '[masqué]' } } : false,
   });
 
+  // CSP, framing, sniffing, referrer, HSTS over HTTPS: on every answer, pages and API alike (see net/headers.ts)
+  securityHeaders(app, { referrer: 'same-origin' });
   // accounts, sessions, workspaces and roles: every route below declares what it needs (see auth/context.ts)
   installAuth(app, deps.db);
   const { default: websocket } = await import('@fastify/websocket');
@@ -107,12 +114,14 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   projectRoutes(app, deps.db, hub, quota);
   liveRoutes(app, hub);
   commentRoutes(app, deps.db, hub);
-  providerRoutes(app, deps.db, deps.box, deps.fetchImpl);
+  // no call to a provider may fall back on the global fetch: whatever a test does not replace goes through safeFetch
+  const outbound = safeFetch({ allowPrivate: deps.allowPrivateProviders ?? false });
+  providerRoutes(app, deps.db, deps.box, deps.fetchImpl ?? outbound);
   const sign = deps.signer ?? signer(randomBytes(32));
   renderRoutes(app, deps.db, sign, quota);
-  voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch, quota);
-  generationRoutes(app, deps.db, deps.box, deps.llmFetch, deps.fontsDir, imagesDir, quota);
-  imageRoutes(app, deps.db, deps.box, sign, imagesDir, deps.llmFetch, quota);
+  voiceRoutes(app, deps.db, deps.box, sign, deps.voicesDir, deps.postFetch ?? outbound, quota);
+  generationRoutes(app, deps.db, deps.box, deps.llmFetch ?? outbound, deps.fontsDir, imagesDir, quota);
+  imageRoutes(app, deps.db, deps.box, sign, imagesDir, deps.llmFetch ?? outbound, quota);
   uploadRoutes(app, deps.db, sign, { voicesDir: deps.voicesDir, imagesDir }, quota);
   const thumbnail = thumbnailRoutes(app, deps.db, imagesDir, deps.fontsDir);
   communityRoutes(app, deps.db, { voicesDir: deps.voicesDir, imagesDir, communityDir }, thumbnail, quota);
@@ -122,7 +131,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const { default: fastifyStatic } = await import('@fastify/static');
     await app.register(fastifyStatic, { root: deps.webDist, wildcard: false });
     // the editor is a single-page app: unknown non-API paths load it
-    app.setNotFoundHandler((req, reply) => (req.url.startsWith('/api/') || req.method !== 'GET' ? reply.code(404).send({ error: 'introuvable' }) : reply.sendFile('index.html')));
+    app.setNotFoundHandler((req, reply) => (isApiRequest(req) || req.method !== 'GET' ? reply.code(404).send({ error: 'introuvable' }) : reply.sendFile('index.html')));
   } else {
     app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'introuvable' }));
   }

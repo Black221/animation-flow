@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { complete, generateImage, maskKey, PROVIDERS, synthesize, testCredential, type FetchLike, type JsonPost } from '../src';
+import { complete, generateImage, maskKey, PROVIDERS, synthesize, testCredential, type FetchLike, type JsonPost, type PostFetch } from '../src';
 
 const reply = (status: number, body: unknown = {}) => ({ ok: status < 400, status, json: async () => body });
 
@@ -265,11 +265,34 @@ describe('generateImage', () => {
   });
 
   it('explains refusals, empty answers and providers that do not paint', async () => {
-    expect(await generateImage('anthropic', { apiKey: 'k' }, { prompt: 'x' })).toMatchObject({ ok: false, error: expect.stringContaining("ne peint pas") });
+    const never = vi.fn<JsonPost>();
+    expect(await generateImage('anthropic', { apiKey: 'k' }, { prompt: 'x' }, never)).toMatchObject({ ok: false, error: expect.stringContaining("ne peint pas") });
+    expect(never).not.toHaveBeenCalled();
     const refused = await generateImage('openai', { apiKey: 'sk-secret-123456' }, { prompt: 'x' }, vi.fn<JsonPost>(async () => reply(401)));
     expect(refused).toEqual({ ok: false, status: 401, error: 'clé refusée par le fournisseur' });
     expect(JSON.stringify(refused)).not.toContain('secret');
     const empty = await generateImage('google', { apiKey: 'k' }, { prompt: 'x' }, vi.fn<JsonPost>(async () => reply(200, { candidates: [{ content: { parts: [{ text: 'no' }] } }] })));
     expect(empty.ok).toBe(false);
+  });
+});
+
+describe("the server's network refusals, in words", () => {
+  const thrower = (name: string, message = '') => async () => { const e = new Error(message); e.name = name; throw e; };
+  const calls = (f: () => Promise<never>) => [
+    testCredential('openai-compatible', { baseUrl: 'http://10.0.0.8/v1' }, f as unknown as FetchLike),
+    synthesize('openai', { apiKey: 'k' }, { text: 'Bonjour', voice: 'alloy' }, f as unknown as PostFetch),
+    complete('openai', { apiKey: 'k' }, { system: 's', messages: [{ role: 'user', content: 'x' }], model: 'm' }, f as unknown as JsonPost),
+    generateImage('openai', { apiKey: 'k' }, { prompt: 'x' }, f as unknown as JsonPost),
+  ];
+
+  it('says which address was refused, for every kind of call', async () => {
+    const msg = 'adresse refusée : 10.0.0.8 est une adresse privée, locale ou réservée (un serveur privé peut les autoriser avec ALLOW_PRIVATE_PROVIDERS=true)';
+    for (const r of await Promise.all(calls(thrower('BlockedAddressError', msg)))) expect(r).toEqual({ ok: false, error: msg });
+  });
+
+  it('says an answer was too big, or too slow', async () => {
+    for (const r of await Promise.all(calls(thrower('ResponseTooLargeError')))) expect(r).toMatchObject({ ok: false, error: expect.stringContaining('trop volumineuse') });
+    for (const r of await Promise.all(calls(thrower('TimeoutError')))) expect(r).toMatchObject({ ok: false, error: expect.stringContaining('délai dépassé') });
+    for (const r of await Promise.all(calls(thrower('TypeError', 'fetch failed')))) expect(r).toEqual({ ok: false, error: 'fournisseur injoignable' });
   });
 });

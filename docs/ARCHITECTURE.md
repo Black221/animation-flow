@@ -300,6 +300,28 @@ POST /api/projects/:id/renders ──► table renders (file d'attente dans Post
   de `packages/library` (déclarées dans `registry`, décrites dans `catalog`) restent pour les projets plus anciens.
 - **un fournisseur de modèles** : une entrée dans `PROVIDERS` (`packages/providers`) et, si son API diffère, sa façon de lister les modèles.
 
+## Sorties réseau et en-têtes (`apps/api/src/net`)
+
+- **Adresses données par les utilisateurs** (`safe-fetch.ts`, ADR `docs/adr/0001-…`) : tous les appels aux fournisseurs
+  (test d'une clé, modèles de texte, voix, images) passent par `safeFetch`, que `buildServer` donne à chaque route ;
+  `packages/providers` n'a plus de `fetch` par défaut. Pour chaque saut : résolution une fois, refus si une des
+  adresses est privée, locale, de lien local, réservée ou de métadonnées (IPv4 dans IPv6 comprise), puis connexion
+  à l'adresse vérifiée (`lookup` épinglé : pas de seconde résolution, SNI et certificat suivent le nom).
+  Redirections suivies à la main (5 au plus, jamais de https vers http, clés retirées en changeant d'origine), délai
+  et taille plafonnés (32 Mio, après décompression), résolution DNS comprise. `ALLOW_PRIVATE_PROVIDERS=true` laisse
+  passer les adresses privées et locales, jamais le lien local (métadonnées du nuage). Changer l'adresse d'une clé
+  enregistrée demande la clé elle-même (sinon un administrateur l'enverrait chez lui). Les erreurs (`BlockedAddressError`, `ResponseTooLargeError`) deviennent des messages en français dans
+  `packages/providers`, reconnues à leur nom.
+- **En-têtes** (`headers.ts`) : pages et fichiers du site avec une CSP stricte (`'self'` seulement, `blob:` et `data:`
+  pour les images et les sons faits dans la page, aucun script en ligne : le thème est lu par `public/theme.js`),
+  réponses de l'API avec `default-src 'none'`, partout `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`
+  (`same-origin` ; `no-referrer` au back-office), `Permissions-Policy`, et HSTS en HTTPS. Dans le navigateur, zod
+  vérifie sans compiler (`jitless`, `packages/schema`) : sa sonde `new Function` serait refusée par la CSP. Les tests
+  de bout en bout échouent sur toute violation de la CSP (`apps/web/e2e/fixtures.ts`).
+- **Ce qui relève de l'API** (`isApiRequest`) se décide sur la route trouvée, jamais sur le texte de la requête :
+  le routeur décode le chemin, et `/%61pi/admin/users` atteignait `/api/admin/users` sans passer par le contrôle de
+  session du back-office. Contrôles d'accès, CSP et cache suivent tous cette règle (`apps/api/test/paths.test.ts`).
+
 ## Comptes, espaces et rôles (`apps/api/src/auth`)
 
 - Tables : `users`, `sessions` (empreinte du jeton), `workspaces`, `memberships` (rôle), `invitations` (empreinte du
